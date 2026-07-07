@@ -28,9 +28,15 @@ export default async function HistoryPage() {
 
   const logs = (data ?? []) as DailyLog[];
 
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .single();
+
   return (
     <div className="min-h-screen">
-      <NavBar />
+      <NavBar isAdmin={profileData?.is_admin} />
       <main className="max-w-3xl mx-auto px-6 py-8">
         <h1 className="text-xl font-bold mb-6">History</h1>
 

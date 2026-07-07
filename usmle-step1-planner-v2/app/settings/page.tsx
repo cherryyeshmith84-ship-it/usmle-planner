@@ -31,7 +31,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="min-h-screen">
-      <NavBar />
+      <NavBar isAdmin={profile.is_admin} />
       <main className="max-w-3xl mx-auto px-6 py-8">
         <h1 className="text-xl font-bold mb-6">Settings</h1>
         <SettingsForm profile={profile} userId={user.id} email={user.email ?? ""} />

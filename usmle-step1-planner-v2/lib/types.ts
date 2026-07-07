@@ -18,7 +18,38 @@ export interface Profile {
   daily_hour_goal: number | null;
   resources: string[] | null;
   ai_instructions: string | null;
+  is_admin?: boolean;
+  assigned_template_id?: string | null;
+  email?: string | null;
   created_at?: string;
+}
+
+export interface TemplateTask {
+  title: string;
+  resource: string;
+  target: string;
+}
+
+export interface ScheduleTemplate {
+  id: string;
+  name: string;
+  stage: PrepStage;
+  hour_goal: number | null;
+  resource_tags: string[];
+  remote_friendly: boolean;
+  notes: string | null;
+  tasks: TemplateTask[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CoachMessage {
+  id: string;
+  student_id: string;
+  sender: "coach" | "student";
+  body: string;
+  created_at: string;
 }
 
 export interface AiFeedback {

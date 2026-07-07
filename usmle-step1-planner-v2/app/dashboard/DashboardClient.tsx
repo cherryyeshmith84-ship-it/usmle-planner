@@ -3,11 +3,37 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { defaultTasksForStage } from "@/lib/defaultTasks";
-import type { AiFeedback, DailyLog, Profile, StudyTask, TaskStatus } from "@/lib/types";
+import type {
+  AiFeedback,
+  CoachMessage,
+  DailyLog,
+  Profile,
+  ScheduleTemplate,
+  StudyTask,
+  TaskStatus,
+} from "@/lib/types";
 import NavBar from "@/components/NavBar";
 
 function newTaskId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function seedTasks(
+  todayLog: DailyLog | null,
+  profile: Profile,
+  assignedTemplate: ScheduleTemplate | null
+): StudyTask[] {
+  if (todayLog?.tasks?.length) return todayLog.tasks;
+  if (assignedTemplate?.tasks?.length) {
+    return assignedTemplate.tasks.map((t) => ({
+      id: newTaskId(),
+      title: t.title,
+      resource: t.resource,
+      target: t.target,
+      status: "pending" as TaskStatus,
+    }));
+  }
+  return defaultTasksForStage(profile.prep_stage);
 }
 
 export default function DashboardClient({
@@ -18,6 +44,8 @@ export default function DashboardClient({
   today,
   streak,
   daysUntilExam,
+  assignedTemplate,
+  initialMessages,
 }: {
   userId: string;
   profile: Profile;
@@ -26,9 +54,11 @@ export default function DashboardClient({
   today: string;
   streak: number;
   daysUntilExam: number | null;
+  assignedTemplate: ScheduleTemplate | null;
+  initialMessages: CoachMessage[];
 }) {
   const [tasks, setTasks] = useState<StudyTask[]>(
-    todayLog?.tasks?.length ? todayLog.tasks : defaultTasksForStage(profile.prep_stage)
+    seedTasks(todayLog, profile, assignedTemplate)
   );
   const [hours, setHours] = useState(todayLog?.hours_studied?.toString() ?? "");
   const [topicsSkipped, setTopicsSkipped] = useState(todayLog?.topics_skipped ?? "");
@@ -44,6 +74,26 @@ export default function DashboardClient({
   const [newTitle, setNewTitle] = useState("");
   const [newResource, setNewResource] = useState("UWorld");
   const [newTarget, setNewTarget] = useState("");
+
+  const [messages, setMessages] = useState<CoachMessage[]>(initialMessages);
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function sendMessage() {
+    if (!reply.trim()) return;
+    setSending(true);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({ student_id: userId, sender: "student", body: reply.trim() })
+      .select()
+      .single();
+    setSending(false);
+    if (!error && data) {
+      setMessages((prev) => [...prev, data as CoachMessage]);
+      setReply("");
+    }
+  }
 
   const doneCount = tasks.filter((t) => t.status === "done").length;
   const progressPct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
@@ -127,7 +177,7 @@ export default function DashboardClient({
 
   return (
     <div className="min-h-screen">
-      <NavBar />
+      <NavBar isAdmin={profile.is_admin} />
       <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
         <div className="grid sm:grid-cols-4 gap-4">
           <StatCard label="Streak" value={`${streak} day${streak === 1 ? "" : "s"}`} />
@@ -307,6 +357,47 @@ export default function DashboardClient({
               today and a concrete plan for tomorrow.
             </p>
           )}
+        </div>
+
+        <div className="card">
+          <h2 className="font-bold text-lg mb-3">Messages from your coach</h2>
+          <div className="space-y-2 mb-4 max-h-80 overflow-y-auto">
+            {messages.length === 0 && (
+              <p className="text-sm text-slate-500">
+                No messages yet. If something about your plan isn&apos;t working, say so here.
+              </p>
+            )}
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`text-sm rounded-xl px-3 py-2 max-w-[80%] ${
+                  m.sender === "student"
+                    ? "bg-brand-50 text-brand-800 ml-auto"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                <p>{m.body}</p>
+                <p className="text-[11px] opacity-60 mt-1">
+                  {m.sender === "student" ? "You" : "Coach"} &middot;{" "}
+                  {new Date(m.created_at).toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              className="input flex-1"
+              placeholder="Message your coach..."
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") sendMessage();
+              }}
+            />
+            <button type="button" onClick={sendMessage} className="btn-primary" disabled={sending}>
+              {sending ? "Sending..." : "Send"}
+            </button>
+          </div>
         </div>
       </main>
     </div>

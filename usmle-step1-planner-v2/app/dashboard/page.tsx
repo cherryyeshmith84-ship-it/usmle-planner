@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { DailyLog, Profile } from "@/lib/types";
+import type { CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
 import DashboardClient from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +69,22 @@ export default async function DashboardPage() {
     daysUntilExam = Math.ceil(diff);
   }
 
+  let assignedTemplate: ScheduleTemplate | null = null;
+  if (profile.assigned_template_id) {
+    const { data: templateData } = await supabase
+      .from("schedule_templates")
+      .select("*")
+      .eq("id", profile.assigned_template_id)
+      .single();
+    assignedTemplate = (templateData as ScheduleTemplate) ?? null;
+  }
+
+  const { data: messagesData } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("student_id", user.id)
+    .order("created_at", { ascending: true });
+
   return (
     <DashboardClient
       userId={user.id}
@@ -78,6 +94,8 @@ export default async function DashboardPage() {
       today={today}
       streak={streak}
       daysUntilExam={daysUntilExam}
+      assignedTemplate={assignedTemplate}
+      initialMessages={(messagesData ?? []) as CoachMessage[]}
     />
   );
 }
