@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { PrepStage, ScheduleTemplate, TemplateTask } from "@/lib/types";
+import { getTemplateDays } from "@/lib/templateDays";
+import type { PrepStage, ScheduleTemplate, TemplateDay, TemplateTask } from "@/lib/types";
 
 const RESOURCE_OPTIONS = [
   "UWorld",
@@ -17,8 +18,22 @@ const RESOURCE_OPTIONS = [
   "Amboss",
 ];
 
+const TASK_RESOURCE_OPTIONS = [
+  "UWorld",
+  "Sketchy",
+  "Boards & Beyond",
+  "Pathoma",
+  "Anki",
+  "NBME/UWSA",
+  "Other",
+];
+
 function blankTask(): TemplateTask {
   return { title: "", resource: "UWorld", target: "" };
+}
+
+function renumber(days: TemplateDay[]): TemplateDay[] {
+  return days.map((d, i) => ({ ...d, day_number: i + 1 }));
 }
 
 export default function TemplateForm({
@@ -35,9 +50,10 @@ export default function TemplateForm({
   const [resourceTags, setResourceTags] = useState<string[]>(initial?.resource_tags ?? []);
   const [remoteFriendly, setRemoteFriendly] = useState(initial?.remote_friendly ?? false);
   const [notes, setNotes] = useState(initial?.notes ?? "");
-  const [tasks, setTasks] = useState<TemplateTask[]>(
-    initial?.tasks?.length ? initial.tasks : [blankTask()]
-  );
+  const [days, setDays] = useState<TemplateDay[]>(() => {
+    const existing = initial ? getTemplateDays(initial) : [];
+    return existing.length ? existing : [{ day_number: 1, tasks: [blankTask()] }];
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,16 +61,47 @@ export default function TemplateForm({
     setResourceTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   }
 
-  function updateTask(i: number, patch: Partial<TemplateTask>) {
-    setTasks((prev) => prev.map((t, idx) => (idx === i ? { ...t, ...patch } : t)));
+  function updateTask(dayIdx: number, taskIdx: number, patch: Partial<TemplateTask>) {
+    setDays((prev) =>
+      prev.map((d, di) =>
+        di !== dayIdx
+          ? d
+          : { ...d, tasks: d.tasks.map((t, ti) => (ti === taskIdx ? { ...t, ...patch } : t)) }
+      )
+    );
   }
 
-  function addTask() {
-    setTasks((prev) => [...prev, blankTask()]);
+  function addTask(dayIdx: number) {
+    setDays((prev) =>
+      prev.map((d, di) => (di !== dayIdx ? d : { ...d, tasks: [...d.tasks, blankTask()] }))
+    );
   }
 
-  function removeTask(i: number) {
-    setTasks((prev) => prev.filter((_, idx) => idx !== i));
+  function removeTask(dayIdx: number, taskIdx: number) {
+    setDays((prev) =>
+      prev.map((d, di) =>
+        di !== dayIdx ? d : { ...d, tasks: d.tasks.filter((_, ti) => ti !== taskIdx) }
+      )
+    );
+  }
+
+  function addDay() {
+    setDays((prev) => renumber([...prev, { day_number: prev.length + 1, tasks: [blankTask()] }]));
+  }
+
+  function duplicateDay(dayIdx: number) {
+    setDays((prev) => {
+      const copy = { day_number: 0, tasks: prev[dayIdx].tasks.map((t) => ({ ...t })) };
+      const next = [...prev.slice(0, dayIdx + 1), copy, ...prev.slice(dayIdx + 1)];
+      return renumber(next);
+    });
+  }
+
+  function removeDay(dayIdx: number) {
+    setDays((prev) => {
+      if (prev.length <= 1) return prev;
+      return renumber(prev.filter((_, di) => di !== dayIdx));
+    });
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -63,11 +110,15 @@ export default function TemplateForm({
       setError("Give this template a name.");
       return;
     }
-    const cleanTasks = tasks
-      .map((t) => ({ ...t, title: t.title.trim() }))
-      .filter((t) => t.title.length > 0);
-    if (cleanTasks.length === 0) {
-      setError("Add at least one task.");
+    const cleanDays = days
+      .map((d) => ({
+        day_number: d.day_number,
+        tasks: d.tasks.map((t) => ({ ...t, title: t.title.trim() })).filter((t) => t.title.length > 0),
+      }))
+      .filter((d) => d.tasks.length > 0);
+
+    if (cleanDays.length === 0) {
+      setError("Add at least one day with at least one task.");
       return;
     }
 
@@ -82,7 +133,7 @@ export default function TemplateForm({
       resource_tags: resourceTags,
       remote_friendly: remoteFriendly,
       notes: notes || null,
-      tasks: cleanTasks,
+      tasks: renumber(cleanDays),
     };
 
     const { error } = initial
@@ -205,49 +256,92 @@ export default function TemplateForm({
       </div>
 
       <div className="card">
-        <h2 className="font-semibold mb-1">Daily tasks</h2>
+        <h2 className="font-semibold mb-1">Day-by-day schedule</h2>
         <p className="text-sm text-slate-600 mb-4">
-          This becomes each student&apos;s default task list every day, until they edit it
-          themselves or you assign a different template.
+          Build this out day by day - e.g. Day 1: UWorld block + review, Day 2: UWorld
+          block + review, Day 3: Sketchy gram positives. When you assign this to a
+          student, whatever day you assign it becomes their Day 1. If a student runs
+          past the last day you&apos;ve built, they&apos;ll keep repeating the final day
+          until you add more or assign something new.
         </p>
-        <div className="space-y-3 mb-4">
-          {tasks.map((t, i) => (
-            <div key={i} className="flex flex-wrap gap-2 items-center border border-slate-200 rounded-xl p-3">
-              <input
-                className="input flex-1 min-w-[160px]"
-                placeholder="Task title"
-                value={t.title}
-                onChange={(e) => updateTask(i, { title: e.target.value })}
-              />
-              <select
-                className="input w-auto"
-                value={t.resource}
-                onChange={(e) => updateTask(i, { resource: e.target.value })}
-              >
-                {["UWorld", "Sketchy", "Boards & Beyond", "Pathoma", "Anki", "NBME/UWSA", "Other"].map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
+
+        <div className="space-y-4">
+          {days.map((day, dayIdx) => (
+            <div key={dayIdx} className="border border-slate-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm">Day {day.day_number}</h3>
+                <div className="flex items-center gap-3 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => duplicateDay(dayIdx)}
+                    className="text-brand-600 hover:text-brand-700"
+                  >
+                    Duplicate day
+                  </button>
+                  {days.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeDay(dayIdx)}
+                      className="text-slate-400 hover:text-red-500"
+                    >
+                      Remove day
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3 mb-3">
+                {day.tasks.map((t, taskIdx) => (
+                  <div
+                    key={taskIdx}
+                    className="flex flex-wrap gap-2 items-center border border-slate-100 bg-slate-50 rounded-xl p-3"
+                  >
+                    <input
+                      className="input flex-1 min-w-[160px]"
+                      placeholder="Task title (e.g. UWorld cardio block, gram positives)"
+                      value={t.title}
+                      onChange={(e) => updateTask(dayIdx, taskIdx, { title: e.target.value })}
+                    />
+                    <select
+                      className="input w-auto"
+                      value={t.resource}
+                      onChange={(e) => updateTask(dayIdx, taskIdx, { resource: e.target.value })}
+                    >
+                      {TASK_RESOURCE_OPTIONS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="input w-32"
+                      placeholder="Target"
+                      value={t.target}
+                      onChange={(e) => updateTask(dayIdx, taskIdx, { target: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTask(dayIdx, taskIdx)}
+                      className="text-slate-400 hover:text-red-500 text-sm px-2"
+                    >
+                      &times;
+                    </button>
+                  </div>
                 ))}
-              </select>
-              <input
-                className="input w-32"
-                placeholder="Target"
-                value={t.target}
-                onChange={(e) => updateTask(i, { target: e.target.value })}
-              />
+              </div>
               <button
                 type="button"
-                onClick={() => removeTask(i)}
-                className="text-slate-400 hover:text-red-500 text-sm px-2"
+                onClick={() => addTask(dayIdx)}
+                className="text-sm text-brand-600 hover:text-brand-700 font-medium"
               >
-                &times;
+                + Add task to Day {day.day_number}
               </button>
             </div>
           ))}
         </div>
-        <button type="button" onClick={addTask} className="btn-secondary">
-          Add task
+
+        <button type="button" onClick={addDay} className="btn-secondary mt-4">
+          Add another day
         </button>
       </div>
 

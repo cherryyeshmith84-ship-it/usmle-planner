@@ -1,18 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { CoachMessage, DailyLog, Profile, ScheduleTemplate, StudyTask } from "@/lib/types";
+import {
+  computeResourceAverages,
+  dayNumberFor,
+  getTemplateDays,
+  tasksForDay,
+  templateTasksToStudyTasks,
+} from "@/lib/templateDays";
+import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
 
 const STAGE_LABEL: Record<string, string> = {
   beginning: "Just starting",
   middle: "In the middle",
   end: "Final stretch",
 };
-
-function newTaskId() {
-  return Math.random().toString(36).slice(2, 10);
-}
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -30,12 +34,15 @@ export default function AdminStudentDetail({
   recentLogs,
   templates,
   initialMessages,
+  allBlockScores,
 }: {
   student: Profile;
   recentLogs: DailyLog[];
   templates: ScheduleTemplate[];
   initialMessages: CoachMessage[];
+  allBlockScores: BlockScore[];
 }) {
+  const router = useRouter();
   const [assignedId, setAssignedId] = useState(student.assigned_template_id ?? "");
   const [assignSaving, setAssignSaving] = useState(false);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
@@ -48,18 +55,24 @@ export default function AdminStudentDetail({
 
   const matchingTemplates = templates.filter((t) => t.stage === student.prep_stage);
   const otherTemplates = templates.filter((t) => t.stage !== student.prep_stage);
+  const resourceAverages = useMemo(() => computeResourceAverages(allBlockScores), [allBlockScores]);
 
   async function saveAssignment() {
     setAssignSaving(true);
     setAssignMsg(null);
     const supabase = createClient();
-    const { error } = await supabase
-      .from("profiles")
-      .update({ assigned_template_id: assignedId || null })
-      .eq("id", student.id);
+    const isNewAssignment = (student.assigned_template_id ?? "") !== assignedId;
+    const payload: { assigned_template_id: string | null; assigned_template_start_date?: string | null } = {
+      assigned_template_id: assignedId || null,
+    };
+    if (isNewAssignment) {
+      payload.assigned_template_start_date = assignedId ? todayStr() : null;
+    }
+    const { error } = await supabase.from("profiles").update(payload).eq("id", student.id);
     setAssignSaving(false);
     setAssignMsg(error ? `Error: ${error.message}` : "Assigned.");
     setTimeout(() => setAssignMsg(null), 2500);
+    if (!error) router.refresh();
   }
 
   async function pushTemplateToday() {
@@ -72,26 +85,36 @@ export default function AdminStudentDetail({
     setPushing(true);
     setPushMsg(null);
     const supabase = createClient();
-    const newTasks: StudyTask[] = template.tasks.map((t) => ({
-      id: newTaskId(),
-      title: t.title,
-      resource: t.resource,
-      target: t.target,
-      status: "pending",
-    }));
-    const { error } = await supabase.from("daily_logs").upsert(
+    const today = todayStr();
+    const isNewAssignment = (student.assigned_template_id ?? "") !== assignedId;
+    const startDate = isNewAssignment ? today : student.assigned_template_start_date || today;
+    const days = getTemplateDays(template);
+    const dayNumber = dayNumberFor(startDate, today);
+    const dayTasks = tasksForDay(days, dayNumber);
+    const newTasks = templateTasksToStudyTasks(dayTasks);
+
+    const { error: logError } = await supabase.from("daily_logs").upsert(
       {
         user_id: student.id,
-        log_date: todayStr(),
+        log_date: today,
         tasks: newTasks,
       },
       { onConflict: "user_id,log_date" }
     );
+    if (!logError) {
+      await supabase
+        .from("profiles")
+        .update({ assigned_template_id: template.id, assigned_template_start_date: startDate })
+        .eq("id", student.id);
+    }
     setPushing(false);
     setPushMsg(
-      error ? `Error: ${error.message}` : "Pushed - their dashboard now shows this plan for today."
+      logError
+        ? `Error: ${logError.message}`
+        : `Pushed - Day ${dayNumber} of "${template.name}" now shows for them today.`
     );
-    setTimeout(() => setPushMsg(null), 4000);
+    setTimeout(() => setPushMsg(null), 5000);
+    if (!logError) router.refresh();
   }
 
   async function sendReply() {
@@ -151,6 +174,7 @@ export default function AdminStudentDetail({
                   {t.name}
                   {t.hour_goal ? ` - ${t.hour_goal}h/day` : ""}
                   {t.remote_friendly ? " - remote friendly" : ""}
+                  {` (${getTemplateDays(t).length} day${getTemplateDays(t).length === 1 ? "" : "s"})`}
                 </option>
               ))}
             </optgroup>
@@ -159,7 +183,8 @@ export default function AdminStudentDetail({
             <optgroup label="Other stages">
               {otherTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({STAGE_LABEL[t.stage]})
+                  {t.name} ({STAGE_LABEL[t.stage]}, {getTemplateDays(t).length} day
+                  {getTemplateDays(t).length === 1 ? "" : "s"})
                 </option>
               ))}
             </optgroup>
@@ -196,6 +221,22 @@ export default function AdminStudentDetail({
         </div>
       </div>
 
+      {resourceAverages.length > 0 && (
+        <div className="card">
+          <h2 className="font-semibold mb-3">Score averages (all time)</h2>
+          <div className="flex flex-wrap gap-3">
+            {resourceAverages.map((r) => (
+              <div key={r.resource} className="text-sm bg-slate-50 rounded-lg px-3 py-2">
+                <span className="font-semibold">{r.resource}:</span> {r.averagePct}%{" "}
+                <span className="text-slate-400">
+                  ({r.totalCorrect}/{r.totalQuestions})
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h2 className="font-semibold mb-3">Recent days (last 14)</h2>
         {recentLogs.length === 0 && (
@@ -216,6 +257,13 @@ export default function AdminStudentDetail({
                   {log.hours_studied ?? "?"}h &middot; {done}/{log.tasks.length} tasks done
                   {log.topics_skipped ? ` · skipped: ${log.topics_skipped}` : ""}
                 </p>
+                {log.block_scores?.length > 0 && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    {log.block_scores
+                      .map((b) => `${b.resource} ${b.question_count}q, ${b.percent_correct}%`)
+                      .join(" · ")}
+                  </p>
+                )}
                 {log.notes && <p className="text-xs text-slate-500 italic mt-1">&ldquo;{log.notes}&rdquo;</p>}
               </div>
             );

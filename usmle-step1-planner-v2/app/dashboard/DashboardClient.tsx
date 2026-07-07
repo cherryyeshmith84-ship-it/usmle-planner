@@ -3,14 +3,16 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { defaultTasksForStage } from "@/lib/defaultTasks";
+import { computeResourceAverages, templateTasksToStudyTasks } from "@/lib/templateDays";
 import type {
   AiFeedback,
+  BlockScore,
   CoachMessage,
   DailyLog,
   Profile,
-  ScheduleTemplate,
   StudyTask,
   TaskStatus,
+  TemplateTask,
 } from "@/lib/types";
 import NavBar from "@/components/NavBar";
 
@@ -21,7 +23,7 @@ function newTaskId() {
 function seedTasks(
   todayLog: DailyLog | null,
   profile: Profile,
-  assignedTemplate: ScheduleTemplate | null
+  templateDayTasks: TemplateTask[] | null
 ): StudyTask[] {
   // If today's log already has real progress on it (a task marked done/skipped,
   // hours/notes/rating saved, or it's been marked complete), don't yank it out
@@ -38,20 +40,19 @@ function seedTasks(
   if (todayLog?.tasks?.length && hasProgress) return todayLog.tasks;
 
   // No real progress yet today (or no log at all) - a freshly assigned
-  // template should take effect immediately.
-  if (assignedTemplate?.tasks?.length) {
-    return assignedTemplate.tasks.map((t) => ({
-      id: newTaskId(),
-      title: t.title,
-      resource: t.resource,
-      target: t.target,
-      status: "pending" as TaskStatus,
-    }));
+  // template (today's specific day in the sequence) should take effect
+  // immediately.
+  if (templateDayTasks?.length) {
+    return templateTasksToStudyTasks(templateDayTasks);
   }
 
   if (todayLog?.tasks?.length) return todayLog.tasks;
 
   return defaultTasksForStage(profile.prep_stage);
+}
+
+function blankBlockScore(): BlockScore {
+  return { id: Math.random().toString(36).slice(2, 10), resource: "UWorld", question_count: 40, percent_correct: 0 };
 }
 
 export default function DashboardClient({
@@ -62,7 +63,9 @@ export default function DashboardClient({
   today,
   streak,
   daysUntilExam,
-  assignedTemplate,
+  templateDayTasks,
+  dayInfo,
+  allBlockScores,
   initialMessages,
 }: {
   userId: string;
@@ -72,11 +75,13 @@ export default function DashboardClient({
   today: string;
   streak: number;
   daysUntilExam: number | null;
-  assignedTemplate: ScheduleTemplate | null;
+  templateDayTasks: TemplateTask[] | null;
+  dayInfo: { dayNumber: number; totalDays: number } | null;
+  allBlockScores: BlockScore[];
   initialMessages: CoachMessage[];
 }) {
   const [tasks, setTasks] = useState<StudyTask[]>(
-    seedTasks(todayLog, profile, assignedTemplate)
+    seedTasks(todayLog, profile, templateDayTasks)
   );
   const [hours, setHours] = useState(todayLog?.hours_studied?.toString() ?? "");
   const [topicsSkipped, setTopicsSkipped] = useState(todayLog?.topics_skipped ?? "");
@@ -93,9 +98,25 @@ export default function DashboardClient({
   const [newResource, setNewResource] = useState("UWorld");
   const [newTarget, setNewTarget] = useState("");
 
+  const [blockScores, setBlockScores] = useState<BlockScore[]>(todayLog?.block_scores ?? []);
+
   const [messages, setMessages] = useState<CoachMessage[]>(initialMessages);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+
+  const resourceAverages = useMemo(() => computeResourceAverages(allBlockScores), [allBlockScores]);
+
+  function updateBlockScore(id: string, patch: Partial<BlockScore>) {
+    setBlockScores((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  }
+
+  function addBlockScore() {
+    setBlockScores((prev) => [...prev, blankBlockScore()]);
+  }
+
+  function removeBlockScore(id: string) {
+    setBlockScores((prev) => prev.filter((b) => b.id !== id));
+  }
 
   async function sendMessage() {
     if (!reply.trim()) return;
@@ -162,6 +183,7 @@ export default function DashboardClient({
         rating,
         marked_complete: markedComplete,
         ai_feedback: aiFeedback,
+        block_scores: blockScores,
       },
       { onConflict: "user_id,log_date" }
     );
@@ -206,7 +228,14 @@ export default function DashboardClient({
 
         <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg">Today &middot; {today}</h2>
+            <div>
+              <h2 className="font-bold text-lg">Today &middot; {today}</h2>
+              {dayInfo && (
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Day {dayInfo.dayNumber} of {dayInfo.totalDays} in your assigned plan
+                </p>
+              )}
+            </div>
             <span className="text-sm text-slate-500">{progressPct}% complete</span>
           </div>
 
@@ -305,6 +334,84 @@ export default function DashboardClient({
               onChange={(e) => setTopicsSkipped(e.target.value)}
             />
           </div>
+        </div>
+
+        <div className="card">
+          <h2 className="font-bold text-lg mb-1">Block scores</h2>
+          <p className="text-sm text-slate-600 mb-4">
+            Log each block you did today (UWorld, NBME/UWSA, Amboss, etc.) so your
+            coach can see how you're actually scoring, not just what you completed.
+          </p>
+
+          {blockScores.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {blockScores.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex flex-wrap gap-2 items-center border border-slate-200 rounded-xl p-3"
+                >
+                  <select
+                    className="input w-auto"
+                    value={b.resource}
+                    onChange={(e) => updateBlockScore(b.id, { resource: e.target.value })}
+                  >
+                    {["UWorld", "NBME/UWSA", "Amboss", "Sketchy", "Boards & Beyond", "Other"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    className="input w-28"
+                    placeholder="# questions"
+                    value={b.question_count}
+                    onChange={(e) => updateBlockScore(b.id, { question_count: Number(e.target.value) })}
+                  />
+                  <span className="text-sm text-slate-500">questions,</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="input w-24"
+                    placeholder="% correct"
+                    value={b.percent_correct}
+                    onChange={(e) => updateBlockScore(b.id, { percent_correct: Number(e.target.value) })}
+                  />
+                  <span className="text-sm text-slate-500">% correct</span>
+                  <button
+                    type="button"
+                    onClick={() => removeBlockScore(b.id)}
+                    className="text-slate-400 hover:text-red-500 text-sm px-2 ml-auto"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button type="button" onClick={addBlockScore} className="btn-secondary mb-4">
+            + Log a block score
+          </button>
+
+          {resourceAverages.length > 0 && (
+            <div className="border-t border-slate-100 pt-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                Your running averages (all time)
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {resourceAverages.map((r) => (
+                  <div key={r.resource} className="text-sm bg-slate-50 rounded-lg px-3 py-2">
+                    <span className="font-semibold">{r.resource}:</span> {r.averagePct}%{" "}
+                    <span className="text-slate-400">({r.totalQuestions}q)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="card">

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
+import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate, TemplateTask } from "@/lib/types";
+import { dayNumberFor, getTemplateDays, tasksForDay } from "@/lib/templateDays";
 import DashboardClient from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -79,11 +80,33 @@ export default async function DashboardPage() {
     assignedTemplate = (templateData as ScheduleTemplate) ?? null;
   }
 
+  let templateDayTasks: TemplateTask[] | null = null;
+  let dayInfo: { dayNumber: number; totalDays: number } | null = null;
+  if (assignedTemplate) {
+    const days = getTemplateDays(assignedTemplate);
+    if (days.length > 0) {
+      const startDate = profile.assigned_template_start_date || today;
+      const dayNumber = dayNumberFor(startDate, today);
+      templateDayTasks = tasksForDay(days, dayNumber);
+      dayInfo = { dayNumber, totalDays: days.length };
+    }
+  }
+
   const { data: messagesData } = await supabase
     .from("messages")
     .select("*")
     .eq("student_id", user.id)
     .order("created_at", { ascending: true });
+
+  // Lightweight, unlimited fetch of just block scores across all history,
+  // so running averages reflect the student's whole prep, not just recent days.
+  const { data: scoreRows } = await supabase
+    .from("daily_logs")
+    .select("block_scores")
+    .eq("user_id", user.id);
+  const allBlockScores: BlockScore[] = (scoreRows ?? []).flatMap(
+    (r: any) => (r.block_scores ?? []) as BlockScore[]
+  );
 
   return (
     <DashboardClient
@@ -94,7 +117,9 @@ export default async function DashboardPage() {
       today={today}
       streak={streak}
       daysUntilExam={daysUntilExam}
-      assignedTemplate={assignedTemplate}
+      templateDayTasks={templateDayTasks}
+      dayInfo={dayInfo}
+      allBlockScores={allBlockScores}
       initialMessages={(messagesData ?? []) as CoachMessage[]}
     />
   );

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
-import type { CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
+import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
 
@@ -36,6 +36,14 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
     .eq("student_id", params.id)
     .order("created_at", { ascending: true });
 
+  const { data: scoreRows } = await supabase
+    .from("daily_logs")
+    .select("block_scores")
+    .eq("user_id", params.id);
+  const allBlockScores: BlockScore[] = (scoreRows ?? []).flatMap(
+    (r: any) => (r.block_scores ?? []) as BlockScore[]
+  );
+
   return (
     <div className="min-h-screen">
       <AdminNav />
@@ -45,6 +53,7 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
           recentLogs={(logsData ?? []) as DailyLog[]}
           templates={(templatesData ?? []) as ScheduleTemplate[]}
           initialMessages={(messagesData ?? []) as CoachMessage[]}
+          allBlockScores={allBlockScores}
         />
       </main>
     </div>

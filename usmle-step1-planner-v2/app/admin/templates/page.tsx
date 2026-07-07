@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { ScheduleTemplate } from "@/lib/types";
+import { getTemplateDays } from "@/lib/templateDays";
 import AdminNav from "@/components/AdminNav";
 
 export const dynamic = "force-dynamic";
@@ -41,26 +42,31 @@ export default async function TemplatesPage() {
         )}
 
         <div className="space-y-3">
-          {templates.map((t) => (
-            <Link
-              key={t.id}
-              href={`/admin/templates/${t.id}`}
-              className="card block hover:border-brand-300 transition"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="font-semibold">{t.name}</h3>
-                <span className="text-xs font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-1">
-                  {STAGE_LABEL[t.stage]}
-                </span>
-              </div>
-              <p className="text-sm text-slate-500">
-                {t.tasks.length} task{t.tasks.length === 1 ? "" : "s"}
-                {t.hour_goal ? ` · ${t.hour_goal}h/day` : ""}
-                {t.remote_friendly ? " · remote-friendly" : ""}
-                {t.resource_tags?.length ? ` · ${t.resource_tags.join(", ")}` : ""}
-              </p>
-            </Link>
-          ))}
+          {templates.map((t) => {
+            const days = getTemplateDays(t);
+            const totalTasks = days.reduce((sum, d) => sum + d.tasks.length, 0);
+            return (
+              <Link
+                key={t.id}
+                href={`/admin/templates/${t.id}`}
+                className="card block hover:border-brand-300 transition"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-semibold">{t.name}</h3>
+                  <span className="text-xs font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-1">
+                    {STAGE_LABEL[t.stage]}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500">
+                  {days.length} day{days.length === 1 ? "" : "s"} · {totalTasks} task
+                  {totalTasks === 1 ? "" : "s"} total
+                  {t.hour_goal ? ` · ${t.hour_goal}h/day` : ""}
+                  {t.remote_friendly ? " · remote-friendly" : ""}
+                  {t.resource_tags?.length ? ` · ${t.resource_tags.join(", ")}` : ""}
+                </p>
+              </Link>
+            );
+          })}
         </div>
       </main>
     </div>

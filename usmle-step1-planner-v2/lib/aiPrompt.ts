@@ -75,6 +75,10 @@ export function buildUserPrompt(
     )
     .join("\n");
 
+  const blockLines = (today.block_scores ?? [])
+    .map((b) => `- ${b.resource}: ${b.question_count} questions, ${b.percent_correct}% correct`)
+    .join("\n");
+
   const recentSummary = recentLogs
     .slice(0, 6)
     .map(
@@ -102,6 +106,9 @@ Student's own note: ${today.notes || "(no note written)"}
 
 Today's tasks:
 ${taskLines || "(no tasks logged)"}
+
+Today's block scores:
+${blockLines || "(none logged today)"}
 
 Recent days (most recent first):
 ${recentSummary || "(no prior history yet)"}

@@ -20,6 +20,7 @@ export interface Profile {
   ai_instructions: string | null;
   is_admin?: boolean;
   assigned_template_id?: string | null;
+  assigned_template_start_date?: string | null;
   email?: string | null;
   created_at?: string;
 }
@@ -30,6 +31,11 @@ export interface TemplateTask {
   target: string;
 }
 
+export interface TemplateDay {
+  day_number: number;
+  tasks: TemplateTask[];
+}
+
 export interface ScheduleTemplate {
   id: string;
   name: string;
@@ -38,10 +44,20 @@ export interface ScheduleTemplate {
   resource_tags: string[];
   remote_friendly: boolean;
   notes: string | null;
-  tasks: TemplateTask[];
+  // Legacy templates store a flat TemplateTask[] (one repeating day).
+  // Newer templates store a TemplateDay[] (day-by-day sequence).
+  // Use lib/templateDays.ts helpers to read this safely either way.
+  tasks: TemplateTask[] | TemplateDay[];
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface BlockScore {
+  id: string;
+  resource: string;
+  question_count: number;
+  percent_correct: number;
 }
 
 export interface CoachMessage {
@@ -69,6 +85,7 @@ export interface DailyLog {
   rating: number | null;
   marked_complete: boolean;
   ai_feedback: AiFeedback | null;
+  block_scores: BlockScore[];
   created_at?: string;
   updated_at?: string;
 }

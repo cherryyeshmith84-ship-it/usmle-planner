@@ -74,6 +74,13 @@ export default async function HistoryPage() {
                   {log.hours_studied ?? "?"}h studied &middot; {done}/{total} tasks done
                   {log.topics_skipped ? ` · skipped: ${log.topics_skipped}` : ""}
                 </p>
+                {log.block_scores?.length > 0 && (
+                  <p className="text-sm text-slate-500 mt-1">
+                    {log.block_scores
+                      .map((b) => `${b.resource} ${b.question_count}q, ${b.percent_correct}%`)
+                      .join(" · ")}
+                  </p>
+                )}
                 {log.notes && (
                   <p className="text-sm text-slate-500 mt-2 italic">&ldquo;{log.notes}&rdquo;</p>
                 )}
