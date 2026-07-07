@@ -2,13 +2,21 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
+import type { CoachMessage, DailyLog, Profile, ScheduleTemplate, StudyTask } from "@/lib/types";
 
 const STAGE_LABEL: Record<string, string> = {
   beginning: "Just starting",
   middle: "In the middle",
   end: "Final stretch",
 };
+
+function newTaskId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function ratingColor(rating: number | null) {
   if (rating === null) return "bg-slate-100 text-slate-500";
@@ -31,6 +39,8 @@ export default function AdminStudentDetail({
   const [assignedId, setAssignedId] = useState(student.assigned_template_id ?? "");
   const [assignSaving, setAssignSaving] = useState(false);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushMsg, setPushMsg] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<CoachMessage[]>(initialMessages);
   const [reply, setReply] = useState("");
@@ -50,6 +60,38 @@ export default function AdminStudentDetail({
     setAssignSaving(false);
     setAssignMsg(error ? `Error: ${error.message}` : "Assigned.");
     setTimeout(() => setAssignMsg(null), 2500);
+  }
+
+  async function pushTemplateToday() {
+    const template = templates.find((t) => t.id === assignedId);
+    if (!template) {
+      setPushMsg("Pick and save a template above first.");
+      setTimeout(() => setPushMsg(null), 3000);
+      return;
+    }
+    setPushing(true);
+    setPushMsg(null);
+    const supabase = createClient();
+    const newTasks: StudyTask[] = template.tasks.map((t) => ({
+      id: newTaskId(),
+      title: t.title,
+      resource: t.resource,
+      target: t.target,
+      status: "pending",
+    }));
+    const { error } = await supabase.from("daily_logs").upsert(
+      {
+        user_id: student.id,
+        log_date: todayStr(),
+        tasks: newTasks,
+      },
+      { onConflict: "user_id,log_date" }
+    );
+    setPushing(false);
+    setPushMsg(
+      error ? `Error: ${error.message}` : "Pushed - their dashboard now shows this plan for today."
+    );
+    setTimeout(() => setPushMsg(null), 4000);
   }
 
   async function sendReply() {
@@ -123,7 +165,7 @@ export default function AdminStudentDetail({
             </optgroup>
           )}
         </select>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={saveAssignment} className="btn-primary" disabled={assignSaving}>
             {assignSaving ? "Saving..." : "Save assignment"}
           </button>
@@ -134,6 +176,24 @@ export default function AdminStudentDetail({
             You haven&apos;t created any templates yet - go to Templates to add one.
           </p>
         )}
+
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          <p className="text-sm text-slate-600 mb-2">
+            Already assigned above but they don&apos;t see it? Their day may already be
+            in progress. Push it in immediately, replacing today&apos;s task list:
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={pushTemplateToday}
+              className="btn-secondary"
+              disabled={pushing}
+            >
+              {pushing ? "Pushing..." : "Push this template to their day, right now"}
+            </button>
+            {pushMsg && <span className="text-sm text-slate-500">{pushMsg}</span>}
+          </div>
+        </div>
       </div>
 
       <div className="card">
