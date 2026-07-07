@@ -23,7 +23,22 @@ function seedTasks(
   profile: Profile,
   assignedTemplate: ScheduleTemplate | null
 ): StudyTask[] {
-  if (todayLog?.tasks?.length) return todayLog.tasks;
+  // If today's log already has real progress on it (a task marked done/skipped,
+  // hours/notes/rating saved, or it's been marked complete), don't yank it out
+  // from under the student mid-day just because the coach assigned a new
+  // template - keep what they're actively working on.
+  const hasProgress =
+    !!todayLog &&
+    (todayLog.tasks.some((t) => t.status !== "pending") ||
+      !!todayLog.hours_studied ||
+      !!todayLog.notes ||
+      !!todayLog.ai_feedback ||
+      todayLog.marked_complete);
+
+  if (todayLog?.tasks?.length && hasProgress) return todayLog.tasks;
+
+  // No real progress yet today (or no log at all) - a freshly assigned
+  // template should take effect immediately.
   if (assignedTemplate?.tasks?.length) {
     return assignedTemplate.tasks.map((t) => ({
       id: newTaskId(),
@@ -33,6 +48,9 @@ function seedTasks(
       status: "pending" as TaskStatus,
     }));
   }
+
+  if (todayLog?.tasks?.length) return todayLog.tasks;
+
   return defaultTasksForStage(profile.prep_stage);
 }
 
