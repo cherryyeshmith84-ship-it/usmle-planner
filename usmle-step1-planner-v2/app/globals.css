@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: #f6f7fb;
+  color: #16182b;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e6e8f0;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.btn-primary {
+  background-color: #2b5bf5;
+  color: white;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 10px 18px;
+  transition: background-color 0.15s ease;
+}
+.btn-primary:hover {
+  background-color: #1e44d1;
+}
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: #eef1fb;
+  color: #182a6b;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 10px 18px;
+  transition: background-color 0.15s ease;
+}
+.btn-secondary:hover {
+  background-color: #dfe4f7;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #d7dae5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+  font-size: 14px;
+}
+.input:focus {
+  outline: 2px solid #2b5bf5;
+  outline-offset: 1px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #454a5f;
+  margin-bottom: 6px;
+  display: block;
+}
