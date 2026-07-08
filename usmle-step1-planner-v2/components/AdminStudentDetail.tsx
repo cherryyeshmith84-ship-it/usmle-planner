@@ -53,6 +53,8 @@ export default function AdminStudentDetail({
   roadmap,
   today,
   planProgress,
+  activeSource,
+  hasOwnPlan,
 }: {
   student: Profile;
   recentLogs: DailyLog[];
@@ -62,6 +64,8 @@ export default function AdminStudentDetail({
   roadmap: RoadmapEntry[];
   today: string;
   planProgress: PlanProgress | null;
+  activeSource: "coach" | "own";
+  hasOwnPlan: boolean;
 }) {
   const router = useRouter();
   const [assignedId, setAssignedId] = useState(student.assigned_template_id ?? "");
@@ -171,6 +175,14 @@ export default function AdminStudentDetail({
         <h1 className="text-xl font-bold">{student.full_name || student.email || "Student"}</h1>
         <p className="text-sm text-slate-400">{student.email}</p>
       </div>
+
+      {activeSource === "own" && (
+        <div className="rounded-xl border border-brand-500 bg-brand-900/20 px-4 py-3 text-sm text-brand-200">
+          This student is currently using their own self-built plan, not one you
+          assigned. The roadmap below shows their plan.{" "}
+          {!hasOwnPlan && "They've switched to \"own plan\" but haven't built one yet."}
+        </div>
+      )}
 
       {student.track_changed_pending && (
         <div className="rounded-xl border border-amber-700 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">

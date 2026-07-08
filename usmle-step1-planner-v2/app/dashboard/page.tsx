@@ -1,6 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate, TemplateTask } from "@/lib/types";
+import type {
+  BlockScore,
+  CoachMessage,
+  DailyLog,
+  PersonalTemplate,
+  Profile,
+  ScheduleTemplate,
+  TemplateTask,
+} from "@/lib/types";
 import { computePlanProgress, dayNumberFor, getTemplateDays, tasksForDay, type PlanProgress } from "@/lib/templateDays";
 import DashboardClient from "./DashboardClient";
 
@@ -70,6 +78,8 @@ export default async function DashboardPage() {
     daysUntilExam = Math.ceil(diff);
   }
 
+  const activeSource = profile.active_plan_source || "coach";
+
   let assignedTemplate: ScheduleTemplate | null = null;
   if (profile.assigned_template_id) {
     const { data: templateData } = await supabase
@@ -80,14 +90,28 @@ export default async function DashboardPage() {
     assignedTemplate = (templateData as ScheduleTemplate) ?? null;
   }
 
+  let personalTemplate: PersonalTemplate | null = null;
+  if (activeSource === "own") {
+    const { data: personalData } = await supabase
+      .from("personal_templates")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    personalTemplate = (personalData as PersonalTemplate) ?? null;
+  }
+
+  const activeTemplate = activeSource === "own" ? personalTemplate : assignedTemplate;
+  const activeStartDate =
+    (activeSource === "own" ? personalTemplate?.start_date : profile.assigned_template_start_date) ||
+    today;
+
   let templateDayTasks: TemplateTask[] | null = null;
   let dayInfo: { dayNumber: number; totalDays: number } | null = null;
   let planProgress: PlanProgress | null = null;
-  if (assignedTemplate) {
-    const days = getTemplateDays(assignedTemplate);
+  if (activeTemplate) {
+    const days = getTemplateDays(activeTemplate);
     if (days.length > 0) {
-      const startDate = profile.assigned_template_start_date || today;
-      const dayNumber = dayNumberFor(startDate, today);
+      const dayNumber = dayNumberFor(activeStartDate, today);
       templateDayTasks = tasksForDay(days, dayNumber);
       dayInfo = { dayNumber, totalDays: days.length };
 
@@ -95,7 +119,7 @@ export default async function DashboardPage() {
         .from("daily_logs")
         .select("tasks")
         .eq("user_id", user.id)
-        .gte("log_date", startDate);
+        .gte("log_date", activeStartDate);
       planProgress = computePlanProgress(days, (logsSinceStartData ?? []) as { tasks: any[] }[]);
     }
   }

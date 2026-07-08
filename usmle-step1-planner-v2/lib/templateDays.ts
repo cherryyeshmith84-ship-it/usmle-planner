@@ -1,11 +1,4 @@
-import type {
-  BlockScore,
-  DailyLog,
-  ScheduleTemplate,
-  StudyTask,
-  TemplateDay,
-  TemplateTask,
-} from "./types";
+import type { BlockScore, DailyLog, StudyTask, TemplateDay, TemplateTask } from "./types";
 
 function newId() {
   return Math.random().toString(36).slice(2, 10);
@@ -14,9 +7,13 @@ function newId() {
 /**
  * Reads a template's tasks safely whether it was saved in the old flat
  * format (TemplateTask[], one list repeating every day) or the newer
- * day-by-day format (TemplateDay[]). Always returns TemplateDay[].
+ * day-by-day format (TemplateDay[]). Always returns TemplateDay[]. Works for
+ * both coach-created schedule_templates and a student's own personal_template
+ * - both share the same { tasks } shape.
  */
-export function getTemplateDays(template: ScheduleTemplate | null | undefined): TemplateDay[] {
+export function getTemplateDays(
+  template: { tasks: TemplateTask[] | TemplateDay[] } | null | undefined
+): TemplateDay[] {
   if (!template || !template.tasks || (template.tasks as any[]).length === 0) return [];
   const raw = template.tasks as any[];
   if (raw[0] && typeof raw[0].day_number === "number" && Array.isArray(raw[0].tasks)) {

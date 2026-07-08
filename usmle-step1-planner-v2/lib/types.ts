@@ -2,6 +2,8 @@ export type PrepStage = "beginning" | "middle" | "end";
 
 export type ExamTrack = "step1" | "subject";
 
+export type ActivePlanSource = "coach" | "own";
+
 export type TaskStatus = "pending" | "done" | "skipped";
 
 export interface StudyTask {
@@ -33,6 +35,7 @@ export interface Profile {
   strong_areas?: string | null;
   goals_notes?: string | null;
   track_changed_pending?: boolean;
+  active_plan_source?: ActivePlanSource;
 }
 
 export interface TemplateTask {
@@ -63,6 +66,16 @@ export interface ScheduleTemplate {
   updated_at?: string;
   exam_track?: ExamTrack;
   subject_name?: string | null;
+}
+
+export interface PersonalTemplate {
+  user_id: string;
+  name: string;
+  // Same day-by-day sequence shape as ScheduleTemplate.tasks.
+  tasks: TemplateTask[] | TemplateDay[];
+  start_date: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface BlockScore {

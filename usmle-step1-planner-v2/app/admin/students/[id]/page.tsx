@@ -1,6 +1,13 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
-import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
+import type {
+  BlockScore,
+  CoachMessage,
+  DailyLog,
+  PersonalTemplate,
+  Profile,
+  ScheduleTemplate,
+} from "@/lib/types";
 import { buildRoadmap, computePlanProgress, getTemplateDays, type PlanProgress } from "@/lib/templateDays";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
@@ -51,12 +58,26 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
 
-  // Full day-by-day roadmap for whatever this student is currently assigned,
-  // so the coach can see the whole plan (not just the last 14 days) in one place.
+  // Full day-by-day roadmap for whatever this student is currently using -
+  // their coach-assigned plan, or their own self-built one - so the coach
+  // sees the whole thing (not just the last 14 days) in one place.
   const today = todayStr();
+  const activeSource = student.active_plan_source || "coach";
   const assignedTemplate = templates.find((t) => t.id === student.assigned_template_id) ?? null;
-  const days = getTemplateDays(assignedTemplate);
-  const startDate = student.assigned_template_start_date || today;
+
+  let personalTemplate: PersonalTemplate | null = null;
+  const { data: personalData } = await supabase
+    .from("personal_templates")
+    .select("*")
+    .eq("user_id", params.id)
+    .maybeSingle();
+  personalTemplate = (personalData as PersonalTemplate) ?? null;
+
+  const activeTemplate = activeSource === "own" ? personalTemplate : assignedTemplate;
+  const days = getTemplateDays(activeTemplate);
+  const startDate =
+    (activeSource === "own" ? personalTemplate?.start_date : student.assigned_template_start_date) ||
+    today;
   let roadmap: ReturnType<typeof buildRoadmap> = [];
   let planProgress: PlanProgress | null = null;
   if (days.length > 0) {
@@ -83,6 +104,8 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
           roadmap={roadmap}
           today={today}
           planProgress={planProgress}
+          activeSource={activeSource}
+          hasOwnPlan={!!personalTemplate}
         />
       </main>
     </div>
