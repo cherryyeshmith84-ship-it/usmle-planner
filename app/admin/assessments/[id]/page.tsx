@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { Assessment, AssessmentAttempt, Profile } from "@/lib/types";
+import { buildErrorBreakdown } from "@/lib/assessments";
 import AdminNav from "@/components/AdminNav";
 import AssessmentForm from "@/components/AssessmentForm";
 
@@ -48,32 +49,40 @@ export default async function EditAssessmentPage({ params }: { params: { id: str
             {attempts.map((a) => {
               const student = studentMap.get(a.user_id);
               const pct = a.score_total > 0 ? Math.round((a.score_correct / a.score_total) * 100) : 0;
+              const breakdown = buildErrorBreakdown(assessment.questions, a.answers);
+              const wrongCount = breakdown.near + breakdown.far;
               return (
-                <div
-                  key={a.id}
-                  className="flex items-center justify-between border border-slate-700 rounded-xl px-3 py-2"
-                >
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {student?.full_name || student?.email || "Unknown student"}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {a.submitted_at
-                        ? new Date(a.submitted_at).toLocaleString()
-                        : "In progress / not submitted"}
-                    </p>
+                <div key={a.id} className="border border-slate-700 rounded-xl px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {student?.full_name || student?.email || "Unknown student"}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {a.submitted_at
+                          ? new Date(a.submitted_at).toLocaleString()
+                          : "In progress / not submitted"}
+                      </p>
+                    </div>
+                    <span
+                      className={`text-sm font-semibold rounded-full px-3 py-1 ${
+                        pct >= 70
+                          ? "bg-green-900/40 text-green-400"
+                          : pct >= 50
+                          ? "bg-amber-900/40 text-amber-400"
+                          : "bg-red-900/40 text-red-400"
+                      }`}
+                    >
+                      {a.score_correct}/{a.score_total} ({pct}%)
+                    </span>
                   </div>
-                  <span
-                    className={`text-sm font-semibold rounded-full px-3 py-1 ${
-                      pct >= 70
-                        ? "bg-green-900/40 text-green-400"
-                        : pct >= 50
-                        ? "bg-amber-900/40 text-amber-400"
-                        : "bg-red-900/40 text-red-400"
-                    }`}
-                  >
-                    {a.score_correct}/{a.score_total} ({pct}%)
-                  </span>
+                  {wrongCount > 0 && (
+                    <p className="text-xs text-slate-500 mt-2">
+                      Of {wrongCount} missed: {breakdown.nearPctOfWrong}% near-miss (close
+                      distractor), {breakdown.farPctOfWrong}% far-miss (unrelated option)
+                      {breakdown.unanswered > 0 ? ` · ${breakdown.unanswered} left blank` : ""}
+                    </p>
+                  )}
                 </div>
               );
             })}
