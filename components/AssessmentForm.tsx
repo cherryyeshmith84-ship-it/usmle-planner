@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { blankChoice, blankQuestion, chunkIntoBlocks } from "@/lib/assessments";
+import { blankChoice, blankQuestion } from "@/lib/assessments";
 import type { Assessment, AssessmentQuestion } from "@/lib/types";
 
 export default function AssessmentForm({
@@ -19,6 +19,7 @@ export default function AssessmentForm({
     initial?.questions_per_block?.toString() ?? "20"
   );
   const [blockMinutes, setBlockMinutes] = useState(initial?.block_time_minutes?.toString() ?? "30");
+  const [breakMinutes, setBreakMinutes] = useState(initial?.break_minutes?.toString() ?? "15");
   const [questions, setQuestions] = useState<AssessmentQuestion[]>(
     initial?.questions?.length ? initial.questions : [blankQuestion()]
   );
@@ -35,6 +36,35 @@ export default function AssessmentForm({
         i !== qIdx
           ? q
           : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, text } : c)) }
+      )
+    );
+  }
+
+  function updateChoiceDistance(qIdx: number, cIdx: number, distance: "near" | "far") {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, distance } : c)) }
+      )
+    );
+  }
+
+  const VIGNETTE_TEMPLATE = `A [age]-year-old [gender] presents to the [ED/clinic/hospital] with [chief complaint].
+History: [onset, duration, associated symptoms, relevant PMH]
+Review of systems: [pertinent positives and negatives]
+Medications: [current meds]
+Physical exam: [vitals, relevant findings]
+Labs/imaging: [relevant values]
+
+What is the most likely diagnosis?`;
+
+  function insertVignetteTemplate(qIdx: number) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, question: q.question ? `${q.question}\n\n${VIGNETTE_TEMPLATE}` : VIGNETTE_TEMPLATE }
       )
     );
   }
@@ -107,6 +137,7 @@ export default function AssessmentForm({
       name: name.trim(),
       questions_per_block: questionsPerBlock ? Number(questionsPerBlock) : 20,
       block_time_minutes: blockMinutes ? Number(blockMinutes) : 30,
+      break_minutes: breakMinutes ? Number(breakMinutes) : 15,
       questions: cleanQuestions,
     };
 
@@ -173,14 +204,24 @@ export default function AssessmentForm({
             />
           </div>
         </div>
+        <label className="label">Total break time (minutes, shared across the whole exam)</label>
+        <input
+          type="number"
+          min={0}
+          max={120}
+          className="input mb-2"
+          value={breakMinutes}
+          onChange={(e) => setBreakMinutes(e.target.value)}
+        />
         <p className="text-xs text-slate-400">
           {(() => {
             const qpb = Math.max(1, Number(questionsPerBlock) || 20);
             const numBlocks = Math.max(1, Math.ceil(questions.length / qpb));
-            const totalMin = numBlocks * (Number(blockMinutes) || 30);
+            const examMin = numBlocks * (Number(blockMinutes) || 30);
+            const brk = Number(breakMinutes) || 0;
             return `With ${questions.length} question${questions.length === 1 ? "" : "s"} total, this becomes ${numBlocks} block${
               numBlocks === 1 ? "" : "s"
-            } (${totalMin} minutes total). Students get a per-block timer plus an overall exam timer, and only see their score after finishing every block.`;
+            } (${examMin} minutes of exam time + ${brk} minutes of break = ${examMin + brk} minutes total). After each block (except the last), students can continue straight to the next block or take a break - breaks come out of that shared ${brk}-minute pool and can be split across as many breaks as they want. Scores are only shown after every block is done.`;
           })()}
         </p>
       </div>
@@ -201,6 +242,16 @@ export default function AssessmentForm({
               )}
             </div>
 
+            <div className="flex items-center justify-between mb-1">
+              <span className="label mb-0">Question text</span>
+              <button
+                type="button"
+                onClick={() => insertVignetteTemplate(qIdx)}
+                className="text-xs text-brand-400 hover:text-brand-300 font-medium"
+              >
+                + Insert clinical vignette template
+              </button>
+            </div>
             <textarea
               className="input mb-3"
               rows={3}
@@ -210,35 +261,52 @@ export default function AssessmentForm({
             />
 
             <p className="label mb-2">
-              Answer choices - click the circle next to the correct one
+              Answer choices - click the circle next to the correct one. For each wrong
+              choice, tag whether it&apos;s a close distractor or an unrelated one, so the
+              score report can tell a near-miss from a fundamentals gap.
             </p>
             <div className="space-y-2 mb-3">
-              {q.choices.map((c, cIdx) => (
-                <div key={c.id} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name={`correct-${q.id}`}
-                    checked={q.correct_choice_id === c.id}
-                    onChange={() => updateQuestion(qIdx, { correct_choice_id: c.id })}
-                    className="shrink-0 w-4 h-4"
-                  />
-                  <input
-                    className="input flex-1"
-                    placeholder={`Choice ${cIdx + 1}`}
-                    value={c.text}
-                    onChange={(e) => updateChoice(qIdx, cIdx, e.target.value)}
-                  />
-                  {q.choices.length > 2 && (
-                    <button
-                      type="button"
-                      onClick={() => removeChoice(qIdx, cIdx)}
-                      className="text-slate-500 hover:text-red-400 text-sm px-2"
-                    >
-                      &times;
-                    </button>
-                  )}
-                </div>
-              ))}
+              {q.choices.map((c, cIdx) => {
+                const isCorrect = q.correct_choice_id === c.id;
+                return (
+                  <div key={c.id} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`correct-${q.id}`}
+                      checked={isCorrect}
+                      onChange={() => updateQuestion(qIdx, { correct_choice_id: c.id })}
+                      className="shrink-0 w-4 h-4"
+                    />
+                    <input
+                      className="input flex-1"
+                      placeholder={`Choice ${cIdx + 1}`}
+                      value={c.text}
+                      onChange={(e) => updateChoice(qIdx, cIdx, e.target.value)}
+                    />
+                    {!isCorrect && (
+                      <select
+                        className="input w-auto text-xs shrink-0"
+                        value={c.distance ?? "far"}
+                        onChange={(e) =>
+                          updateChoiceDistance(qIdx, cIdx, e.target.value as "near" | "far")
+                        }
+                      >
+                        <option value="far">Far miss</option>
+                        <option value="near">Near miss</option>
+                      </select>
+                    )}
+                    {q.choices.length > 2 && (
+                      <button
+                        type="button"
+                        onClick={() => removeChoice(qIdx, cIdx)}
+                        className="text-slate-500 hover:text-red-400 text-sm px-2"
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <button
               type="button"
