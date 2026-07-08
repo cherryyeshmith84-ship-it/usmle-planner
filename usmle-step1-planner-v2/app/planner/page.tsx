@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
-import { buildRoadmap, getTemplateDays } from "@/lib/templateDays";
+import { buildRoadmap, computePlanProgress, getTemplateDays, type PlanProgress } from "@/lib/templateDays";
 import NavBar from "@/components/NavBar";
 import PlannerRoadmap from "@/components/PlannerRoadmap";
+import ProgressCircle from "@/components/ProgressCircle";
 
 export const dynamic = "force-dynamic";
 
@@ -42,33 +43,49 @@ export default async function PlannerPage() {
   const startDate = profile?.assigned_template_start_date || today;
 
   let roadmap: ReturnType<typeof buildRoadmap> = [];
+  let planProgress: PlanProgress | null = null;
   if (days.length > 0) {
     const { data: logsData } = await supabase
       .from("daily_logs")
       .select("*")
       .eq("user_id", user.id)
       .gte("log_date", startDate);
-    roadmap = buildRoadmap(days, startDate, (logsData ?? []) as DailyLog[]);
+    const logs = (logsData ?? []) as DailyLog[];
+    roadmap = buildRoadmap(days, startDate, logs);
+    planProgress = computePlanProgress(days, logs);
   }
 
   return (
     <div className="min-h-screen flex">
       <NavBar isAdmin={profile?.is_admin} />
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8">
-        <h1 className="text-xl font-bold mb-1">Your planner</h1>
-        <p className="text-sm text-slate-400 mb-6">
-          The full day-by-day plan your coach has given you so far - Day 1
-          through Day {days.length || 0}.
-        </p>
+        <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold mb-1">Your planner</h1>
+            <p className="text-sm text-slate-400">
+              The full day-by-day plan your coach has given you so far - Day 1
+              through Day {days.length || 0}.
+            </p>
+          </div>
+          {planProgress && (
+            <ProgressCircle
+              pct={planProgress.pct}
+              complete={planProgress.complete}
+              label={`${planProgress.doneCount}/${planProgress.totalCount} tasks`}
+            />
+          )}
+        </div>
 
         {!assignedTemplate && (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-400 mt-5">
             No plan assigned yet - your coach is reviewing your intake and will
             assign one soon.
           </p>
         )}
 
-        <PlannerRoadmap entries={roadmap} today={today} />
+        <div className="mt-6">
+          <PlannerRoadmap entries={roadmap} today={today} />
+        </div>
       </main>
     </div>
   );

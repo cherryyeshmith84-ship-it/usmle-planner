@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
-import { buildRoadmap, getTemplateDays } from "@/lib/templateDays";
+import { buildRoadmap, computePlanProgress, getTemplateDays, type PlanProgress } from "@/lib/templateDays";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
 
@@ -58,13 +58,16 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
   const days = getTemplateDays(assignedTemplate);
   const startDate = student.assigned_template_start_date || today;
   let roadmap: ReturnType<typeof buildRoadmap> = [];
+  let planProgress: PlanProgress | null = null;
   if (days.length > 0) {
     const { data: roadmapLogsData } = await supabase
       .from("daily_logs")
       .select("*")
       .eq("user_id", params.id)
       .gte("log_date", startDate);
-    roadmap = buildRoadmap(days, startDate, (roadmapLogsData ?? []) as DailyLog[]);
+    const roadmapLogs = (roadmapLogsData ?? []) as DailyLog[];
+    roadmap = buildRoadmap(days, startDate, roadmapLogs);
+    planProgress = computePlanProgress(days, roadmapLogs);
   }
 
   return (
@@ -79,6 +82,7 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
           allBlockScores={allBlockScores}
           roadmap={roadmap}
           today={today}
+          planProgress={planProgress}
         />
       </main>
     </div>

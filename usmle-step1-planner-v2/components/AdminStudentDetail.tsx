@@ -9,10 +9,12 @@ import {
   getTemplateDays,
   tasksForDay,
   templateTasksToStudyTasks,
+  type PlanProgress,
   type RoadmapEntry,
 } from "@/lib/templateDays";
 import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
 import PlannerRoadmap from "@/components/PlannerRoadmap";
+import ProgressCircle from "@/components/ProgressCircle";
 
 const STAGE_LABEL: Record<string, string> = {
   beginning: "Just starting",
@@ -50,6 +52,7 @@ export default function AdminStudentDetail({
   allBlockScores,
   roadmap,
   today,
+  planProgress,
 }: {
   student: Profile;
   recentLogs: DailyLog[];
@@ -58,6 +61,7 @@ export default function AdminStudentDetail({
   allBlockScores: BlockScore[];
   roadmap: RoadmapEntry[];
   today: string;
+  planProgress: PlanProgress | null;
 }) {
   const router = useRouter();
   const [assignedId, setAssignedId] = useState(student.assigned_template_id ?? "");
@@ -307,12 +311,25 @@ export default function AdminStudentDetail({
       </div>
 
       <div className="card">
-        <h2 className="font-semibold mb-1">Full plan roadmap</h2>
-        <p className="text-sm text-slate-400 mb-3">
-          Everything assigned so far - Day 1 through Day {roadmap.length || 0} - with
-          completion status per day.
-        </p>
-        <PlannerRoadmap entries={roadmap} today={today} />
+        <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
+          <div>
+            <h2 className="font-semibold mb-1">Full plan roadmap</h2>
+            <p className="text-sm text-slate-400">
+              Everything assigned so far - Day 1 through Day {roadmap.length || 0} - with
+              completion status per day.
+            </p>
+          </div>
+          {planProgress && (
+            <ProgressCircle
+              pct={planProgress.pct}
+              complete={planProgress.complete}
+              label={`${planProgress.doneCount}/${planProgress.totalCount} tasks`}
+            />
+          )}
+        </div>
+        <div className="mt-4">
+          <PlannerRoadmap entries={roadmap} today={today} />
+        </div>
       </div>
 
       {resourceAverages.length > 0 && (
