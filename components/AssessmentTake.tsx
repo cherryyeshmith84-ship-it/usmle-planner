@@ -3,17 +3,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { chunkIntoBlocks, formatSeconds, scoreAttempt, type ScoreResult } from "@/lib/assessments";
-import type { Assessment } from "@/lib/types";
+import {
+  buildErrorBreakdown,
+  chunkIntoBlocks,
+  classifyAnswer,
+  deriveQuestionTimes,
+  formatSeconds,
+  scoreAttempt,
+  type ScoreResult,
+} from "@/lib/assessments";
+import type { Assessment, AssessmentAttempt } from "@/lib/types";
 
-type Phase = "start" | "taking" | "results";
+type Phase = "start" | "taking" | "blockDone" | "break" | "results";
 
 export default function AssessmentTake({
   userId,
   assessment,
+  existingAttempt,
 }: {
   userId: string;
   assessment: Assessment;
+  existingAttempt: AssessmentAttempt | null;
 }) {
   const blocks = useMemo(
     () => chunkIntoBlocks(assessment.questions, assessment.questions_per_block),
@@ -21,20 +31,39 @@ export default function AssessmentTake({
   );
   const blockSeconds = assessment.block_time_minutes * 60;
   const examSeconds = blocks.length * blockSeconds;
+  const breakSecondsTotal = (assessment.break_minutes || 0) * 60;
 
-  const [phase, setPhase] = useState<Phase>("start");
+  // Already completed this before - show their result, no retaking.
+  const alreadyDone = !!existingAttempt;
+
+  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
   const [currentBlock, setCurrentBlock] = useState(0);
   const [blockSecondsLeft, setBlockSecondsLeft] = useState(blockSeconds);
   const [examSecondsLeft, setExamSecondsLeft] = useState(examSeconds);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<ScoreResult | null>(null);
+  const [breakSecondsLeft, setBreakSecondsLeft] = useState(breakSecondsTotal);
+  const [answers, setAnswers] = useState<Record<string, string>>(existingAttempt?.answers ?? {});
+  const [result, setResult] = useState<ScoreResult | null>(
+    alreadyDone
+      ? { correct: existingAttempt!.score_correct, total: existingAttempt!.score_total, pct: existingAttempt!.score_total > 0 ? Math.round((existingAttempt!.score_correct / existingAttempt!.score_total) * 100) : 0 }
+      : null
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
   const advancingRef = useRef(false);
+  // Raw tracking during a live attempt: question id -> seconds elapsed
+  // *within its block* at the moment it was first answered. Converted into
+  // actual per-question time spent (via deriveQuestionTimes) at submit time.
+  const rawElapsedRef = useRef<Record<string, number>>({});
+  // Final per-question seconds spent, ready to display on the results screen -
+  // either pulled straight from a past submitted attempt, or computed fresh
+  // when this attempt is finalized below.
+  const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(
+    existingAttempt?.question_seconds ?? {}
+  );
 
-  // Master tick: counts down both timers together while the exam is in progress.
+  // Exam clock: only ticks while actively answering a block.
   useEffect(() => {
     if (phase !== "taking") return;
     const interval = setInterval(() => {
@@ -44,6 +73,23 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase]);
 
+  // Break clock: only ticks while on a break, separate from the exam clock.
+  useEffect(() => {
+    if (phase !== "break") return;
+    const interval = setInterval(() => {
+      setBreakSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  // Break pool ran out - send them back in.
+  useEffect(() => {
+    if (phase === "break" && breakSecondsLeft === 0) {
+      goToNextBlock();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakSecondsLeft, phase]);
+
   // Exam clock hit zero - end everything right now, regardless of block progress.
   useEffect(() => {
     if (phase === "taking" && examSecondsLeft === 0) {
@@ -52,10 +98,10 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, phase]);
 
-  // Block clock hit zero - move to the next block (or finish, if this was the last one).
+  // Block clock hit zero - end the block (same as clicking submit).
   useEffect(() => {
     if (phase === "taking" && blockSecondsLeft === 0 && examSecondsLeft > 0) {
-      goToNextBlock();
+      endBlock();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
@@ -65,8 +111,11 @@ export default function AssessmentTake({
     setCurrentBlock(0);
     setBlockSecondsLeft(blockSeconds);
     setExamSecondsLeft(examSeconds);
+    setBreakSecondsLeft(breakSecondsTotal);
     setAnswers({});
     setResult(null);
+    rawElapsedRef.current = {};
+    setQuestionTimes({});
     finalizedRef.current = false;
     advancingRef.current = false;
     setPhase("taking");
@@ -74,20 +123,44 @@ export default function AssessmentTake({
 
   function chooseAnswer(questionId: string, choiceId: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
+    // Only record the *first* time they land on an answer for this question -
+    // later changes of mind shouldn't reset the clock used to gauge time spent.
+    if (rawElapsedRef.current[questionId] === undefined) {
+      rawElapsedRef.current[questionId] = blockSeconds - blockSecondsLeft;
+    }
   }
 
-  function goToNextBlock() {
+  /** Called when a block's time is up or the student submits it manually. */
+  function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
+    // Any question in this block that was never answered still gets a mark
+    // at "now", so the time-spent math below has something to diff against.
+    for (const q of currentQuestions) {
+      if (rawElapsedRef.current[q.id] === undefined) {
+        rawElapsedRef.current[q.id] = blockSeconds - blockSecondsLeft;
+      }
+    }
     if (currentBlock >= blocks.length - 1) {
       finalizeExam();
       return;
     }
+    setPhase("blockDone");
+  }
+
+  function goToNextBlock() {
+    if (finalizedRef.current || advancingRef.current) return;
     advancingRef.current = true;
     setCurrentBlock((prev) => prev + 1);
     setBlockSecondsLeft(blockSeconds);
+    setPhase("taking");
     setTimeout(() => {
       advancingRef.current = false;
     }, 300);
+  }
+
+  function startBreak() {
+    if (breakSecondsLeft <= 0) return;
+    setPhase("break");
   }
 
   async function finalizeExam() {
@@ -95,6 +168,7 @@ export default function AssessmentTake({
     finalizedRef.current = true;
     setSubmitting(true);
     const score = scoreAttempt(assessment.questions, answers);
+    const times = deriveQuestionTimes(blocks, rawElapsedRef.current);
     const supabase = createClient();
     await supabase.from("assessment_attempts").insert({
       assessment_id: assessment.id,
@@ -104,9 +178,11 @@ export default function AssessmentTake({
       answers,
       score_correct: score.correct,
       score_total: score.total,
+      question_seconds: times,
     });
     setSubmitting(false);
     setResult(score);
+    setQuestionTimes(times);
     setPhase("results");
   }
 
@@ -121,17 +197,67 @@ export default function AssessmentTake({
         <p className="text-sm text-slate-400 mb-6">
           {blocks.length} block{blocks.length === 1 ? "" : "s"} · {assessment.questions_per_block} questions
           per block · {assessment.block_time_minutes} minutes per block ·{" "}
-          {Math.round(examSeconds / 60)} minutes total
+          {Math.round(examSeconds / 60)} minutes of exam time
+          {breakSecondsTotal > 0 ? ` + ${Math.round(breakSecondsTotal / 60)} minutes of break` : ""}
         </p>
         <p className="text-sm text-slate-300 mb-6">
-          This works like a real timed exam. Each block has its own clock, and there&apos;s
-          also an overall exam clock running the whole time. You move forward block by
-          block - once a block&apos;s time is up (or you finish it), it moves on to the
-          next one automatically, and you can&apos;t go back. You won&apos;t see your score
-          until you&apos;ve completed every block.
+          This works like a real timed exam. Each block has its own clock, plus there&apos;s
+          an overall exam clock running the whole time you&apos;re answering questions.
+          {breakSecondsTotal > 0
+            ? ` After each block (except the last), you can either continue straight to the next block, or take a break - breaks come out of a shared ${Math.round(
+                breakSecondsTotal / 60
+              )}-minute pool you can split up however you want, and the exam clock pauses while you're on break.`
+            : ""}{" "}
+          You can&apos;t go back to a block once it&apos;s submitted, and you won&apos;t see
+          your score until you&apos;ve finished the whole thing.
+        </p>
+        <p className="text-xs text-amber-400 mb-6">
+          You only get one attempt at this - once you finish, you can&apos;t retake it.
         </p>
         <button type="button" onClick={startAssessment} className="btn-primary">
           Start exam
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "blockDone") {
+    return (
+      <div className="card max-w-xl">
+        <h2 className="text-lg font-bold mb-2">Block {currentBlock + 1} complete</h2>
+        <p className="text-sm text-slate-400 mb-6">
+          {breakSecondsLeft > 0
+            ? `You have ${formatSeconds(breakSecondsLeft)} of break time left in your shared pool. You can take some of it now, or go straight to the next block.`
+            : "You're out of break time - continuing straight to the next block."}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={goToNextBlock} className="btn-primary">
+            Continue to block {currentBlock + 2}
+          </button>
+          {breakSecondsLeft > 0 && (
+            <button type="button" onClick={startBreak} className="btn-secondary">
+              Take a break
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "break") {
+    return (
+      <div className="card max-w-xl">
+        <h2 className="text-lg font-bold mb-2">On break</h2>
+        <p className="text-sm text-slate-400 mb-2">
+          Break time remaining in your shared pool:
+        </p>
+        <p className="text-3xl font-bold tabular-nums mb-6">{formatSeconds(breakSecondsLeft)}</p>
+        <p className="text-sm text-slate-300 mb-6">
+          The exam clock is paused. Come back whenever you&apos;re ready - you don&apos;t
+          have to use all of it now.
+        </p>
+        <button type="button" onClick={goToNextBlock} className="btn-primary">
+          End break and continue to block {currentBlock + 2}
         </button>
       </div>
     );
@@ -200,17 +326,8 @@ export default function AssessmentTake({
           </div>
         ))}
 
-        <button
-          type="button"
-          onClick={goToNextBlock}
-          className="btn-primary"
-          disabled={submitting}
-        >
-          {submitting
-            ? "Submitting..."
-            : isLastBlock
-            ? "Finish exam"
-            : `Submit block ${currentBlock + 1} and continue`}
+        <button type="button" onClick={endBlock} className="btn-primary" disabled={submitting}>
+          {submitting ? "Submitting..." : isLastBlock ? "Finish exam" : `Submit block ${currentBlock + 1}`}
         </button>
         {!isLastBlock && (
           <p className="text-xs text-slate-500">
@@ -221,9 +338,16 @@ export default function AssessmentTake({
     );
   }
 
-  // Results - shown only now, after every block is done.
+  // Results - shown only after every block is done (or immediately, if
+  // they've already completed this assessment before).
   if (!result) return null;
   const complete = result.total > 0 && result.pct === 100;
+  const breakdown = buildErrorBreakdown(assessment.questions, answers);
+  const wrongCount = breakdown.near + breakdown.far;
+  const avgSeconds =
+    Object.values(questionTimes).length > 0
+      ? Object.values(questionTimes).reduce((a, b) => a + b, 0) / Object.values(questionTimes).length
+      : 0;
   return (
     <div className="space-y-4 pb-10">
       <div className="card">
@@ -241,32 +365,86 @@ export default function AssessmentTake({
             {blocks.length === 1 ? "" : "s"}
           </span>
         </div>
+        {alreadyDone && (
+          <p className="text-xs text-slate-500 mt-3">
+            You&apos;ve already completed this assessment, so it can&apos;t be retaken.
+          </p>
+        )}
         <div className="flex gap-3 mt-4">
-          <button type="button" onClick={startAssessment} className="btn-secondary">
-            Retake
-          </button>
           <Link href="/assessments" className="btn-secondary">
             Back to assessments
           </Link>
         </div>
       </div>
 
+      {wrongCount > 0 && (
+        <div className="card">
+          <h2 className="font-semibold mb-2">Error pattern</h2>
+          <p className="text-sm text-slate-400 mb-3">
+            Of the {wrongCount} question{wrongCount === 1 ? "" : "s"} missed
+            {breakdown.unanswered > 0 ? ` (${breakdown.unanswered} left blank)` : ""}:
+          </p>
+          <div className="flex gap-6 mb-3">
+            <div>
+              <p className="text-2xl font-bold text-amber-400">{breakdown.nearPctOfWrong}%</p>
+              <p className="text-xs text-slate-400">near misses - close distractor picked</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-red-400">{breakdown.farPctOfWrong}%</p>
+              <p className="text-xs text-slate-400">far misses - unrelated option picked</p>
+            </div>
+          </div>
+          <p className="text-sm text-slate-300 border-t border-slate-800 pt-3">
+            {breakdown.near >= breakdown.far
+              ? "Most misses were close calls - you're landing in the right ballpark but not making the fine distinction between two similar answers. Drill side-by-side comparisons of look-alike diagnoses/drugs rather than re-reading from scratch."
+              : "Most misses were far from the correct answer - these look like gaps in the fundamentals rather than fine-distinction errors. Go back to first principles on these topics before doing more practice questions."}
+          </p>
+        </div>
+      )}
+
       {assessment.questions.map((q, idx) => {
         const chosen = answers[q.id];
-        const isCorrect = chosen === q.correct_choice_id;
+        const cls = classifyAnswer(q, chosen);
+        const isCorrect = cls === "correct";
+        const seconds = questionTimes[q.id];
+        const tookLong = avgSeconds > 0 && seconds !== undefined && seconds > avgSeconds * 1.5;
         return (
           <div key={q.id} className="card">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold">
                 {idx + 1}. {q.question}
               </p>
-              <span
-                className={`text-xs font-semibold rounded-full px-2 py-1 shrink-0 ml-2 ${
-                  isCorrect ? "bg-green-900/40 text-green-400" : "bg-red-900/40 text-red-400"
-                }`}
-              >
-                {isCorrect ? "Correct" : chosen ? "Incorrect" : "Not answered"}
-              </span>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                {seconds !== undefined && (
+                  <span
+                    className={`text-xs font-semibold rounded-full px-2 py-1 ${
+                      tookLong ? "bg-amber-900/40 text-amber-400" : "bg-slate-800 text-slate-400"
+                    }`}
+                  >
+                    {formatSeconds(seconds)}
+                    {tookLong ? " · slow" : ""}
+                  </span>
+                )}
+                <span
+                  className={`text-xs font-semibold rounded-full px-2 py-1 ${
+                    cls === "correct"
+                      ? "bg-green-900/40 text-green-400"
+                      : cls === "near"
+                      ? "bg-amber-900/40 text-amber-400"
+                      : cls === "far"
+                      ? "bg-red-900/40 text-red-400"
+                      : "bg-slate-800 text-slate-400"
+                  }`}
+                >
+                  {cls === "correct"
+                    ? "Correct"
+                    : cls === "near"
+                    ? "Near miss"
+                    : cls === "far"
+                    ? "Far miss"
+                    : "Not answered"}
+                </span>
+              </div>
             </div>
             <div className="space-y-2 mb-3">
               {q.choices.map((c) => {
