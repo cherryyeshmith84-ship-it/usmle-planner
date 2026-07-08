@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { blankChoice, blankQuestion } from "@/lib/assessments";
+import { blankChoice, blankQuestion, chunkIntoBlocks } from "@/lib/assessments";
 import type { Assessment, AssessmentQuestion } from "@/lib/types";
 
 export default function AssessmentForm({
@@ -15,7 +15,10 @@ export default function AssessmentForm({
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial?.name ?? "");
-  const [timeLimit, setTimeLimit] = useState(initial?.time_limit_minutes?.toString() ?? "60");
+  const [questionsPerBlock, setQuestionsPerBlock] = useState(
+    initial?.questions_per_block?.toString() ?? "20"
+  );
+  const [blockMinutes, setBlockMinutes] = useState(initial?.block_time_minutes?.toString() ?? "30");
   const [questions, setQuestions] = useState<AssessmentQuestion[]>(
     initial?.questions?.length ? initial.questions : [blankQuestion()]
   );
@@ -102,7 +105,8 @@ export default function AssessmentForm({
     const supabase = createClient();
     const payload = {
       name: name.trim(),
-      time_limit_minutes: timeLimit ? Number(timeLimit) : 60,
+      questions_per_block: questionsPerBlock ? Number(questionsPerBlock) : 20,
+      block_time_minutes: blockMinutes ? Number(blockMinutes) : 30,
       questions: cleanQuestions,
     };
 
@@ -145,15 +149,40 @@ export default function AssessmentForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <label className="label">Time limit (minutes, for the whole test)</label>
-        <input
-          type="number"
-          min={5}
-          max={300}
-          className="input"
-          value={timeLimit}
-          onChange={(e) => setTimeLimit(e.target.value)}
-        />
+        <div className="grid sm:grid-cols-2 gap-4 mb-2">
+          <div>
+            <label className="label">Questions per block</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              className="input"
+              value={questionsPerBlock}
+              onChange={(e) => setQuestionsPerBlock(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Minutes per block</label>
+            <input
+              type="number"
+              min={1}
+              max={180}
+              className="input"
+              value={blockMinutes}
+              onChange={(e) => setBlockMinutes(e.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">
+          {(() => {
+            const qpb = Math.max(1, Number(questionsPerBlock) || 20);
+            const numBlocks = Math.max(1, Math.ceil(questions.length / qpb));
+            const totalMin = numBlocks * (Number(blockMinutes) || 30);
+            return `With ${questions.length} question${questions.length === 1 ? "" : "s"} total, this becomes ${numBlocks} block${
+              numBlocks === 1 ? "" : "s"
+            } (${totalMin} minutes total). Students get a per-block timer plus an overall exam timer, and only see their score after finishing every block.`;
+          })()}
+        </p>
       </div>
 
       <div className="space-y-4">

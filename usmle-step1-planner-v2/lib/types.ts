@@ -131,7 +131,10 @@ export interface AssessmentQuestion {
 export interface Assessment {
   id: string;
   name: string;
-  time_limit_minutes: number;
+  // Exam is split into blocks: questions_per_block questions each, with
+  // block_time_minutes to complete each block (like an NBME-style exam).
+  questions_per_block: number;
+  block_time_minutes: number;
   questions: AssessmentQuestion[];
   created_by?: string | null;
   created_at?: string;

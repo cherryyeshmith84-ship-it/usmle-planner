@@ -68,11 +68,13 @@ export default async function AssessmentsListPage() {
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="font-semibold">{a.name}</h3>
                   <span className="text-xs font-semibold bg-slate-800 text-slate-300 rounded-full px-2 py-1">
-                    {a.time_limit_minutes} min
+                    {Math.max(1, Math.ceil(a.questions.length / (a.questions_per_block || 20)))} block
+                    {Math.max(1, Math.ceil(a.questions.length / (a.questions_per_block || 20))) === 1 ? "" : "s"}
                   </span>
                 </div>
                 <p className="text-sm text-slate-400">
-                  {a.questions.length} question{a.questions.length === 1 ? "" : "s"}
+                  {a.questions.length} question{a.questions.length === 1 ? "" : "s"} · {a.questions_per_block}
+                  /block · {a.block_time_minutes} min/block
                   {best !== undefined ? ` · best score so far: ${best}%` : " · not attempted yet"}
                 </p>
               </Link>
