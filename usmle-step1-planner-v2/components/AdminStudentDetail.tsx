@@ -73,11 +73,18 @@ export default function AdminStudentDetail({
     setAssignMsg(null);
     const supabase = createClient();
     const isNewAssignment = (student.assigned_template_id ?? "") !== assignedId;
-    const payload: { assigned_template_id: string | null; assigned_template_start_date?: string | null } = {
+    const payload: {
+      assigned_template_id: string | null;
+      assigned_template_start_date?: string | null;
+      track_changed_pending?: boolean;
+    } = {
       assigned_template_id: assignedId || null,
     };
     if (isNewAssignment) {
       payload.assigned_template_start_date = assignedId ? todayStr() : null;
+    }
+    if (student.track_changed_pending) {
+      payload.track_changed_pending = false;
     }
     const { error } = await supabase.from("profiles").update(payload).eq("id", student.id);
     setAssignSaving(false);
@@ -115,7 +122,11 @@ export default function AdminStudentDetail({
     if (!logError) {
       await supabase
         .from("profiles")
-        .update({ assigned_template_id: template.id, assigned_template_start_date: startDate })
+        .update({
+          assigned_template_id: template.id,
+          assigned_template_start_date: startDate,
+          ...(student.track_changed_pending ? { track_changed_pending: false } : {}),
+        })
         .eq("id", student.id);
     }
     setPushing(false);
@@ -150,6 +161,13 @@ export default function AdminStudentDetail({
         <h1 className="text-xl font-bold">{student.full_name || student.email || "Student"}</h1>
         <p className="text-sm text-slate-400">{student.email}</p>
       </div>
+
+      {student.track_changed_pending && (
+        <div className="rounded-xl border border-amber-700 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
+          This student recently switched their exam track (see message below). Their
+          current plan may no longer fit - review and reassign a template below.
+        </div>
+      )}
 
       <div className="card grid sm:grid-cols-2 gap-4">
         <div>

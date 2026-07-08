@@ -21,10 +21,12 @@ export default async function AdminHome() {
     .order("created_at", { ascending: false });
 
   const allStudents = (profilesData ?? []) as Profile[];
-  // Students who've finished onboarding but don't have a plan yet need
-  // attention first - surface them at the top of the list.
-  const needsPlan = allStudents.filter((s) => s.onboarding_completed && !s.assigned_template_id);
-  const rest = allStudents.filter((s) => !(s.onboarding_completed && !s.assigned_template_id));
+  // Students who need attention first: no plan yet, or just switched tracks
+  // and their existing plan may no longer fit - surface these at the top.
+  const needsAttentionCheck = (s: Profile) =>
+    (s.onboarding_completed && !s.assigned_template_id) || !!s.track_changed_pending;
+  const needsPlan = allStudents.filter(needsAttentionCheck);
+  const rest = allStudents.filter((s) => !needsAttentionCheck(s));
   const students = [...needsPlan, ...rest];
 
   const { data: templatesData } = await supabase.from("schedule_templates").select("id, name");
@@ -37,8 +39,9 @@ export default async function AdminHome() {
         <h1 className="text-xl font-bold mb-1">Students ({students.length})</h1>
         {needsPlan.length > 0 && (
           <p className="text-sm text-amber-400 mb-5">
-            {needsPlan.length} student{needsPlan.length === 1 ? "" : "s"} finished onboarding and
-            need{needsPlan.length === 1 ? "s" : ""} a plan assigned.
+            {needsPlan.length} student{needsPlan.length === 1 ? "" : "s"} need
+            {needsPlan.length === 1 ? "s" : ""} attention - a plan assigned, or a plan
+            review after switching exam tracks.
           </p>
         )}
         {needsPlan.length === 0 && <div className="mb-6" />}
@@ -51,7 +54,8 @@ export default async function AdminHome() {
 
         <div className="space-y-3">
           {students.map((s) => {
-            const needsAttention = s.onboarding_completed && !s.assigned_template_id;
+            const needsPlanFlag = s.onboarding_completed && !s.assigned_template_id;
+            const needsAttention = needsPlanFlag || !!s.track_changed_pending;
             return (
               <Link
                 key={s.id}
@@ -65,7 +69,12 @@ export default async function AdminHome() {
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
                   <div className="flex items-center gap-2">
-                    {needsAttention && (
+                    {s.track_changed_pending && (
+                      <span className="text-xs font-semibold bg-amber-900/40 text-amber-400 rounded-full px-2 py-1">
+                        Track changed
+                      </span>
+                    )}
+                    {needsPlanFlag && (
                       <span className="text-xs font-semibold bg-amber-900/40 text-amber-400 rounded-full px-2 py-1">
                         Needs a plan
                       </span>

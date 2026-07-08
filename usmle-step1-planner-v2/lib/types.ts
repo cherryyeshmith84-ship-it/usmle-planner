@@ -32,6 +32,7 @@ export interface Profile {
   weak_areas?: string | null;
   strong_areas?: string | null;
   goals_notes?: string | null;
+  track_changed_pending?: boolean;
 }
 
 export interface TemplateTask {

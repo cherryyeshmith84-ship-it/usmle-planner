@@ -26,7 +26,8 @@ export default function SettingsForm({
   email: string;
 }) {
   const [fullName, setFullName] = useState(profile.full_name ?? "");
-  const [track, setTrack] = useState<ExamTrack>(profile.exam_track ?? "step1");
+  const originalTrack: ExamTrack = profile.exam_track ?? "step1";
+  const [track, setTrack] = useState<ExamTrack>(originalTrack);
   const [subjectName, setSubjectName] = useState(profile.subject_name ?? "");
   const [prepStage, setPrepStage] = useState<PrepStage | "">(profile.prep_stage ?? "");
   const [examDate, setExamDate] = useState(profile.exam_date ?? "");
@@ -52,6 +53,7 @@ export default function SettingsForm({
     const finalResources = customResource.trim()
       ? [...resources, customResource.trim()]
       : resources;
+    const trackChanged = track !== originalTrack;
     const supabase = createClient();
     const { error } = await supabase
       .from("profiles")
@@ -68,8 +70,22 @@ export default function SettingsForm({
         weak_areas: weakAreas || null,
         goals_notes: goalsNotes || null,
         ai_instructions: aiInstructions || null,
+        ...(trackChanged ? { track_changed_pending: true } : {}),
       })
       .eq("id", userId);
+
+    // Let the coach know the student switched tracks, so she can review
+    // and reassign their plan - this doesn't happen automatically.
+    if (!error && trackChanged) {
+      const fromLabel = originalTrack === "subject" ? "Subject exams" : "Step 1 (CBSE)";
+      const toLabel = track === "subject" ? `Subject exams${subjectName ? ` - ${subjectName}` : ""}` : "Step 1 (CBSE)";
+      await supabase.from("messages").insert({
+        student_id: userId,
+        sender: "student",
+        body: `Switched exam track: ${fromLabel} -> ${toLabel}. My current plan may no longer fit - could you take a look and reassign when you get a chance?`,
+      });
+    }
+
     setSaving(false);
     setCustomResource("");
     setResources(finalResources);
