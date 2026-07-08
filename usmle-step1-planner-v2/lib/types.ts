@@ -135,6 +135,9 @@ export interface Assessment {
   // block_time_minutes to complete each block (like an NBME-style exam).
   questions_per_block: number;
   block_time_minutes: number;
+  // Shared break pool for the whole exam (minutes) - only usable between
+  // blocks, can be split across multiple breaks.
+  break_minutes: number;
   questions: AssessmentQuestion[];
   created_by?: string | null;
   created_at?: string;

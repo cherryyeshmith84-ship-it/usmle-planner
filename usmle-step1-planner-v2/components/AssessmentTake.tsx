@@ -4,16 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { chunkIntoBlocks, formatSeconds, scoreAttempt, type ScoreResult } from "@/lib/assessments";
-import type { Assessment } from "@/lib/types";
+import type { Assessment, AssessmentAttempt } from "@/lib/types";
 
-type Phase = "start" | "taking" | "results";
+type Phase = "start" | "taking" | "blockDone" | "break" | "results";
 
 export default function AssessmentTake({
   userId,
   assessment,
+  existingAttempt,
 }: {
   userId: string;
   assessment: Assessment;
+  existingAttempt: AssessmentAttempt | null;
 }) {
   const blocks = useMemo(
     () => chunkIntoBlocks(assessment.questions, assessment.questions_per_block),
@@ -21,20 +23,29 @@ export default function AssessmentTake({
   );
   const blockSeconds = assessment.block_time_minutes * 60;
   const examSeconds = blocks.length * blockSeconds;
+  const breakSecondsTotal = (assessment.break_minutes || 0) * 60;
 
-  const [phase, setPhase] = useState<Phase>("start");
+  // Already completed this before - show their result, no retaking.
+  const alreadyDone = !!existingAttempt;
+
+  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
   const [currentBlock, setCurrentBlock] = useState(0);
   const [blockSecondsLeft, setBlockSecondsLeft] = useState(blockSeconds);
   const [examSecondsLeft, setExamSecondsLeft] = useState(examSeconds);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<ScoreResult | null>(null);
+  const [breakSecondsLeft, setBreakSecondsLeft] = useState(breakSecondsTotal);
+  const [answers, setAnswers] = useState<Record<string, string>>(existingAttempt?.answers ?? {});
+  const [result, setResult] = useState<ScoreResult | null>(
+    alreadyDone
+      ? { correct: existingAttempt!.score_correct, total: existingAttempt!.score_total, pct: existingAttempt!.score_total > 0 ? Math.round((existingAttempt!.score_correct / existingAttempt!.score_total) * 100) : 0 }
+      : null
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
   const advancingRef = useRef(false);
 
-  // Master tick: counts down both timers together while the exam is in progress.
+  // Exam clock: only ticks while actively answering a block.
   useEffect(() => {
     if (phase !== "taking") return;
     const interval = setInterval(() => {
@@ -44,6 +55,23 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase]);
 
+  // Break clock: only ticks while on a break, separate from the exam clock.
+  useEffect(() => {
+    if (phase !== "break") return;
+    const interval = setInterval(() => {
+      setBreakSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  // Break pool ran out - send them back in.
+  useEffect(() => {
+    if (phase === "break" && breakSecondsLeft === 0) {
+      goToNextBlock();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakSecondsLeft, phase]);
+
   // Exam clock hit zero - end everything right now, regardless of block progress.
   useEffect(() => {
     if (phase === "taking" && examSecondsLeft === 0) {
@@ -52,10 +80,10 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, phase]);
 
-  // Block clock hit zero - move to the next block (or finish, if this was the last one).
+  // Block clock hit zero - end the block (same as clicking submit).
   useEffect(() => {
     if (phase === "taking" && blockSecondsLeft === 0 && examSecondsLeft > 0) {
-      goToNextBlock();
+      endBlock();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
@@ -65,6 +93,7 @@ export default function AssessmentTake({
     setCurrentBlock(0);
     setBlockSecondsLeft(blockSeconds);
     setExamSecondsLeft(examSeconds);
+    setBreakSecondsLeft(breakSecondsTotal);
     setAnswers({});
     setResult(null);
     finalizedRef.current = false;
@@ -76,18 +105,30 @@ export default function AssessmentTake({
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
   }
 
-  function goToNextBlock() {
+  /** Called when a block's time is up or the student submits it manually. */
+  function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
     if (currentBlock >= blocks.length - 1) {
       finalizeExam();
       return;
     }
+    setPhase("blockDone");
+  }
+
+  function goToNextBlock() {
+    if (finalizedRef.current || advancingRef.current) return;
     advancingRef.current = true;
     setCurrentBlock((prev) => prev + 1);
     setBlockSecondsLeft(blockSeconds);
+    setPhase("taking");
     setTimeout(() => {
       advancingRef.current = false;
     }, 300);
+  }
+
+  function startBreak() {
+    if (breakSecondsLeft <= 0) return;
+    setPhase("break");
   }
 
   async function finalizeExam() {
@@ -121,17 +162,67 @@ export default function AssessmentTake({
         <p className="text-sm text-slate-400 mb-6">
           {blocks.length} block{blocks.length === 1 ? "" : "s"} · {assessment.questions_per_block} questions
           per block · {assessment.block_time_minutes} minutes per block ·{" "}
-          {Math.round(examSeconds / 60)} minutes total
+          {Math.round(examSeconds / 60)} minutes of exam time
+          {breakSecondsTotal > 0 ? ` + ${Math.round(breakSecondsTotal / 60)} minutes of break` : ""}
         </p>
         <p className="text-sm text-slate-300 mb-6">
-          This works like a real timed exam. Each block has its own clock, and there&apos;s
-          also an overall exam clock running the whole time. You move forward block by
-          block - once a block&apos;s time is up (or you finish it), it moves on to the
-          next one automatically, and you can&apos;t go back. You won&apos;t see your score
-          until you&apos;ve completed every block.
+          This works like a real timed exam. Each block has its own clock, plus there&apos;s
+          an overall exam clock running the whole time you&apos;re answering questions.
+          {breakSecondsTotal > 0
+            ? ` After each block (except the last), you can either continue straight to the next block, or take a break - breaks come out of a shared ${Math.round(
+                breakSecondsTotal / 60
+              )}-minute pool you can split up however you want, and the exam clock pauses while you're on break.`
+            : ""}{" "}
+          You can&apos;t go back to a block once it&apos;s submitted, and you won&apos;t see
+          your score until you&apos;ve finished the whole thing.
+        </p>
+        <p className="text-xs text-amber-400 mb-6">
+          You only get one attempt at this - once you finish, you can&apos;t retake it.
         </p>
         <button type="button" onClick={startAssessment} className="btn-primary">
           Start exam
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "blockDone") {
+    return (
+      <div className="card max-w-xl">
+        <h2 className="text-lg font-bold mb-2">Block {currentBlock + 1} complete</h2>
+        <p className="text-sm text-slate-400 mb-6">
+          {breakSecondsLeft > 0
+            ? `You have ${formatSeconds(breakSecondsLeft)} of break time left in your shared pool. You can take some of it now, or go straight to the next block.`
+            : "You're out of break time - continuing straight to the next block."}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={goToNextBlock} className="btn-primary">
+            Continue to block {currentBlock + 2}
+          </button>
+          {breakSecondsLeft > 0 && (
+            <button type="button" onClick={startBreak} className="btn-secondary">
+              Take a break
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "break") {
+    return (
+      <div className="card max-w-xl">
+        <h2 className="text-lg font-bold mb-2">On break</h2>
+        <p className="text-sm text-slate-400 mb-2">
+          Break time remaining in your shared pool:
+        </p>
+        <p className="text-3xl font-bold tabular-nums mb-6">{formatSeconds(breakSecondsLeft)}</p>
+        <p className="text-sm text-slate-300 mb-6">
+          The exam clock is paused. Come back whenever you&apos;re ready - you don&apos;t
+          have to use all of it now.
+        </p>
+        <button type="button" onClick={goToNextBlock} className="btn-primary">
+          End break and continue to block {currentBlock + 2}
         </button>
       </div>
     );
@@ -200,17 +291,8 @@ export default function AssessmentTake({
           </div>
         ))}
 
-        <button
-          type="button"
-          onClick={goToNextBlock}
-          className="btn-primary"
-          disabled={submitting}
-        >
-          {submitting
-            ? "Submitting..."
-            : isLastBlock
-            ? "Finish exam"
-            : `Submit block ${currentBlock + 1} and continue`}
+        <button type="button" onClick={endBlock} className="btn-primary" disabled={submitting}>
+          {submitting ? "Submitting..." : isLastBlock ? "Finish exam" : `Submit block ${currentBlock + 1}`}
         </button>
         {!isLastBlock && (
           <p className="text-xs text-slate-500">
@@ -221,7 +303,8 @@ export default function AssessmentTake({
     );
   }
 
-  // Results - shown only now, after every block is done.
+  // Results - shown only after every block is done (or immediately, if
+  // they've already completed this assessment before).
   if (!result) return null;
   const complete = result.total > 0 && result.pct === 100;
   return (
@@ -241,10 +324,12 @@ export default function AssessmentTake({
             {blocks.length === 1 ? "" : "s"}
           </span>
         </div>
+        {alreadyDone && (
+          <p className="text-xs text-slate-500 mt-3">
+            You&apos;ve already completed this assessment, so it can&apos;t be retaken.
+          </p>
+        )}
         <div className="flex gap-3 mt-4">
-          <button type="button" onClick={startAssessment} className="btn-secondary">
-            Retake
-          </button>
           <Link href="/assessments" className="btn-secondary">
             Back to assessments
           </Link>

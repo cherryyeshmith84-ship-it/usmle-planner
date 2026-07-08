@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { blankChoice, blankQuestion, chunkIntoBlocks } from "@/lib/assessments";
+import { blankChoice, blankQuestion } from "@/lib/assessments";
 import type { Assessment, AssessmentQuestion } from "@/lib/types";
 
 export default function AssessmentForm({
@@ -19,6 +19,7 @@ export default function AssessmentForm({
     initial?.questions_per_block?.toString() ?? "20"
   );
   const [blockMinutes, setBlockMinutes] = useState(initial?.block_time_minutes?.toString() ?? "30");
+  const [breakMinutes, setBreakMinutes] = useState(initial?.break_minutes?.toString() ?? "15");
   const [questions, setQuestions] = useState<AssessmentQuestion[]>(
     initial?.questions?.length ? initial.questions : [blankQuestion()]
   );
@@ -107,6 +108,7 @@ export default function AssessmentForm({
       name: name.trim(),
       questions_per_block: questionsPerBlock ? Number(questionsPerBlock) : 20,
       block_time_minutes: blockMinutes ? Number(blockMinutes) : 30,
+      break_minutes: breakMinutes ? Number(breakMinutes) : 15,
       questions: cleanQuestions,
     };
 
@@ -173,14 +175,24 @@ export default function AssessmentForm({
             />
           </div>
         </div>
+        <label className="label">Total break time (minutes, shared across the whole exam)</label>
+        <input
+          type="number"
+          min={0}
+          max={120}
+          className="input mb-2"
+          value={breakMinutes}
+          onChange={(e) => setBreakMinutes(e.target.value)}
+        />
         <p className="text-xs text-slate-400">
           {(() => {
             const qpb = Math.max(1, Number(questionsPerBlock) || 20);
             const numBlocks = Math.max(1, Math.ceil(questions.length / qpb));
-            const totalMin = numBlocks * (Number(blockMinutes) || 30);
+            const examMin = numBlocks * (Number(blockMinutes) || 30);
+            const brk = Number(breakMinutes) || 0;
             return `With ${questions.length} question${questions.length === 1 ? "" : "s"} total, this becomes ${numBlocks} block${
               numBlocks === 1 ? "" : "s"
-            } (${totalMin} minutes total). Students get a per-block timer plus an overall exam timer, and only see their score after finishing every block.`;
+            } (${examMin} minutes of exam time + ${brk} minutes of break = ${examMin + brk} minutes total). After each block (except the last), students can continue straight to the next block or take a break - breaks come out of that shared ${brk}-minute pool and can be split across as many breaks as they want. Scores are only shown after every block is done.`;
           })()}
         </p>
       </div>
