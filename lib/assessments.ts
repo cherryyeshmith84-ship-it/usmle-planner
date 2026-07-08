@@ -57,3 +57,84 @@ export function formatSeconds(totalSeconds: number): string {
   const ss = sec.toString().padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
+
+export type AnswerClass = "correct" | "near" | "far" | "unanswered";
+
+/**
+ * Classifies a single answer:
+ * - "correct": right answer
+ * - "near": picked a choice the question-writer tagged as a close, plausible
+ *   distractor (they were in the right ballpark but couldn't discriminate)
+ * - "far": picked an unrelated/easily-ruled-out distractor (a fundamentals gap)
+ * - "unanswered": left blank
+ */
+export function classifyAnswer(
+  question: AssessmentQuestion,
+  chosenId: string | undefined
+): AnswerClass {
+  if (!chosenId) return "unanswered";
+  if (chosenId === question.correct_choice_id) return "correct";
+  const chosen = question.choices.find((c) => c.id === chosenId);
+  return chosen?.distance === "near" ? "near" : "far";
+}
+
+export interface ErrorBreakdown {
+  correct: number;
+  near: number;
+  far: number;
+  unanswered: number;
+  total: number;
+  // Of the questions gotten wrong (near + far), what % was each type.
+  nearPctOfWrong: number;
+  farPctOfWrong: number;
+}
+
+/** Tallies correct / near-miss / far-miss / unanswered across a full attempt. */
+export function buildErrorBreakdown(
+  questions: AssessmentQuestion[],
+  answers: Record<string, string>
+): ErrorBreakdown {
+  let correct = 0;
+  let near = 0;
+  let far = 0;
+  let unanswered = 0;
+  for (const q of questions) {
+    const cls = classifyAnswer(q, answers[q.id]);
+    if (cls === "correct") correct++;
+    else if (cls === "near") near++;
+    else if (cls === "far") far++;
+    else unanswered++;
+  }
+  const wrong = near + far;
+  return {
+    correct,
+    near,
+    far,
+    unanswered,
+    total: questions.length,
+    nearPctOfWrong: wrong > 0 ? Math.round((near / wrong) * 100) : 0,
+    farPctOfWrong: wrong > 0 ? Math.round((far / wrong) * 100) : 0,
+  };
+}
+
+/**
+ * Converts raw "elapsed seconds within the block at first answer" timestamps
+ * into approximate per-question time spent, by taking the difference between
+ * consecutive questions (in on-screen order) within each block.
+ */
+export function deriveQuestionTimes(
+  blocks: AssessmentQuestion[][],
+  rawElapsedAtFirstAnswer: Record<string, number>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const block of blocks) {
+    let prev = 0;
+    for (const q of block) {
+      const t = rawElapsedAtFirstAnswer[q.id];
+      if (t === undefined) continue;
+      out[q.id] = Math.max(0, t - prev);
+      prev = t;
+    }
+  }
+  return out;
+}
