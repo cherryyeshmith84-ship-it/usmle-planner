@@ -9,8 +9,10 @@ import {
   getTemplateDays,
   tasksForDay,
   templateTasksToStudyTasks,
+  type RoadmapEntry,
 } from "@/lib/templateDays";
 import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate } from "@/lib/types";
+import PlannerRoadmap from "@/components/PlannerRoadmap";
 
 const STAGE_LABEL: Record<string, string> = {
   beginning: "Just starting",
@@ -46,12 +48,16 @@ export default function AdminStudentDetail({
   templates,
   initialMessages,
   allBlockScores,
+  roadmap,
+  today,
 }: {
   student: Profile;
   recentLogs: DailyLog[];
   templates: ScheduleTemplate[];
   initialMessages: CoachMessage[];
   allBlockScores: BlockScore[];
+  roadmap: RoadmapEntry[];
+  today: string;
 }) {
   const router = useRouter();
   const [assignedId, setAssignedId] = useState(student.assigned_template_id ?? "");
@@ -298,6 +304,15 @@ export default function AdminStudentDetail({
             {pushMsg && <span className="text-sm text-slate-400">{pushMsg}</span>}
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <h2 className="font-semibold mb-1">Full plan roadmap</h2>
+        <p className="text-sm text-slate-400 mb-3">
+          Everything assigned so far - Day 1 through Day {roadmap.length || 0} - with
+          completion status per day.
+        </p>
+        <PlannerRoadmap entries={roadmap} today={today} />
       </div>
 
       {resourceAverages.length > 0 && (

@@ -1,5 +1,6 @@
 import type {
   BlockScore,
+  DailyLog,
   ScheduleTemplate,
   StudyTask,
   TemplateDay,
@@ -53,6 +54,43 @@ export function templateTasksToStudyTasks(tasks: TemplateTask[]): StudyTask[] {
     target: t.target,
     status: "pending" as const,
   }));
+}
+
+/** Calendar date (ISO) that a given day number of the sequence falls on. */
+export function dateForDay(startDate: string, dayNumber: number): string {
+  const d = new Date(startDate + "T00:00:00");
+  d.setDate(d.getDate() + (dayNumber - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+export interface RoadmapEntry {
+  dayNumber: number;
+  date: string;
+  tasks: TemplateTask[];
+  log: DailyLog | null;
+}
+
+/**
+ * The full day-by-day roadmap for a plan, Day 1 through however many days
+ * the coach put in the template - not just today. Overlays each day's real
+ * log (if the student has reached/logged that date yet) so completion
+ * status shows up alongside the plan itself.
+ */
+export function buildRoadmap(
+  days: TemplateDay[],
+  startDate: string,
+  logs: DailyLog[]
+): RoadmapEntry[] {
+  const logByDate = new Map(logs.map((l) => [l.log_date, l]));
+  return days.map((d) => {
+    const date = dateForDay(startDate, d.day_number);
+    return {
+      dayNumber: d.day_number,
+      date,
+      tasks: d.tasks,
+      log: logByDate.get(date) ?? null,
+    };
+  });
 }
 
 export interface PlanProgress {
