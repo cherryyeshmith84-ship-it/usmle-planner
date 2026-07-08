@@ -17,7 +17,7 @@ export default async function Home() {
   return (
     <main className="min-h-screen flex flex-col">
       <header className="max-w-5xl mx-auto w-full px-6 py-6 flex items-center justify-between">
-        <span className="font-bold text-lg text-brand-300">Step 1 Planner</span>
+        <span className="font-bold text-lg text-brand-300">Master Grid</span>
         <div className="flex gap-3">
           <Link href="/login" className="btn-secondary">Log in</Link>
           <Link href="/signup" className="btn-primary">Sign up</Link>

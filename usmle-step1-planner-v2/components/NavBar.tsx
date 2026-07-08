@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/dashboard", label: "Home" },
   { href: "/planner", label: "Planner" },
+  { href: "/assessments", label: "Self Assessment" },
   { href: "/history", label: "History" },
   { href: "/settings", label: "Settings" },
 ];
@@ -15,7 +16,7 @@ export default function NavBar({ isAdmin }: { isAdmin?: boolean }) {
   return (
     <aside className="w-56 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
       <div className="px-5 py-6">
-        <span className="font-bold text-brand-300">Step 1 Planner</span>
+        <span className="font-bold text-brand-300">Master Grid</span>
       </div>
       <nav className="flex flex-col gap-1 px-3 flex-1">
         {LINKS.map((l) => (

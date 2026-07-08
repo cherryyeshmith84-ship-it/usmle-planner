@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Step 1 Planner",
+  title: "Master Grid",
   description: "A daily study planner and AI coach for USMLE Step 1 prep.",
 };
 

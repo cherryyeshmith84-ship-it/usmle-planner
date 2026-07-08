@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/admin", label: "Students" },
   { href: "/admin/templates", label: "Templates" },
+  { href: "/admin/assessments", label: "Self Assessments" },
 ];
 
 export default function AdminNav() {
@@ -13,7 +14,7 @@ export default function AdminNav() {
   return (
     <aside className="w-56 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
       <div className="px-5 py-6">
-        <span className="font-bold text-brand-300 block mb-1">Step 1 Planner</span>
+        <span className="font-bold text-brand-300 block mb-1">Master Grid</span>
         <span className="text-xs font-semibold bg-brand-900/40 text-brand-300 rounded-full px-2 py-1">
           Admin
         </span>

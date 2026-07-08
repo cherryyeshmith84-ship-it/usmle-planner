@@ -114,3 +114,39 @@ export interface DailyLog {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface AssessmentChoice {
+  id: string;
+  text: string;
+}
+
+export interface AssessmentQuestion {
+  id: string;
+  question: string;
+  choices: AssessmentChoice[];
+  correct_choice_id: string;
+  explanation: string;
+}
+
+export interface Assessment {
+  id: string;
+  name: string;
+  time_limit_minutes: number;
+  questions: AssessmentQuestion[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AssessmentAttempt {
+  id: string;
+  assessment_id: string;
+  user_id: string;
+  started_at: string;
+  submitted_at: string | null;
+  // Map of question id -> chosen choice id
+  answers: Record<string, string>;
+  score_correct: number;
+  score_total: number;
+  created_at?: string;
+}
