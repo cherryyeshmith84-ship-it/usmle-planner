@@ -18,6 +18,17 @@ const STAGE_LABEL: Record<string, string> = {
   end: "Final stretch",
 };
 
+function templateMatchesStudent(t: ScheduleTemplate, student: Profile): boolean {
+  const studentTrack = student.exam_track || "step1";
+  const templateTrack = t.exam_track || "step1";
+  if (templateTrack !== studentTrack) return false;
+  if (studentTrack === "subject") {
+    if (!t.subject_name || !student.subject_name) return true;
+    return t.subject_name.trim().toLowerCase() === student.subject_name.trim().toLowerCase();
+  }
+  return t.stage === student.prep_stage;
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -53,8 +64,8 @@ export default function AdminStudentDetail({
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
 
-  const matchingTemplates = templates.filter((t) => t.stage === student.prep_stage);
-  const otherTemplates = templates.filter((t) => t.stage !== student.prep_stage);
+  const matchingTemplates = templates.filter((t) => templateMatchesStudent(t, student));
+  const otherTemplates = templates.filter((t) => !templateMatchesStudent(t, student));
   const resourceAverages = useMemo(() => computeResourceAverages(allBlockScores), [allBlockScores]);
 
   async function saveAssignment() {
@@ -142,6 +153,14 @@ export default function AdminStudentDetail({
 
       <div className="card grid sm:grid-cols-2 gap-4">
         <div>
+          <p className="label">Track</p>
+          <p className="text-sm">
+            {student.exam_track === "subject"
+              ? `Subject exams${student.subject_name ? ` - ${student.subject_name}` : ""}`
+              : "Step 1 (CBSE)"}
+          </p>
+        </div>
+        <div>
           <p className="label">Prep stage</p>
           <p className="text-sm">{student.prep_stage ? STAGE_LABEL[student.prep_stage] : "Not set"}</p>
         </div>
@@ -159,6 +178,36 @@ export default function AdminStudentDetail({
         </div>
       </div>
 
+      {(student.completed_so_far || student.strong_areas || student.weak_areas || student.goals_notes) && (
+        <div className="card space-y-3">
+          <h2 className="font-semibold">Intake details</h2>
+          {student.completed_so_far && (
+            <div>
+              <p className="label">Completed so far</p>
+              <p className="text-sm text-slate-300">{student.completed_so_far}</p>
+            </div>
+          )}
+          {student.strong_areas && (
+            <div>
+              <p className="label">Strong in</p>
+              <p className="text-sm text-slate-300">{student.strong_areas}</p>
+            </div>
+          )}
+          {student.weak_areas && (
+            <div>
+              <p className="label">Struggling with</p>
+              <p className="text-sm text-slate-300">{student.weak_areas}</p>
+            </div>
+          )}
+          {student.goals_notes && (
+            <div>
+              <p className="label">Goals / wants</p>
+              <p className="text-sm text-slate-300">{student.goals_notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <h2 className="font-semibold mb-3">Assign a schedule template</h2>
         <select
@@ -168,7 +217,15 @@ export default function AdminStudentDetail({
         >
           <option value="">No template - use default plan for their stage</option>
           {matchingTemplates.length > 0 && (
-            <optgroup label={`Matching their stage (${student.prep_stage ? STAGE_LABEL[student.prep_stage] : ""})`}>
+            <optgroup
+              label={`Matching this student (${
+                student.exam_track === "subject"
+                  ? `Subject${student.subject_name ? `: ${student.subject_name}` : ""}`
+                  : student.prep_stage
+                  ? STAGE_LABEL[student.prep_stage]
+                  : "Step 1"
+              })`}
+            >
               {matchingTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -180,10 +237,14 @@ export default function AdminStudentDetail({
             </optgroup>
           )}
           {otherTemplates.length > 0 && (
-            <optgroup label="Other stages">
+            <optgroup label="Other templates">
               {otherTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({STAGE_LABEL[t.stage]}, {getTemplateDays(t).length} day
+                  {t.name} (
+                  {t.exam_track === "subject"
+                    ? `Subject${t.subject_name ? `: ${t.subject_name}` : ""}`
+                    : STAGE_LABEL[t.stage]}
+                  , {getTemplateDays(t).length} day
                   {getTemplateDays(t).length === 1 ? "" : "s"})
                 </option>
               ))}

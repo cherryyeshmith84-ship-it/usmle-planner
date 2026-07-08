@@ -53,6 +53,10 @@ export function buildUserPrompt(
   today: DailyLog,
   recentLogs: DailyLog[]
 ) {
+  const trackInfo =
+    profile?.exam_track === "subject"
+      ? `Preparing for: Subject exam - ${profile?.subject_name || "unspecified subject"}`
+      : "Preparing for: USMLE Step 1 (CBSE)";
   const examInfo = profile?.exam_date
     ? `Exam date: ${profile.exam_date}`
     : "Exam date: not set";
@@ -65,6 +69,14 @@ export function buildUserPrompt(
   const resourceInfo = profile?.resources?.length
     ? `Preferred resources: ${profile.resources.join(", ")}`
     : "Preferred resources: not set";
+  const intakeLines = [
+    profile?.strong_areas ? `Student says they're strong in: ${profile.strong_areas}` : "",
+    profile?.weak_areas ? `Student says they're struggling with: ${profile.weak_areas}` : "",
+    profile?.completed_so_far ? `Completed so far (from intake): ${profile.completed_so_far}` : "",
+    profile?.goals_notes ? `Student's stated goals: ${profile.goals_notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const taskLines = today.tasks
     .map(
@@ -93,10 +105,12 @@ export function buildUserPrompt(
 
   return `
 Student profile:
+${trackInfo}
 ${examInfo}
 ${stageInfo}
 ${goalInfo}
 ${resourceInfo}
+${intakeLines ? `\n${intakeLines}\n` : ""}
 
 Today's log (${today.log_date}):
 Hours studied: ${today.hours_studied ?? "not logged"}

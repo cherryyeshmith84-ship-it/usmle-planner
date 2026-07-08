@@ -54,7 +54,9 @@ export default async function TemplatesPage() {
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="font-semibold">{t.name}</h3>
                   <span className="text-xs font-semibold bg-slate-800 text-slate-300 rounded-full px-2 py-1">
-                    {STAGE_LABEL[t.stage]}
+                    {t.exam_track === "subject"
+                      ? `Subject${t.subject_name ? `: ${t.subject_name}` : ""}`
+                      : STAGE_LABEL[t.stage]}
                   </span>
                 </div>
                 <p className="text-sm text-slate-400">

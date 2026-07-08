@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { dayNumberFor, getTemplateDays, tasksForDay, templateTasksToStudyTasks } from "@/lib/templateDays";
-import type { PrepStage, ScheduleTemplate, TemplateDay, TemplateTask } from "@/lib/types";
+import type { ExamTrack, PrepStage, ScheduleTemplate, TemplateDay, TemplateTask } from "@/lib/types";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -49,6 +49,8 @@ export default function TemplateForm({
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial?.name ?? "");
+  const [examTrack, setExamTrack] = useState<ExamTrack>(initial?.exam_track ?? "step1");
+  const [subjectName, setSubjectName] = useState(initial?.subject_name ?? "");
   const [stage, setStage] = useState<PrepStage>(initial?.stage ?? "beginning");
   const [hourGoal, setHourGoal] = useState(initial?.hour_goal?.toString() ?? "");
   const [resourceTags, setResourceTags] = useState<string[]>(initial?.resource_tags ?? []);
@@ -133,6 +135,8 @@ export default function TemplateForm({
     const finalDays = renumber(cleanDays);
     const payload = {
       name: name.trim(),
+      exam_track: examTrack,
+      subject_name: examTrack === "subject" ? subjectName.trim() || null : null,
       stage,
       hour_goal: hourGoal ? Number(hourGoal) : null,
       resource_tags: resourceTags,
@@ -209,21 +213,20 @@ export default function TemplateForm({
           onChange={(e) => setName(e.target.value)}
         />
 
-        <label className="label">Prep stage</label>
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <label className="label">Exam track</label>
+        <div className="grid grid-cols-2 gap-3 mb-4">
           {(
             [
-              { v: "beginning", l: "Just starting" },
-              { v: "middle", l: "In the middle" },
-              { v: "end", l: "Final stretch" },
-            ] as { v: PrepStage; l: string }[]
+              { v: "step1", l: "Step 1 (CBSE)" },
+              { v: "subject", l: "Subject exams" },
+            ] as { v: ExamTrack; l: string }[]
           ).map((opt) => (
             <button
               type="button"
               key={opt.v}
-              onClick={() => setStage(opt.v)}
+              onClick={() => setExamTrack(opt.v)}
               className={`rounded-xl border px-3 py-3 text-sm font-semibold text-center transition ${
-                stage === opt.v
+                examTrack === opt.v
                   ? "border-brand-400 bg-brand-900/40 text-brand-300"
                   : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
               }`}
@@ -232,6 +235,46 @@ export default function TemplateForm({
             </button>
           ))}
         </div>
+
+        {examTrack === "subject" && (
+          <>
+            <label className="label">Subject (optional - blank matches any subject)</label>
+            <input
+              className="input mb-4"
+              placeholder="e.g. Internal Medicine"
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+            />
+          </>
+        )}
+
+        {examTrack === "step1" && (
+          <>
+            <label className="label">Prep stage</label>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              {(
+                [
+                  { v: "beginning", l: "Just starting" },
+                  { v: "middle", l: "In the middle" },
+                  { v: "end", l: "Final stretch" },
+                ] as { v: PrepStage; l: string }[]
+              ).map((opt) => (
+                <button
+                  type="button"
+                  key={opt.v}
+                  onClick={() => setStage(opt.v)}
+                  className={`rounded-xl border px-3 py-3 text-sm font-semibold text-center transition ${
+                    stage === opt.v
+                      ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                      : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
+                  }`}
+                >
+                  {opt.l}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
           <div>

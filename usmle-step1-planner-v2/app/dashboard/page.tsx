@@ -46,7 +46,7 @@ export default async function DashboardPage() {
 
   const profile = profileData as Profile | null;
 
-  if (!profile?.prep_stage) {
+  if (!profile?.onboarding_completed) {
     redirect("/onboarding");
   }
 

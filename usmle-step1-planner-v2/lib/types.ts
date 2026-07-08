@@ -1,5 +1,7 @@
 export type PrepStage = "beginning" | "middle" | "end";
 
+export type ExamTrack = "step1" | "subject";
+
 export type TaskStatus = "pending" | "done" | "skipped";
 
 export interface StudyTask {
@@ -23,6 +25,13 @@ export interface Profile {
   assigned_template_start_date?: string | null;
   email?: string | null;
   created_at?: string;
+  onboarding_completed?: boolean;
+  exam_track?: ExamTrack | null;
+  subject_name?: string | null;
+  completed_so_far?: string | null;
+  weak_areas?: string | null;
+  strong_areas?: string | null;
+  goals_notes?: string | null;
 }
 
 export interface TemplateTask {
@@ -51,6 +60,8 @@ export interface ScheduleTemplate {
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  exam_track?: ExamTrack;
+  subject_name?: string | null;
 }
 
 export interface BlockScore {
