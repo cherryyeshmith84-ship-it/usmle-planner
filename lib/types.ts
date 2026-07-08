@@ -118,6 +118,10 @@ export interface DailyLog {
 export interface AssessmentChoice {
   id: string;
   text: string;
+  // Only meaningful for choices that are NOT the correct answer.
+  // "near" = a close, plausible distractor (tests fine discrimination).
+  // "far"/unset = an unrelated, easily-ruled-out distractor.
+  distance?: "near" | "far";
 }
 
 export interface AssessmentQuestion {
@@ -135,6 +139,9 @@ export interface Assessment {
   // block_time_minutes to complete each block (like an NBME-style exam).
   questions_per_block: number;
   block_time_minutes: number;
+  // Shared break pool for the whole exam (minutes) - only usable between
+  // blocks, can be split across multiple breaks.
+  break_minutes: number;
   questions: AssessmentQuestion[];
   created_by?: string | null;
   created_at?: string;
@@ -151,5 +158,7 @@ export interface AssessmentAttempt {
   answers: Record<string, string>;
   score_correct: number;
   score_total: number;
+  // Map of question id -> approx. seconds spent on that question.
+  question_seconds?: Record<string, number>;
   created_at?: string;
 }
