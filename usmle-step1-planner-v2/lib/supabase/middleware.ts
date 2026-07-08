@@ -1,3 +1,4 @@
+
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -40,7 +41,17 @@ export async function updateSession(request: NextRequest) {
   if (isProtected && !user) {
     const redirectUrl = new URL("/login", request.url);
     redirectUrl.searchParams.set("next", path);
-    return NextResponse.redirect(redirectUrl);
+    const redirectResponse = NextResponse.redirect(redirectUrl);
+    redirectResponse.headers.set("Cache-Control", "no-store");
+    return redirectResponse;
+  }
+
+  // These pages show data for whichever account is currently logged in.
+  // Without this, the browser (and its back/forward cache) can show a
+  // snapshot from a previously logged-in account when switching accounts
+  // in the same tab, making it look like two accounts' data got mixed up.
+  if (isProtected) {
+    response.headers.set("Cache-Control", "no-store");
   }
 
   return response;
