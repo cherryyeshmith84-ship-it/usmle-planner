@@ -58,15 +58,30 @@ export default async function DashboardPage() {
     redirect("/onboarding");
   }
 
-  const { data: logsData } = await supabase
-    .from("daily_logs")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("log_date", { ascending: false })
-    .limit(30);
-
-  const logs = (logsData ?? []) as DailyLog[];
   const today = todayStr();
+  const activeSource = profile.active_plan_source || "coach";
+
+  // Run every query that doesn't depend on another query's result at the
+  // same time, instead of one after another - this is most of what was
+  // making page loads feel slow.
+  const [logsRes, assignedTemplateRes, personalTemplateRes, messagesRes, scoreRes] = await Promise.all([
+    supabase
+      .from("daily_logs")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("log_date", { ascending: false })
+      .limit(30),
+    profile.assigned_template_id
+      ? supabase.from("schedule_templates").select("*").eq("id", profile.assigned_template_id).single()
+      : Promise.resolve({ data: null } as any),
+    activeSource === "own"
+      ? supabase.from("personal_templates").select("*").eq("user_id", user.id).maybeSingle()
+      : Promise.resolve({ data: null } as any),
+    supabase.from("messages").select("*").eq("student_id", user.id).order("created_at", { ascending: true }),
+    supabase.from("daily_logs").select("block_scores").eq("user_id", user.id),
+  ]);
+
+  const logs = (logsRes.data ?? []) as DailyLog[];
   const todayLog = logs.find((l) => l.log_date === today) ?? null;
   const streak = computeStreak(logs);
 
@@ -78,27 +93,8 @@ export default async function DashboardPage() {
     daysUntilExam = Math.ceil(diff);
   }
 
-  const activeSource = profile.active_plan_source || "coach";
-
-  let assignedTemplate: ScheduleTemplate | null = null;
-  if (profile.assigned_template_id) {
-    const { data: templateData } = await supabase
-      .from("schedule_templates")
-      .select("*")
-      .eq("id", profile.assigned_template_id)
-      .single();
-    assignedTemplate = (templateData as ScheduleTemplate) ?? null;
-  }
-
-  let personalTemplate: PersonalTemplate | null = null;
-  if (activeSource === "own") {
-    const { data: personalData } = await supabase
-      .from("personal_templates")
-      .select("*")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    personalTemplate = (personalData as PersonalTemplate) ?? null;
-  }
+  const assignedTemplate = (assignedTemplateRes.data as ScheduleTemplate) ?? null;
+  const personalTemplate = (personalTemplateRes.data as PersonalTemplate) ?? null;
 
   const activeTemplate = activeSource === "own" ? personalTemplate : assignedTemplate;
   const activeStartDate =
@@ -124,19 +120,8 @@ export default async function DashboardPage() {
     }
   }
 
-  const { data: messagesData } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("student_id", user.id)
-    .order("created_at", { ascending: true });
-
-  // Lightweight, unlimited fetch of just block scores across all history,
-  // so running averages reflect the student's whole prep, not just recent days.
-  const { data: scoreRows } = await supabase
-    .from("daily_logs")
-    .select("block_scores")
-    .eq("user_id", user.id);
-  const allBlockScores: BlockScore[] = (scoreRows ?? []).flatMap(
+  const messagesData = messagesRes.data;
+  const allBlockScores: BlockScore[] = (scoreRes.data ?? []).flatMap(
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
 

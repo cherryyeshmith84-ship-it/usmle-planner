@@ -30,22 +30,14 @@ export default async function PlannerPage() {
   const today = todayStr();
   const activeSource = profile?.active_plan_source || "coach";
 
-  let assignedTemplate: ScheduleTemplate | null = null;
-  if (profile?.assigned_template_id) {
-    const { data: templateData } = await supabase
-      .from("schedule_templates")
-      .select("*")
-      .eq("id", profile.assigned_template_id)
-      .single();
-    assignedTemplate = (templateData as ScheduleTemplate) ?? null;
-  }
-
-  const { data: personalData } = await supabase
-    .from("personal_templates")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const personalTemplate = (personalData as PersonalTemplate) ?? null;
+  const [assignedTemplateRes, personalRes] = await Promise.all([
+    profile?.assigned_template_id
+      ? supabase.from("schedule_templates").select("*").eq("id", profile.assigned_template_id).single()
+      : Promise.resolve({ data: null } as any),
+    supabase.from("personal_templates").select("*").eq("user_id", user.id).maybeSingle(),
+  ]);
+  const assignedTemplate = (assignedTemplateRes.data as ScheduleTemplate) ?? null;
+  const personalTemplate = (personalRes.data as PersonalTemplate) ?? null;
 
   const usingOwn = activeSource === "own";
   const activeTemplate = usingOwn ? personalTemplate : assignedTemplate;

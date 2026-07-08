@@ -21,42 +21,31 @@ function todayStr() {
 export default async function StudentDetailPage({ params }: { params: { id: string } }) {
   const { supabase } = await requireAdmin();
 
-  const { data: studentData } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", params.id)
-    .single();
+  // None of these six queries depend on each other's results - only on the
+  // student id from the URL - so run them all at once instead of one by one.
+  const [studentRes, logsRes, templatesRes, messagesRes, scoreRes, personalRes] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", params.id).single(),
+    supabase
+      .from("daily_logs")
+      .select("*")
+      .eq("user_id", params.id)
+      .order("log_date", { ascending: false })
+      .limit(14),
+    supabase.from("schedule_templates").select("*").order("stage", { ascending: true }).order("name", { ascending: true }),
+    supabase.from("messages").select("*").eq("student_id", params.id).order("created_at", { ascending: true }),
+    supabase.from("daily_logs").select("block_scores").eq("user_id", params.id),
+    supabase.from("personal_templates").select("*").eq("user_id", params.id).maybeSingle(),
+  ]);
 
-  if (!studentData) notFound();
-  const student = studentData as Profile;
-
-  const { data: logsData } = await supabase
-    .from("daily_logs")
-    .select("*")
-    .eq("user_id", params.id)
-    .order("log_date", { ascending: false })
-    .limit(14);
-
-  const { data: templatesData } = await supabase
-    .from("schedule_templates")
-    .select("*")
-    .order("stage", { ascending: true })
-    .order("name", { ascending: true });
-  const templates = (templatesData ?? []) as ScheduleTemplate[];
-
-  const { data: messagesData } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("student_id", params.id)
-    .order("created_at", { ascending: true });
-
-  const { data: scoreRows } = await supabase
-    .from("daily_logs")
-    .select("block_scores")
-    .eq("user_id", params.id);
-  const allBlockScores: BlockScore[] = (scoreRows ?? []).flatMap(
+  if (!studentRes.data) notFound();
+  const student = studentRes.data as Profile;
+  const logsData = logsRes.data;
+  const templates = (templatesRes.data ?? []) as ScheduleTemplate[];
+  const messagesData = messagesRes.data;
+  const allBlockScores: BlockScore[] = (scoreRes.data ?? []).flatMap(
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
+  const personalTemplate = (personalRes.data as PersonalTemplate) ?? null;
 
   // Full day-by-day roadmap for whatever this student is currently using -
   // their coach-assigned plan, or their own self-built one - so the coach
@@ -64,14 +53,6 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
   const today = todayStr();
   const activeSource = student.active_plan_source || "coach";
   const assignedTemplate = templates.find((t) => t.id === student.assigned_template_id) ?? null;
-
-  let personalTemplate: PersonalTemplate | null = null;
-  const { data: personalData } = await supabase
-    .from("personal_templates")
-    .select("*")
-    .eq("user_id", params.id)
-    .maybeSingle();
-  personalTemplate = (personalData as PersonalTemplate) ?? null;
 
   const activeTemplate = activeSource === "own" ? personalTemplate : assignedTemplate;
   const days = getTemplateDays(activeTemplate);

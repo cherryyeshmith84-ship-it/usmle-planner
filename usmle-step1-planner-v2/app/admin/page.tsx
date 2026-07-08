@@ -14,13 +14,12 @@ const STAGE_LABEL: Record<string, string> = {
 export default async function AdminHome() {
   const { supabase, user } = await requireAdmin();
 
-  const { data: profilesData } = await supabase
-    .from("profiles")
-    .select("*")
-    .neq("id", user.id)
-    .order("created_at", { ascending: false });
+  const [profilesRes, templatesRes] = await Promise.all([
+    supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
+    supabase.from("schedule_templates").select("id, name"),
+  ]);
 
-  const allStudents = (profilesData ?? []) as Profile[];
+  const allStudents = (profilesRes.data ?? []) as Profile[];
   // Students who need attention first: no plan yet, or just switched tracks
   // and their existing plan may no longer fit - surface these at the top.
   const needsAttentionCheck = (s: Profile) =>
@@ -29,8 +28,7 @@ export default async function AdminHome() {
   const rest = allStudents.filter((s) => !needsAttentionCheck(s));
   const students = [...needsPlan, ...rest];
 
-  const { data: templatesData } = await supabase.from("schedule_templates").select("id, name");
-  const templateMap = new Map((templatesData ?? []).map((t: any) => [t.id, t.name]));
+  const templateMap = new Map((templatesRes.data ?? []).map((t: any) => [t.id, t.name]));
 
   return (
     <div className="min-h-screen flex">
