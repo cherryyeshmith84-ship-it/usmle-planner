@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -14,7 +14,6 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,8 +34,10 @@ function LoginForm() {
       setError(error.message);
       return;
     }
-    router.push(params.get("next") || "/dashboard");
-    router.refresh();
+    // Full page reload (not client-side navigation) so that no cached
+    // data from a previously logged-in account can linger in the browser
+    // when switching between accounts in the same tab.
+    window.location.href = params.get("next") || "/dashboard";
   }
 
   return (
