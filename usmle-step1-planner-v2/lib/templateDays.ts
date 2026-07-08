@@ -55,6 +55,33 @@ export function templateTasksToStudyTasks(tasks: TemplateTask[]): StudyTask[] {
   }));
 }
 
+export interface PlanProgress {
+  doneCount: number;
+  totalCount: number;
+  pct: number;
+  complete: boolean;
+}
+
+/**
+ * Overall progress through the CURRENT assigned plan: how many tasks have
+ * been marked done across every day since the plan started, out of the
+ * total tasks the whole plan contains. Naturally resets to 0 whenever a
+ * new template (and therefore a new start date) is assigned, since only
+ * logs from on/after that start date are counted.
+ */
+export function computePlanProgress(
+  days: TemplateDay[],
+  logsSinceStart: { tasks: { status: string }[] }[]
+): PlanProgress {
+  const totalCount = days.reduce((sum, d) => sum + d.tasks.length, 0);
+  const doneCount = logsSinceStart.reduce(
+    (sum, l) => sum + l.tasks.filter((t) => t.status === "done").length,
+    0
+  );
+  const pct = totalCount > 0 ? Math.min(100, Math.round((doneCount / totalCount) * 100)) : 0;
+  return { doneCount, totalCount, pct, complete: totalCount > 0 && doneCount >= totalCount };
+}
+
 export interface ResourceAverage {
   resource: string;
   totalQuestions: number;

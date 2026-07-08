@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const LINKS = [
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard", label: "Home" },
   { href: "/history", label: "History" },
   { href: "/settings", label: "Settings" },
 ];
@@ -12,38 +12,40 @@ const LINKS = [
 export default function NavBar({ isAdmin }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   return (
-    <header className="border-b border-slate-200 bg-white">
-      <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-        <span className="font-bold text-brand-700">Step 1 Planner</span>
-        <nav className="flex items-center gap-1">
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className="text-sm font-medium px-3 py-2 rounded-lg text-brand-700 bg-brand-50 hover:bg-brand-100"
-            >
-              Admin
-            </Link>
-          )}
-          {LINKS.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={`text-sm font-medium px-3 py-2 rounded-lg transition ${
-                pathname === l.href
-                  ? "bg-brand-50 text-brand-700"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {l.label}
-            </Link>
-          ))}
-          <form action="/auth/signout" method="post">
-            <button className="text-sm font-medium px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-100">
-              Log out
-            </button>
-          </form>
-        </nav>
+    <aside className="w-56 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
+      <div className="px-5 py-6">
+        <span className="font-bold text-brand-300">Step 1 Planner</span>
       </div>
-    </header>
+      <nav className="flex flex-col gap-1 px-3 flex-1">
+        {LINKS.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className={`text-sm font-medium px-3 py-2.5 rounded-lg transition ${
+              pathname === l.href
+                ? "bg-brand-900/40 text-brand-300"
+                : "text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            {l.label}
+          </Link>
+        ))}
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className="text-sm font-medium px-3 py-2.5 rounded-lg text-brand-300 bg-brand-900/40 hover:bg-brand-900/40 mt-1"
+          >
+            Admin
+          </Link>
+        )}
+      </nav>
+      <div className="px-3 pb-6">
+        <form action="/auth/signout" method="post">
+          <button className="w-full text-left text-sm font-medium px-3 py-2.5 rounded-lg text-slate-400 hover:bg-slate-800">
+            Log out
+          </button>
+        </form>
+      </div>
+    </aside>
   );
 }

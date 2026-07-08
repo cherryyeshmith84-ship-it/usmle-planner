@@ -8,16 +8,16 @@ body {
 }
 
 body {
-  background-color: #f6f7fb;
-  color: #16182b;
+  background-color: #000000;
+  color: #ffffff;
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #e6e8f0;
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .btn-primary {
@@ -29,32 +29,41 @@ body {
   transition: background-color 0.15s ease;
 }
 .btn-primary:hover {
-  background-color: #1e44d1;
+  background-color: #4571ff;
 }
 .btn-primary:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background-color: #eef1fb;
-  color: #182a6b;
+  background-color: #1a1a1a;
+  color: #ffffff;
   font-weight: 600;
   border-radius: 10px;
   padding: 10px 18px;
+  border: 1px solid #333333;
   transition: background-color 0.15s ease;
 }
 .btn-secondary:hover {
-  background-color: #dfe4f7;
+  background-color: #262626;
+}
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .input {
   width: 100%;
-  border: 1px solid #d7dae5;
+  border: 1px solid #333333;
   border-radius: 10px;
   padding: 10px 12px;
-  background: white;
+  background: #0d0d0d;
+  color: #ffffff;
   font-size: 14px;
+}
+.input::placeholder {
+  color: #6b7280;
 }
 .input:focus {
   outline: 2px solid #2b5bf5;
@@ -64,7 +73,7 @@ body {
 .label {
   font-size: 13px;
   font-weight: 600;
-  color: #454a5f;
+  color: #d1d5db;
   margin-bottom: 6px;
   display: block;
 }

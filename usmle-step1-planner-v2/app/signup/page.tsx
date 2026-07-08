@@ -42,7 +42,7 @@ export default function SignupPage() {
       <main className="min-h-screen flex items-center justify-center px-6">
         <div className="card max-w-md w-full text-center">
           <h1 className="text-xl font-bold mb-2">Check your email</h1>
-          <p className="text-slate-600 text-sm">
+          <p className="text-slate-300 text-sm">
             We sent a confirmation link to <b>{email}</b>. Click it to
             activate your account, then come back and log in.
           </p>
@@ -55,7 +55,7 @@ export default function SignupPage() {
     <main className="min-h-screen flex items-center justify-center px-6">
       <form onSubmit={handleSubmit} className="card max-w-md w-full">
         <h1 className="text-xl font-bold mb-1">Create your account</h1>
-        <p className="text-sm text-slate-600 mb-6">
+        <p className="text-sm text-slate-300 mb-6">
           Start planning your Step 1 prep.
         </p>
 
@@ -90,16 +90,16 @@ export default function SignupPage() {
         />
 
         {error && (
-          <p className="text-sm text-red-600 mb-4">{error}</p>
+          <p className="text-sm text-red-400 mb-4">{error}</p>
         )}
 
         <button className="btn-primary w-full" disabled={loading}>
           {loading ? "Creating account..." : "Sign up"}
         </button>
 
-        <p className="text-sm text-slate-600 mt-4 text-center">
+        <p className="text-sm text-slate-300 mt-4 text-center">
           Already have an account?{" "}
-          <Link href="/login" className="text-brand-600 font-semibold">
+          <Link href="/login" className="text-brand-400 font-semibold">
             Log in
           </Link>
         </p>

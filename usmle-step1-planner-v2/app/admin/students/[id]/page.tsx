@@ -45,9 +45,9 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
   );
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen flex">
       <AdminNav />
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
         <AdminStudentDetail
           student={studentData as Profile}
           recentLogs={(logsData ?? []) as DailyLog[]}

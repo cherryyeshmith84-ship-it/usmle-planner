@@ -3,8 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getTemplateDays } from "@/lib/templateDays";
+import { dayNumberFor, getTemplateDays, tasksForDay, templateTasksToStudyTasks } from "@/lib/templateDays";
 import type { PrepStage, ScheduleTemplate, TemplateDay, TemplateTask } from "@/lib/types";
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 const RESOURCE_OPTIONS = [
   "UWorld",
@@ -126,6 +130,7 @@ export default function TemplateForm({
     setError(null);
     const supabase = createClient();
 
+    const finalDays = renumber(cleanDays);
     const payload = {
       name: name.trim(),
       stage,
@@ -133,18 +138,45 @@ export default function TemplateForm({
       resource_tags: resourceTags,
       remote_friendly: remoteFriendly,
       notes: notes || null,
-      tasks: renumber(cleanDays),
+      tasks: finalDays,
     };
 
     const { error } = initial
       ? await supabase.from("schedule_templates").update(payload).eq("id", initial.id)
       : await supabase.from("schedule_templates").insert({ ...payload, created_by: userId });
 
-    setSaving(false);
     if (error) {
+      setSaving(false);
       setError(error.message);
       return;
     }
+
+    // Editing an existing template that students are already assigned to -
+    // push the change into their day immediately for everyone on it right now.
+    if (initial) {
+      const { data: assignedStudents } = await supabase
+        .from("profiles")
+        .select("id, assigned_template_start_date")
+        .eq("assigned_template_id", initial.id);
+
+      const today = todayStr();
+      for (const student of assignedStudents ?? []) {
+        const startDate = (student as any).assigned_template_start_date || today;
+        const dayNumber = dayNumberFor(startDate, today);
+        const dayTasks = tasksForDay(finalDays, dayNumber);
+        const newTasks = templateTasksToStudyTasks(dayTasks);
+        await supabase.from("daily_logs").upsert(
+          {
+            user_id: (student as any).id,
+            log_date: today,
+            tasks: newTasks,
+          },
+          { onConflict: "user_id,log_date" }
+        );
+      }
+    }
+
+    setSaving(false);
     router.push("/admin/templates");
     router.refresh();
   }
@@ -192,8 +224,8 @@ export default function TemplateForm({
               onClick={() => setStage(opt.v)}
               className={`rounded-xl border px-3 py-3 text-sm font-semibold text-center transition ${
                 stage === opt.v
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                  : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
               }`}
             >
               {opt.l}
@@ -236,8 +268,8 @@ export default function TemplateForm({
               onClick={() => toggleTag(r)}
               className={`text-sm rounded-full px-3 py-1.5 border transition ${
                 resourceTags.includes(r)
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
-                  : "border-slate-200 text-slate-600 hover:border-slate-300"
+                  ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                  : "border-slate-700 text-slate-300 hover:border-slate-600"
               }`}
             >
               {r}
@@ -257,7 +289,7 @@ export default function TemplateForm({
 
       <div className="card">
         <h2 className="font-semibold mb-1">Day-by-day schedule</h2>
-        <p className="text-sm text-slate-600 mb-4">
+        <p className="text-sm text-slate-300 mb-4">
           Build this out day by day - e.g. Day 1: UWorld block + review, Day 2: UWorld
           block + review, Day 3: Sketchy gram positives. When you assign this to a
           student, whatever day you assign it becomes their Day 1. If a student runs
@@ -267,14 +299,14 @@ export default function TemplateForm({
 
         <div className="space-y-4">
           {days.map((day, dayIdx) => (
-            <div key={dayIdx} className="border border-slate-200 rounded-xl p-4">
+            <div key={dayIdx} className="border border-slate-700 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-sm">Day {day.day_number}</h3>
                 <div className="flex items-center gap-3 text-sm">
                   <button
                     type="button"
                     onClick={() => duplicateDay(dayIdx)}
-                    className="text-brand-600 hover:text-brand-700"
+                    className="text-brand-400 hover:text-brand-300"
                   >
                     Duplicate day
                   </button>
@@ -282,7 +314,7 @@ export default function TemplateForm({
                     <button
                       type="button"
                       onClick={() => removeDay(dayIdx)}
-                      className="text-slate-400 hover:text-red-500"
+                      className="text-slate-500 hover:text-red-400"
                     >
                       Remove day
                     </button>
@@ -294,7 +326,7 @@ export default function TemplateForm({
                 {day.tasks.map((t, taskIdx) => (
                   <div
                     key={taskIdx}
-                    className="flex flex-wrap gap-2 items-center border border-slate-100 bg-slate-50 rounded-xl p-3"
+                    className="flex flex-wrap gap-2 items-center border border-slate-800 bg-slate-800 rounded-xl p-3"
                   >
                     <input
                       className="input flex-1 min-w-[160px]"
@@ -322,7 +354,7 @@ export default function TemplateForm({
                     <button
                       type="button"
                       onClick={() => removeTask(dayIdx, taskIdx)}
-                      className="text-slate-400 hover:text-red-500 text-sm px-2"
+                      className="text-slate-500 hover:text-red-400 text-sm px-2"
                     >
                       &times;
                     </button>
@@ -332,7 +364,7 @@ export default function TemplateForm({
               <button
                 type="button"
                 onClick={() => addTask(dayIdx)}
-                className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                className="text-sm text-brand-400 hover:text-brand-300 font-medium"
               >
                 + Add task to Day {day.day_number}
               </button>
@@ -345,7 +377,7 @@ export default function TemplateForm({
         </button>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-400">{error}</p>}
 
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={saving}>
@@ -355,7 +387,7 @@ export default function TemplateForm({
           <button
             type="button"
             onClick={handleDelete}
-            className="btn-secondary text-red-600"
+            className="btn-secondary text-red-400"
             disabled={saving}
           >
             Delete template

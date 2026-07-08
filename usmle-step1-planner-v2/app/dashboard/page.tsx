@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { BlockScore, CoachMessage, DailyLog, Profile, ScheduleTemplate, TemplateTask } from "@/lib/types";
-import { dayNumberFor, getTemplateDays, tasksForDay } from "@/lib/templateDays";
+import { computePlanProgress, dayNumberFor, getTemplateDays, tasksForDay, type PlanProgress } from "@/lib/templateDays";
 import DashboardClient from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +82,7 @@ export default async function DashboardPage() {
 
   let templateDayTasks: TemplateTask[] | null = null;
   let dayInfo: { dayNumber: number; totalDays: number } | null = null;
+  let planProgress: PlanProgress | null = null;
   if (assignedTemplate) {
     const days = getTemplateDays(assignedTemplate);
     if (days.length > 0) {
@@ -89,6 +90,13 @@ export default async function DashboardPage() {
       const dayNumber = dayNumberFor(startDate, today);
       templateDayTasks = tasksForDay(days, dayNumber);
       dayInfo = { dayNumber, totalDays: days.length };
+
+      const { data: logsSinceStartData } = await supabase
+        .from("daily_logs")
+        .select("tasks")
+        .eq("user_id", user.id)
+        .gte("log_date", startDate);
+      planProgress = computePlanProgress(days, (logsSinceStartData ?? []) as { tasks: any[] }[]);
     }
   }
 
@@ -119,6 +127,7 @@ export default async function DashboardPage() {
       daysUntilExam={daysUntilExam}
       templateDayTasks={templateDayTasks}
       dayInfo={dayInfo}
+      planProgress={planProgress}
       allBlockScores={allBlockScores}
       initialMessages={(messagesData ?? []) as CoachMessage[]}
     />

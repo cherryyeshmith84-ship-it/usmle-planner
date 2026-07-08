@@ -17,7 +17,7 @@ export default async function Home() {
   return (
     <main className="min-h-screen flex flex-col">
       <header className="max-w-5xl mx-auto w-full px-6 py-6 flex items-center justify-between">
-        <span className="font-bold text-lg text-brand-700">Step 1 Planner</span>
+        <span className="font-bold text-lg text-brand-300">Step 1 Planner</span>
         <div className="flex gap-3">
           <Link href="/login" className="btn-secondary">Log in</Link>
           <Link href="/signup" className="btn-primary">Sign up</Link>
@@ -25,10 +25,10 @@ export default async function Home() {
       </header>
 
       <section className="max-w-3xl mx-auto w-full px-6 py-16 text-center flex-1">
-        <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 mb-4">
+        <h1 className="text-4xl font-extrabold tracking-tight text-white mb-4">
           A daily study planner for USMLE Step 1
         </h1>
-        <p className="text-lg text-slate-600 mb-8">
+        <p className="text-lg text-slate-300 mb-8">
           Track your daily tasks, hours, and resources. Rate how each day
           really went. Get an AI coach that reviews your day and tells you
           what to focus on tomorrow &mdash; based on your own progress.
@@ -45,21 +45,21 @@ export default async function Home() {
         <div className="grid sm:grid-cols-3 gap-4 mt-16 text-left">
           <div className="card">
             <h3 className="font-semibold mb-1">Daily tracker</h3>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
               Log tasks, hours, resources used, and what you skipped &mdash;
               every single day.
             </p>
           </div>
           <div className="card">
             <h3 className="font-semibold mb-1">End-of-day reflection</h3>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
               Write a note and rate the day 0-10 so you can see real
               patterns over time.
             </p>
           </div>
           <div className="card">
             <h3 className="font-semibold mb-1">AI coach</h3>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
               Get a daily review and a concrete plan for tomorrow, tailored
               to how you actually studied.
             </p>

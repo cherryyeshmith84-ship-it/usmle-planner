@@ -43,7 +43,7 @@ function LoginForm() {
     <main className="min-h-screen flex items-center justify-center px-6">
       <form onSubmit={handleSubmit} className="card max-w-md w-full">
         <h1 className="text-xl font-bold mb-1">Welcome back</h1>
-        <p className="text-sm text-slate-600 mb-6">Log in to your planner.</p>
+        <p className="text-sm text-slate-300 mb-6">Log in to your planner.</p>
 
         <label className="label">Email</label>
         <input
@@ -64,15 +64,15 @@ function LoginForm() {
           required
         />
 
-        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+        {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
 
         <button className="btn-primary w-full" disabled={loading}>
           {loading ? "Logging in..." : "Log in"}
         </button>
 
-        <p className="text-sm text-slate-600 mt-4 text-center">
+        <p className="text-sm text-slate-300 mt-4 text-center">
           No account yet?{" "}
-          <Link href="/signup" className="text-brand-600 font-semibold">
+          <Link href="/signup" className="text-brand-400 font-semibold">
             Sign up
           </Link>
         </p>

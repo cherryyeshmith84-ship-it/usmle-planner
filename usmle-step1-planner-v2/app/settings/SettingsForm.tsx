@@ -70,7 +70,7 @@ export default function SettingsForm({
       <div className="card">
         <h2 className="font-semibold mb-4">Account</h2>
         <label className="label">Email</label>
-        <input className="input mb-4 bg-slate-50" value={email} disabled />
+        <input className="input mb-4 bg-slate-800" value={email} disabled />
         <label className="label">Name</label>
         <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
       </div>
@@ -92,8 +92,8 @@ export default function SettingsForm({
               onClick={() => setPrepStage(opt.v)}
               className={`rounded-xl border px-3 py-3 text-sm font-semibold text-center transition ${
                 prepStage === opt.v
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                  : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
               }`}
             >
               {opt.l}
@@ -129,8 +129,8 @@ export default function SettingsForm({
               onClick={() => toggleResource(r)}
               className={`text-sm rounded-full px-3 py-1.5 border transition ${
                 resources.includes(r)
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
-                  : "border-slate-200 text-slate-600 hover:border-slate-300"
+                  ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                  : "border-slate-700 text-slate-300 hover:border-slate-600"
               }`}
             >
               {r}
@@ -147,7 +147,7 @@ export default function SettingsForm({
 
       <div className="card">
         <h2 className="font-semibold mb-2">Custom AI instructions</h2>
-        <p className="text-sm text-slate-600 mb-4">
+        <p className="text-sm text-slate-300 mb-4">
           Paste in your own guidance for the AI coach - e.g. how you personally
           want to approach UWorld, Sketchy, Boards & Beyond, pacing rules,
           things it should always remind you of, or anything specific to your
@@ -163,7 +163,7 @@ export default function SettingsForm({
         />
       </div>
 
-      {msg && <p className="text-sm text-slate-600">{msg}</p>}
+      {msg && <p className="text-sm text-slate-300">{msg}</p>}
       <button className="btn-primary" disabled={saving}>
         {saving ? "Saving..." : "Save settings"}
       </button>

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { defaultTasksForStage } from "@/lib/defaultTasks";
-import { computeResourceAverages, templateTasksToStudyTasks } from "@/lib/templateDays";
+import { computeResourceAverages, templateTasksToStudyTasks, type PlanProgress } from "@/lib/templateDays";
 import type {
   AiFeedback,
   BlockScore,
@@ -65,6 +65,7 @@ export default function DashboardClient({
   daysUntilExam,
   templateDayTasks,
   dayInfo,
+  planProgress,
   allBlockScores,
   initialMessages,
 }: {
@@ -77,6 +78,7 @@ export default function DashboardClient({
   daysUntilExam: number | null;
   templateDayTasks: TemplateTask[] | null;
   dayInfo: { dayNumber: number; totalDays: number } | null;
+  planProgress: PlanProgress | null;
   allBlockScores: BlockScore[];
   initialMessages: CoachMessage[];
 }) {
@@ -137,14 +139,19 @@ export default function DashboardClient({
   const doneCount = tasks.filter((t) => t.status === "done").length;
   const progressPct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
 
-  function cycleStatus(id: string) {
+  function toggleDone(id: string) {
     setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        const order: TaskStatus[] = ["pending", "done", "skipped"];
-        const next = order[(order.indexOf(t.status) + 1) % order.length];
-        return { ...t, status: next };
-      })
+      prev.map((t) =>
+        t.id === id ? { ...t, status: t.status === "done" ? ("pending" as TaskStatus) : ("done" as TaskStatus) } : t
+      )
+    );
+  }
+
+  function toggleSkip(id: string) {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === id ? { ...t, status: t.status === "skipped" ? ("pending" as TaskStatus) : ("skipped" as TaskStatus) } : t
+      )
     );
   }
 
@@ -215,10 +222,20 @@ export default function DashboardClient({
     return `${daysUntilExam} day${daysUntilExam === 1 ? "" : "s"} until exam`;
   }, [daysUntilExam]);
 
+  const pendingCount = tasks.filter((t) => t.status === "pending").length;
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen flex">
       <NavBar isAdmin={profile.is_admin} />
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 space-y-6">
+        {pendingCount > 0 && (
+          <div className="rounded-xl border border-amber-900 bg-amber-900/20 px-4 py-3 flex items-center justify-between">
+            <p className="text-sm text-amber-300">
+              You have {pendingCount} task{pendingCount === 1 ? "" : "s"} left for today.
+            </p>
+          </div>
+        )}
+
         <div className="grid sm:grid-cols-4 gap-4">
           <StatCard label="Streak" value={`${streak} day${streak === 1 ? "" : "s"}`} />
           <StatCard label="Countdown" value={examLine} />
@@ -226,49 +243,103 @@ export default function DashboardClient({
           <StatCard label="Daily goal" value={profile.daily_hour_goal ? `${profile.daily_hour_goal}h` : "not set"} />
         </div>
 
+        {planProgress && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-semibold text-sm">
+                Plan progress {dayInfo ? `(Day ${dayInfo.dayNumber} of ${dayInfo.totalDays})` : ""}
+              </h2>
+              <span className="text-sm text-slate-400">
+                {planProgress.doneCount}/{planProgress.totalCount} tasks
+                {planProgress.complete ? " · plan complete!" : ""}
+              </span>
+            </div>
+            <div className="w-full h-2.5 rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  planProgress.complete ? "bg-green-500" : "bg-brand-500"
+                }`}
+                style={{ width: `${planProgress.pct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-bold text-lg">Today &middot; {today}</h2>
               {dayInfo && (
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-400 mt-0.5">
                   Day {dayInfo.dayNumber} of {dayInfo.totalDays} in your assigned plan
                 </p>
               )}
             </div>
-            <span className="text-sm text-slate-500">{progressPct}% complete</span>
+            <span className="text-sm text-slate-400">{progressPct}% complete</span>
           </div>
 
           <ul className="space-y-2 mb-4">
             {tasks.map((t) => (
               <li
                 key={t.id}
-                className="flex items-center gap-3 border border-slate-200 rounded-xl px-3 py-2"
+                className={`flex items-center gap-3 border rounded-xl px-3 py-2 transition ${
+                  t.status === "done"
+                    ? "border-green-900 bg-green-900/10"
+                    : t.status === "skipped"
+                    ? "border-amber-900 bg-amber-900/10"
+                    : "border-slate-700"
+                }`}
               >
                 <button
                   type="button"
-                  onClick={() => cycleStatus(t.id)}
-                  className={`shrink-0 text-xs font-bold rounded-full px-2.5 py-1 min-w-[76px] text-center ${
+                  onClick={() => toggleDone(t.id)}
+                  aria-label={t.status === "done" ? "Mark not done" : "Mark done"}
+                  className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition ${
                     t.status === "done"
-                      ? "bg-green-100 text-green-700"
-                      : t.status === "skipped"
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-slate-100 text-slate-600"
+                      ? "bg-green-500 border-green-500"
+                      : "border-slate-500 hover:border-green-500"
                   }`}
                 >
-                  {t.status === "done" ? "Done" : t.status === "skipped" ? "Skipped" : "Pending"}
+                  {t.status === "done" && (
+                    <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4">
+                      <path
+                        d="M4 10.5L8 14.5L16 5.5"
+                        stroke="black"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
                 </button>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{t.title}</p>
-                  <p className="text-xs text-slate-500">
+                  <p
+                    className={`text-sm font-medium truncate ${
+                      t.status === "done" ? "line-through text-green-400" : ""
+                    }`}
+                  >
+                    {t.title}
+                  </p>
+                  <p className="text-xs text-slate-400">
                     {t.resource}
                     {t.target ? ` · ${t.target}` : ""}
                   </p>
                 </div>
                 <button
                   type="button"
+                  onClick={() => toggleSkip(t.id)}
+                  className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full transition ${
+                    t.status === "skipped"
+                      ? "bg-amber-900/40 text-amber-400"
+                      : "text-slate-500 hover:text-amber-400"
+                  }`}
+                >
+                  Skip
+                </button>
+                <button
+                  type="button"
                   onClick={() => removeTask(t.id)}
-                  className="text-slate-400 hover:text-red-500 text-sm px-2"
+                  className="text-slate-500 hover:text-red-400 text-sm px-2"
                   aria-label="Remove task"
                 >
                   &times;
@@ -276,11 +347,11 @@ export default function DashboardClient({
               </li>
             ))}
             {tasks.length === 0 && (
-              <p className="text-sm text-slate-500">No tasks yet - add one below.</p>
+              <p className="text-sm text-slate-400">No tasks yet - add one below.</p>
             )}
           </ul>
 
-          <div className="flex flex-wrap gap-2 items-center border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap gap-2 items-center border-t border-slate-800 pt-4">
             <input
               className="input flex-1 min-w-[160px]"
               placeholder="Add a task (e.g. UWorld cardio block)"
@@ -338,7 +409,7 @@ export default function DashboardClient({
 
         <div className="card">
           <h2 className="font-bold text-lg mb-1">Block scores</h2>
-          <p className="text-sm text-slate-600 mb-4">
+          <p className="text-sm text-slate-300 mb-4">
             Log each block you did today (UWorld, NBME/UWSA, Amboss, etc.) so your
             coach can see how you're actually scoring, not just what you completed.
           </p>
@@ -348,7 +419,7 @@ export default function DashboardClient({
               {blockScores.map((b) => (
                 <div
                   key={b.id}
-                  className="flex flex-wrap gap-2 items-center border border-slate-200 rounded-xl p-3"
+                  className="flex flex-wrap gap-2 items-center border border-slate-700 rounded-xl p-3"
                 >
                   <select
                     className="input w-auto"
@@ -370,7 +441,7 @@ export default function DashboardClient({
                     value={b.question_count}
                     onChange={(e) => updateBlockScore(b.id, { question_count: Number(e.target.value) })}
                   />
-                  <span className="text-sm text-slate-500">questions,</span>
+                  <span className="text-sm text-slate-400">questions,</span>
                   <input
                     type="number"
                     min={0}
@@ -380,11 +451,11 @@ export default function DashboardClient({
                     value={b.percent_correct}
                     onChange={(e) => updateBlockScore(b.id, { percent_correct: Number(e.target.value) })}
                   />
-                  <span className="text-sm text-slate-500">% correct</span>
+                  <span className="text-sm text-slate-400">% correct</span>
                   <button
                     type="button"
                     onClick={() => removeBlockScore(b.id)}
-                    className="text-slate-400 hover:text-red-500 text-sm px-2 ml-auto"
+                    className="text-slate-500 hover:text-red-400 text-sm px-2 ml-auto"
                   >
                     &times;
                   </button>
@@ -398,15 +469,15 @@ export default function DashboardClient({
           </button>
 
           {resourceAverages.length > 0 && (
-            <div className="border-t border-slate-100 pt-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+            <div className="border-t border-slate-800 pt-3">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
                 Your running averages (all time)
               </p>
               <div className="flex flex-wrap gap-3">
                 {resourceAverages.map((r) => (
-                  <div key={r.resource} className="text-sm bg-slate-50 rounded-lg px-3 py-2">
+                  <div key={r.resource} className="text-sm bg-slate-800 rounded-lg px-3 py-2">
                     <span className="font-semibold">{r.resource}:</span> {r.averagePct}%{" "}
-                    <span className="text-slate-400">({r.totalQuestions}q)</span>
+                    <span className="text-slate-500">({r.totalQuestions}q)</span>
                   </div>
                 ))}
               </div>
@@ -448,7 +519,7 @@ export default function DashboardClient({
             <button type="button" onClick={saveProgress} className="btn-primary" disabled={saving}>
               {saving ? "Saving..." : "Save today's progress"}
             </button>
-            {saveMsg && <span className="text-sm text-slate-500">{saveMsg}</span>}
+            {saveMsg && <span className="text-sm text-slate-400">{saveMsg}</span>}
           </div>
         </div>
 
@@ -464,20 +535,20 @@ export default function DashboardClient({
               {aiLoading ? "Thinking..." : "Get today's AI feedback"}
             </button>
           </div>
-          {aiError && <p className="text-sm text-red-600 mb-2">{aiError}</p>}
+          {aiError && <p className="text-sm text-red-400 mb-2">{aiError}</p>}
           {aiFeedback ? (
             <div className="space-y-3 text-sm">
               <div>
-                <p className="font-semibold text-slate-800 mb-1">Today's review</p>
-                <p className="text-slate-600">{aiFeedback.review}</p>
+                <p className="font-semibold text-white mb-1">Today's review</p>
+                <p className="text-slate-300">{aiFeedback.review}</p>
               </div>
               <div>
-                <p className="font-semibold text-slate-800 mb-1">Plan for tomorrow</p>
-                <p className="text-slate-600">{aiFeedback.plan}</p>
+                <p className="font-semibold text-white mb-1">Plan for tomorrow</p>
+                <p className="text-slate-300">{aiFeedback.plan}</p>
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-400">
               Save your progress for today, then click above to get a review of
               today and a concrete plan for tomorrow.
             </p>
@@ -488,7 +559,7 @@ export default function DashboardClient({
           <h2 className="font-bold text-lg mb-3">Messages from your coach</h2>
           <div className="space-y-2 mb-4 max-h-80 overflow-y-auto">
             {messages.length === 0 && (
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-slate-400">
                 No messages yet. If something about your plan isn&apos;t working, say so here.
               </p>
             )}
@@ -497,8 +568,8 @@ export default function DashboardClient({
                 key={m.id}
                 className={`text-sm rounded-xl px-3 py-2 max-w-[80%] ${
                   m.sender === "student"
-                    ? "bg-brand-50 text-brand-800 ml-auto"
-                    : "bg-slate-100 text-slate-700"
+                    ? "bg-brand-900/40 text-brand-200 ml-auto"
+                    : "bg-slate-800 text-slate-200"
                 }`}
               >
                 <p>{m.body}</p>
@@ -532,7 +603,7 @@ export default function DashboardClient({
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="card py-4">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</p>
       <p className="text-lg font-bold mt-1">{value}</p>
     </div>
   );

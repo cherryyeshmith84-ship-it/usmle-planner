@@ -18,9 +18,9 @@ export default async function EditTemplatePage({ params }: { params: { id: strin
   if (!data) notFound();
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen flex">
       <AdminNav />
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="flex-1 max-w-3xl mx-auto px-6 py-8">
         <h1 className="text-xl font-bold mb-6">Edit template</h1>
         <TemplateForm userId={user.id} initial={data as ScheduleTemplate} />
       </main>

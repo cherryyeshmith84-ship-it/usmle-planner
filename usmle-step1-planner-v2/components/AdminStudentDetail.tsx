@@ -23,10 +23,10 @@ function todayStr() {
 }
 
 function ratingColor(rating: number | null) {
-  if (rating === null) return "bg-slate-100 text-slate-500";
-  if (rating >= 8) return "bg-green-100 text-green-700";
-  if (rating >= 5) return "bg-amber-100 text-amber-700";
-  return "bg-red-100 text-red-700";
+  if (rating === null) return "bg-slate-800 text-slate-400";
+  if (rating >= 8) return "bg-green-900/40 text-green-400";
+  if (rating >= 5) return "bg-amber-900/40 text-amber-400";
+  return "bg-red-900/40 text-red-400";
 }
 
 export default function AdminStudentDetail({
@@ -137,7 +137,7 @@ export default function AdminStudentDetail({
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold">{student.full_name || student.email || "Student"}</h1>
-        <p className="text-sm text-slate-500">{student.email}</p>
+        <p className="text-sm text-slate-400">{student.email}</p>
       </div>
 
       <div className="card grid sm:grid-cols-2 gap-4">
@@ -194,16 +194,16 @@ export default function AdminStudentDetail({
           <button type="button" onClick={saveAssignment} className="btn-primary" disabled={assignSaving}>
             {assignSaving ? "Saving..." : "Save assignment"}
           </button>
-          {assignMsg && <span className="text-sm text-slate-500">{assignMsg}</span>}
+          {assignMsg && <span className="text-sm text-slate-400">{assignMsg}</span>}
         </div>
         {templates.length === 0 && (
-          <p className="text-sm text-slate-500 mt-3">
+          <p className="text-sm text-slate-400 mt-3">
             You haven&apos;t created any templates yet - go to Templates to add one.
           </p>
         )}
 
-        <div className="mt-4 pt-4 border-t border-slate-100">
-          <p className="text-sm text-slate-600 mb-2">
+        <div className="mt-4 pt-4 border-t border-slate-800">
+          <p className="text-sm text-slate-300 mb-2">
             Already assigned above but they don&apos;t see it? Their day may already be
             in progress. Push it in immediately, replacing today&apos;s task list:
           </p>
@@ -216,7 +216,7 @@ export default function AdminStudentDetail({
             >
               {pushing ? "Pushing..." : "Push this template to their day, right now"}
             </button>
-            {pushMsg && <span className="text-sm text-slate-500">{pushMsg}</span>}
+            {pushMsg && <span className="text-sm text-slate-400">{pushMsg}</span>}
           </div>
         </div>
       </div>
@@ -226,9 +226,9 @@ export default function AdminStudentDetail({
           <h2 className="font-semibold mb-3">Score averages (all time)</h2>
           <div className="flex flex-wrap gap-3">
             {resourceAverages.map((r) => (
-              <div key={r.resource} className="text-sm bg-slate-50 rounded-lg px-3 py-2">
+              <div key={r.resource} className="text-sm bg-slate-800 rounded-lg px-3 py-2">
                 <span className="font-semibold">{r.resource}:</span> {r.averagePct}%{" "}
-                <span className="text-slate-400">
+                <span className="text-slate-500">
                   ({r.totalCorrect}/{r.totalQuestions})
                 </span>
               </div>
@@ -240,31 +240,31 @@ export default function AdminStudentDetail({
       <div className="card">
         <h2 className="font-semibold mb-3">Recent days (last 14)</h2>
         {recentLogs.length === 0 && (
-          <p className="text-sm text-slate-500">No logged days yet.</p>
+          <p className="text-sm text-slate-400">No logged days yet.</p>
         )}
         <div className="space-y-2">
           {recentLogs.map((log) => {
             const done = log.tasks.filter((t) => t.status === "done").length;
             return (
-              <div key={log.id} className="border border-slate-200 rounded-xl px-3 py-2">
+              <div key={log.id} className="border border-slate-700 rounded-xl px-3 py-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold">{log.log_date}</span>
                   <span className={`text-xs font-semibold rounded-full px-2 py-1 ${ratingColor(log.rating)}`}>
                     {log.rating !== null ? `${log.rating}/10` : "not rated"}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-400">
                   {log.hours_studied ?? "?"}h &middot; {done}/{log.tasks.length} tasks done
                   {log.topics_skipped ? ` · skipped: ${log.topics_skipped}` : ""}
                 </p>
                 {log.block_scores?.length > 0 && (
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     {log.block_scores
                       .map((b) => `${b.resource} ${b.question_count}q, ${b.percent_correct}%`)
                       .join(" · ")}
                   </p>
                 )}
-                {log.notes && <p className="text-xs text-slate-500 italic mt-1">&ldquo;{log.notes}&rdquo;</p>}
+                {log.notes && <p className="text-xs text-slate-400 italic mt-1">&ldquo;{log.notes}&rdquo;</p>}
               </div>
             );
           })}
@@ -275,15 +275,15 @@ export default function AdminStudentDetail({
         <h2 className="font-semibold mb-3">Messages</h2>
         <div className="space-y-2 mb-4 max-h-80 overflow-y-auto">
           {messages.length === 0 && (
-            <p className="text-sm text-slate-500">No messages yet - start the conversation below.</p>
+            <p className="text-sm text-slate-400">No messages yet - start the conversation below.</p>
           )}
           {messages.map((m) => (
             <div
               key={m.id}
               className={`text-sm rounded-xl px-3 py-2 max-w-[80%] ${
                 m.sender === "coach"
-                  ? "bg-brand-50 text-brand-800 ml-auto"
-                  : "bg-slate-100 text-slate-700"
+                  ? "bg-brand-900/40 text-brand-200 ml-auto"
+                  : "bg-slate-800 text-slate-200"
               }`}
             >
               <p>{m.body}</p>

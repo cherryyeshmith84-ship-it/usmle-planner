@@ -81,7 +81,7 @@ export default function OnboardingForm({
   return (
     <form onSubmit={handleSubmit} className="card max-w-2xl w-full">
       <h1 className="text-xl font-bold mb-1">Tell us about your prep</h1>
-      <p className="text-sm text-slate-600 mb-6">
+      <p className="text-sm text-slate-300 mb-6">
         This shapes your default daily plan and your AI coach's advice. You
         can change all of this later in Settings.
       </p>
@@ -101,8 +101,8 @@ export default function OnboardingForm({
             onClick={() => setPrepStage(opt.v)}
             className={`rounded-xl border px-3 py-3 text-sm font-semibold text-center transition ${
               prepStage === opt.v
-                ? "border-brand-500 bg-brand-50 text-brand-700"
-                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
             }`}
           >
             {opt.l}
@@ -138,8 +138,8 @@ export default function OnboardingForm({
             onClick={() => toggleResource(r)}
             className={`text-sm rounded-full px-3 py-1.5 border transition ${
               resources.includes(r)
-                ? "border-brand-500 bg-brand-50 text-brand-700"
-                : "border-slate-200 text-slate-600 hover:border-slate-300"
+                ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                : "border-slate-700 text-slate-300 hover:border-slate-600"
             }`}
           >
             {r}
@@ -153,7 +153,7 @@ export default function OnboardingForm({
         onChange={(e) => setCustomResource(e.target.value)}
       />
 
-      {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+      {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
 
       <button className="btn-primary w-full" disabled={loading}>
         {loading ? "Saving..." : "Go to my dashboard"}
