@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -5,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { templateTasksToStudyTasks, type RoadmapEntry } from "@/lib/templateDays";
-import type { ActivePlanSource, StudyTask } from "@/lib/types";
+import type { ActivePlanSource, StudyTask, TaskStatus } from "@/lib/types";
 
 function dayStatus(
   dayTasks: StudyTask[],
@@ -68,9 +69,11 @@ export default function PlannerClient({
 
   function toggleDone(date: string, taskId: string) {
     setDayTasks((prev) => {
-      const updated = (prev[date] ?? []).map((t) =>
-        t.id === taskId ? { ...t, status: t.status === "done" ? "pending" : ("done" as const) } : t
-      );
+      const updated: StudyTask[] = (prev[date] ?? []).map((t) => {
+        if (t.id !== taskId) return t;
+        const status: TaskStatus = t.status === "done" ? "pending" : "done";
+        return { ...t, status };
+      });
       saveDay(date, updated);
       return { ...prev, [date]: updated };
     });
@@ -78,11 +81,11 @@ export default function PlannerClient({
 
   function toggleSkip(date: string, taskId: string) {
     setDayTasks((prev) => {
-      const updated = (prev[date] ?? []).map((t) =>
-        t.id === taskId
-          ? { ...t, status: t.status === "skipped" ? "pending" : ("skipped" as const) }
-          : t
-      );
+      const updated: StudyTask[] = (prev[date] ?? []).map((t) => {
+        if (t.id !== taskId) return t;
+        const status: TaskStatus = t.status === "skipped" ? "pending" : "skipped";
+        return { ...t, status };
+      });
       saveDay(date, updated);
       return { ...prev, [date]: updated };
     });
