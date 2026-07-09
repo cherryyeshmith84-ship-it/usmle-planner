@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +17,7 @@ import LabValuesSearch from "./LabValuesSearch";
 import AiHelper from "./AiHelper";
 import ExamCalculator from "./ExamCalculator";
 import ExamSettings, { type ExamTheme, type FontSize } from "./ExamSettings";
+import QuestionNavigator from "./QuestionNavigator";
 
 type Phase = "start" | "taking" | "blockDone" | "break" | "results";
 
@@ -46,6 +48,10 @@ export default function AssessmentTake({
 
   const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
   const [currentBlock, setCurrentBlock] = useState(0);
+  // Which question within the current block is on screen right now - the
+  // exam shows one question at a time (like UWorld), not the whole block
+  // scrolled out like a PDF.
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [blockSecondsLeft, setBlockSecondsLeft] = useState(blockSeconds);
   const [examSecondsLeft, setExamSecondsLeft] = useState(examSeconds);
   const [breakSecondsLeft, setBreakSecondsLeft] = useState(breakSecondsTotal);
@@ -66,6 +72,13 @@ export default function AssessmentTake({
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [examTheme, setExamTheme] = useState<ExamTheme>("dark");
   const [splitScreen, setSplitScreen] = useState(false);
+
+  // Question id -> true if flagged "review later" via the flag button.
+  const [flagged, setFlagged] = useState<Record<string, boolean>>({});
+  // Question id -> set of choice ids the student has struck out (double-click
+  // a choice to toggle). Struck choices stay visible and clickable - this
+  // is just a visual "ruled this out" mark, like UWorld's strikethrough tool.
+  const [struckChoices, setStruckChoices] = useState<Record<string, Set<string>>>({});
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
@@ -130,7 +143,11 @@ export default function AssessmentTake({
   useEffect(() => {
     if (phase !== "taking") return;
 
-    function applyHighlight() {
+    function applyHighlight(e: MouseEvent) {
+      // e.detail > 1 means this mouseup is part of a double/triple click
+      // (browser auto-selects a word) - that's the strike-out gesture, not
+      // a highlight drag-select, so skip it here.
+      if (e.detail > 1) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
@@ -180,11 +197,14 @@ export default function AssessmentTake({
   function startAssessment() {
     startedAtRef.current = new Date().toISOString();
     setCurrentBlock(0);
+    setCurrentQuestionIndex(0);
     setBlockSecondsLeft(blockSeconds);
     setExamSecondsLeft(examSeconds);
     setBreakSecondsLeft(breakSecondsTotal);
     setAnswers({});
     setResult(null);
+    setFlagged({});
+    setStruckChoices({});
     rawElapsedRef.current = {};
     setQuestionTimes({});
     finalizedRef.current = false;
@@ -199,6 +219,19 @@ export default function AssessmentTake({
     if (rawElapsedRef.current[questionId] === undefined) {
       rawElapsedRef.current[questionId] = blockSeconds - blockSecondsLeft;
     }
+  }
+
+  function toggleStrike(questionId: string, choiceId: string) {
+    setStruckChoices((prev) => {
+      const current = new Set(prev[questionId] ?? []);
+      if (current.has(choiceId)) current.delete(choiceId);
+      else current.add(choiceId);
+      return { ...prev, [questionId]: current };
+    });
+  }
+
+  function toggleFlag(questionId: string) {
+    setFlagged((prev) => ({ ...prev, [questionId]: !prev[questionId] }));
   }
 
   /** Called when a block's time is up or the student submits it manually. */
@@ -222,6 +255,7 @@ export default function AssessmentTake({
     if (finalizedRef.current || advancingRef.current) return;
     advancingRef.current = true;
     setCurrentBlock((prev) => prev + 1);
+    setCurrentQuestionIndex(0);
     setBlockSecondsLeft(blockSeconds);
     setPhase("taking");
     setTimeout(() => {
@@ -260,11 +294,17 @@ export default function AssessmentTake({
   const currentQuestions = blocks[currentBlock] ?? [];
   const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
   const isLastBlock = currentBlock >= blocks.length - 1;
+  const currentQuestion = currentQuestions[currentQuestionIndex];
+  const isFirstQuestion = currentQuestionIndex === 0;
+  const isLastQuestion = currentQuestionIndex >= currentQuestions.length - 1;
 
   if (phase === "start") {
     return (
       <div className="card max-w-xl">
         <h1 className="text-xl font-bold mb-1">{assessment.name}</h1>
+        {assessment.test_id && (
+          <p className="text-xs text-slate-500 mb-3">Test Id: {assessment.test_id}</p>
+        )}
         <p className="text-sm text-slate-400 mb-6">
           {blocks.length} block{blocks.length === 1 ? "" : "s"} · {assessment.questions_per_block} questions
           per block · {assessment.block_time_minutes} minutes per block ·{" "}
@@ -334,16 +374,32 @@ export default function AssessmentTake({
     );
   }
 
-  if (phase === "taking") {
+  if (phase === "taking" && currentQuestion) {
+    const struck = struckChoices[currentQuestion.id] ?? new Set<string>();
+    const isFlagged = !!flagged[currentQuestion.id];
     return (
       <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
         <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-black/90 backdrop-blur border-b border-slate-800">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="text-sm text-slate-400">
-              Block {currentBlock + 1} of {blocks.length} · {answeredInBlock}/{currentQuestions.length}{" "}
-              answered
+              {assessment.test_id && (
+                <span className="text-slate-500 mr-2">Test Id: {assessment.test_id}</span>
+              )}
+              Block {currentBlock + 1} of {blocks.length} · Item {currentQuestionIndex + 1} of{" "}
+              {currentQuestions.length} · {answeredInBlock}/{currentQuestions.length} answered
             </span>
             <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={() => toggleFlag(currentQuestion.id)}
+                className={`text-xs font-semibold border rounded-lg px-2 py-1 ${
+                  isFlagged
+                    ? "border-amber-500 text-amber-400 bg-amber-900/20"
+                    : "border-slate-700 text-brand-400 hover:text-brand-300"
+                }`}
+              >
+                {isFlagged ? "Flagged" : "Flag for review"}
+              </button>
               <button
                 type="button"
                 onClick={() => setShowNormalValues(true)}
@@ -397,58 +453,99 @@ export default function AssessmentTake({
         </div>
 
         <p className="text-xs text-slate-500">
-          Tip: select any text in a question or choice to highlight it - click a highlight to remove it.
+          Tip: select text to highlight it (click a highlight to remove it) - double-click an
+          answer choice to strike it out.
         </p>
 
-        {currentQuestions.map((q, idx) => (
-          <div key={q.id} className="card">
-            <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
-              <p
-                className="text-sm font-semibold mb-3"
-                data-highlight-zone
-                style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-              >
-                {idx + 1}. {q.question}
-              </p>
-              <div className="space-y-2">
-                {q.choices.map((c) => (
-                  <label
-                    key={c.id}
-                    className={`flex items-center gap-3 border rounded-xl px-3 py-2 cursor-pointer transition ${
-                      answers[q.id] === c.id
-                        ? "border-brand-400 bg-brand-900/20"
-                        : "border-slate-700 hover:border-slate-600"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={`q-${q.id}`}
-                      checked={answers[q.id] === c.id}
-                      onChange={() => chooseAnswer(q.id, c.id)}
-                      className="w-4 h-4 shrink-0"
-                    />
-                    <span
-                      className="text-sm"
-                      data-highlight-zone
-                      style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-                    >
-                      {c.text}
-                    </span>
-                  </label>
-                ))}
+        <div className="flex gap-4 items-start">
+          <QuestionNavigator
+            items={currentQuestions.map((q, i) => ({
+              index: i,
+              answered: !!answers[q.id],
+              flagged: !!flagged[q.id],
+            }))}
+            currentIndex={currentQuestionIndex}
+            onSelect={setCurrentQuestionIndex}
+          />
+
+          <div className="flex-1 min-w-0 space-y-4">
+            <div className="card">
+              <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
+                <p
+                  className="text-sm font-semibold mb-3"
+                  data-highlight-zone
+                  style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                >
+                  {currentQuestionIndex + 1}. {currentQuestion.question}
+                </p>
+                <div className="space-y-2">
+                  {currentQuestion.choices.map((c) => {
+                    const isStruck = struck.has(c.id);
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex items-center gap-3 border rounded-xl px-3 py-2 cursor-pointer transition ${
+                          answers[currentQuestion.id] === c.id
+                            ? "border-brand-400 bg-brand-900/20"
+                            : "border-slate-700 hover:border-slate-600"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`q-${currentQuestion.id}`}
+                          checked={answers[currentQuestion.id] === c.id}
+                          onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                          className="w-4 h-4 shrink-0"
+                        />
+                        <span
+                          className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                          data-highlight-zone
+                          style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                          onDoubleClick={(e) => {
+                            e.preventDefault();
+                            window.getSelection()?.removeAllRanges();
+                            toggleStrike(currentQuestion.id, c.id);
+                          }}
+                        >
+                          {c.text}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
 
-        <button type="button" onClick={endBlock} className="btn-primary" disabled={submitting}>
-          {submitting ? "Submitting..." : isLastBlock ? "Finish exam" : `Submit block ${currentBlock + 1}`}
-        </button>
-        {!isLastBlock && (
-          <p className="text-xs text-slate-500">
-            You won&apos;t be able to come back to this block once you move on.
-          </p>
-        )}
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setCurrentQuestionIndex((i) => Math.max(0, i - 1))}
+                disabled={isFirstQuestion}
+                className="btn-secondary"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentQuestionIndex((i) => Math.min(currentQuestions.length - 1, i + 1))
+                }
+                disabled={isLastQuestion}
+                className="btn-secondary"
+              >
+                Next
+              </button>
+              <button type="button" onClick={endBlock} className="btn-primary" disabled={submitting}>
+                {submitting ? "Submitting..." : isLastBlock ? "Finish exam" : `End block ${currentBlock + 1}`}
+              </button>
+            </div>
+            {!isLastBlock && (
+              <p className="text-xs text-slate-500">
+                You won&apos;t be able to come back to this block once you end it.
+              </p>
+            )}
+          </div>
+        </div>
 
         {showNormalValues && (
           <div
@@ -502,6 +599,9 @@ export default function AssessmentTake({
     <div className="space-y-4 pb-10">
       <div className="card">
         <h1 className="text-xl font-bold mb-1">{assessment.name} - results</h1>
+        {assessment.test_id && (
+          <p className="text-xs text-slate-500">Test Id: {assessment.test_id}</p>
+        )}
         <div className="flex items-center gap-4 mt-3">
           <span
             className={`text-3xl font-bold ${
