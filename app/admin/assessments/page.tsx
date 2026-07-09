@@ -9,7 +9,11 @@ export default async function AdminAssessmentsPage() {
   const { supabase } = await requireAdmin();
 
   const [assessmentsRes, attemptsRes] = await Promise.all([
-    supabase.from("assessments").select("*").order("created_at", { ascending: false }),
+    supabase
+      .from("assessments")
+      .select("*")
+      .eq("kind", "self_assessment")
+      .order("created_at", { ascending: false }),
     supabase.from("assessment_attempts").select("assessment_id"),
   ]);
 
