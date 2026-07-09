@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -8,6 +9,7 @@ const LINKS = [
   { href: "/planner", label: "Planner" },
   { href: "/assessments", label: "Self Assessment" },
   { href: "/history", label: "History" },
+  { href: "/lab-values", label: "Lab Values" },
   { href: "/settings", label: "Settings" },
 ];
 
