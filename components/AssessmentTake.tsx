@@ -13,8 +13,16 @@ import {
 import type { Assessment, AssessmentAttempt } from "@/lib/types";
 import AttemptReview from "./AttemptReview";
 import LabValuesSearch from "./LabValuesSearch";
+import AiHelper from "./AiHelper";
+import ExamCalculator from "./ExamCalculator";
+import ExamSettings, { type ExamTheme, type FontSize } from "./ExamSettings";
 
 type Phase = "start" | "taking" | "blockDone" | "break" | "results";
+
+// Inline font-size override applied to question/choice text - deliberately
+// bypasses the fixed Tailwind text-sm class via inline style (which always
+// wins) so the "Medium" setting matches the previous default exactly.
+const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 
 export default function AssessmentTake({
   userId,
@@ -49,6 +57,15 @@ export default function AssessmentTake({
   );
   const [submitting, setSubmitting] = useState(false);
   const [showNormalValues, setShowNormalValues] = useState(false);
+  const [showAiHelper, setShowAiHelper] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // In-exam display preferences - live only in this component's state, so
+  // they reset to defaults on a fresh page load (not persisted).
+  const [fontSize, setFontSize] = useState<FontSize>("md");
+  const [examTheme, setExamTheme] = useState<ExamTheme>("dark");
+  const [splitScreen, setSplitScreen] = useState(false);
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
@@ -319,20 +336,41 @@ export default function AssessmentTake({
 
   if (phase === "taking") {
     return (
-      <div className="space-y-4 pb-10">
+      <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
         <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-black/90 backdrop-blur border-b border-slate-800">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="text-sm text-slate-400">
               Block {currentBlock + 1} of {blocks.length} · {answeredInBlock}/{currentQuestions.length}{" "}
               answered
             </span>
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 type="button"
                 onClick={() => setShowNormalValues(true)}
                 className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1"
               >
                 Lab values
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAiHelper(true)}
+                className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1"
+              >
+                AI Help
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCalculator(true)}
+                className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1"
+              >
+                Calculator
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1"
+              >
+                Settings
               </button>
               <span className="text-xs text-slate-400">
                 Block time{" "}
@@ -364,31 +402,41 @@ export default function AssessmentTake({
 
         {currentQuestions.map((q, idx) => (
           <div key={q.id} className="card">
-            <p className="text-sm font-semibold mb-3" data-highlight-zone>
-              {idx + 1}. {q.question}
-            </p>
-            <div className="space-y-2">
-              {q.choices.map((c) => (
-                <label
-                  key={c.id}
-                  className={`flex items-center gap-3 border rounded-xl px-3 py-2 cursor-pointer transition ${
-                    answers[q.id] === c.id
-                      ? "border-brand-400 bg-brand-900/20"
-                      : "border-slate-700 hover:border-slate-600"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name={`q-${q.id}`}
-                    checked={answers[q.id] === c.id}
-                    onChange={() => chooseAnswer(q.id, c.id)}
-                    className="w-4 h-4 shrink-0"
-                  />
-                  <span className="text-sm" data-highlight-zone>
-                    {c.text}
-                  </span>
-                </label>
-              ))}
+            <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
+              <p
+                className="text-sm font-semibold mb-3"
+                data-highlight-zone
+                style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+              >
+                {idx + 1}. {q.question}
+              </p>
+              <div className="space-y-2">
+                {q.choices.map((c) => (
+                  <label
+                    key={c.id}
+                    className={`flex items-center gap-3 border rounded-xl px-3 py-2 cursor-pointer transition ${
+                      answers[q.id] === c.id
+                        ? "border-brand-400 bg-brand-900/20"
+                        : "border-slate-700 hover:border-slate-600"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`q-${q.id}`}
+                      checked={answers[q.id] === c.id}
+                      onChange={() => chooseAnswer(q.id, c.id)}
+                      className="w-4 h-4 shrink-0"
+                    />
+                    <span
+                      className="text-sm"
+                      data-highlight-zone
+                      style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                    >
+                      {c.text}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
         ))}
@@ -427,6 +475,20 @@ export default function AssessmentTake({
               <LabValuesSearch compact />
             </div>
           </div>
+        )}
+
+        {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+        {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
+        {showSettings && (
+          <ExamSettings
+            fontSize={fontSize}
+            setFontSize={setFontSize}
+            theme={examTheme}
+            setTheme={setExamTheme}
+            splitScreen={splitScreen}
+            setSplitScreen={setSplitScreen}
+            onClose={() => setShowSettings(false)}
+          />
         )}
       </div>
     );
