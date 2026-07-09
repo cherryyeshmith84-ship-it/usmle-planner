@@ -1,4 +1,3 @@
-
 export type PrepStage = "beginning" | "middle" | "end";
 
 export type ExamTrack = "step1" | "subject";
@@ -58,9 +57,6 @@ export interface ScheduleTemplate {
   resource_tags: string[];
   remote_friendly: boolean;
   notes: string | null;
-  // Legacy templates store a flat TemplateTask[] (one repeating day).
-  // Newer templates store a TemplateDay[] (day-by-day sequence).
-  // Use lib/templateDays.ts helpers to read this safely either way.
   tasks: TemplateTask[] | TemplateDay[];
   created_by?: string | null;
   created_at?: string;
@@ -72,7 +68,6 @@ export interface ScheduleTemplate {
 export interface PersonalTemplate {
   user_id: string;
   name: string;
-  // Same day-by-day sequence shape as ScheduleTemplate.tasks.
   tasks: TemplateTask[] | TemplateDay[];
   start_date: string | null;
   created_at?: string;
@@ -119,9 +114,6 @@ export interface DailyLog {
 export interface AssessmentChoice {
   id: string;
   text: string;
-  // Only meaningful for choices that are NOT the correct answer.
-  // "near" = a close, plausible distractor (tests fine discrimination).
-  // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
 }
 
@@ -133,15 +125,16 @@ export interface AssessmentQuestion {
   explanation: string;
 }
 
+export type AssessmentKind = "self_assessment" | "qbank";
+
 export interface Assessment {
   id: string;
   name: string;
-  // Exam is split into blocks: questions_per_block questions each, with
-  // block_time_minutes to complete each block (like an NBME-style exam).
+  // "self_assessment" (default): one attempt only, like a real exam.
+  // "qbank": retakeable practice - shows up under the Question Bank tab.
+  kind?: AssessmentKind;
   questions_per_block: number;
   block_time_minutes: number;
-  // Shared break pool for the whole exam (minutes) - only usable between
-  // blocks, can be split across multiple breaks.
   break_minutes: number;
   questions: AssessmentQuestion[];
   // Admin-assigned identifier shown to students during the exam (like a
@@ -158,11 +151,9 @@ export interface AssessmentAttempt {
   user_id: string;
   started_at: string;
   submitted_at: string | null;
-  // Map of question id -> chosen choice id
   answers: Record<string, string>;
   score_correct: number;
   score_total: number;
-  // Map of question id -> approx. seconds spent on that question.
   question_seconds?: Record<string, number>;
   created_at?: string;
 }
