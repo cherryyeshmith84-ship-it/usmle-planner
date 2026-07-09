@@ -3,18 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { blankChoice, blankQuestion } from "@/lib/assessments";
-import type { Assessment, AssessmentQuestion } from "@/lib/types";
+import { blankChoice, blankQuestion, parsePastedQuestion } from "@/lib/assessments";
+import type { Assessment, AssessmentKind, AssessmentQuestion } from "@/lib/types";
 
 export default function AssessmentForm({
   userId,
   initial,
+  defaultKind,
 }: {
   userId: string;
   initial?: Assessment;
+  defaultKind?: AssessmentKind;
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial?.name ?? "");
+  const [kind, setKind] = useState<AssessmentKind>(initial?.kind ?? defaultKind ?? "self_assessment");
+  const [testId, setTestId] = useState(initial?.test_id ?? "");
   const [questionsPerBlock, setQuestionsPerBlock] = useState(
     initial?.questions_per_block?.toString() ?? "20"
   );
@@ -25,6 +29,9 @@ export default function AssessmentForm({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [bulkText, setBulkText] = useState("");
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   function updateQuestion(qIdx: number, patch: Partial<AssessmentQuestion>) {
     setQuestions((prev) => prev.map((q, i) => (i === qIdx ? { ...q, ...patch } : q)));
@@ -67,6 +74,24 @@ What is the most likely diagnosis?`;
           : { ...q, question: q.question ? `${q.question}\n\n${VIGNETTE_TEMPLATE}` : VIGNETTE_TEMPLATE }
       )
     );
+  }
+
+  function handleBulkParse() {
+    const parsed = parsePastedQuestion(bulkText);
+    if (!parsed) {
+      setBulkError(
+        'Couldn\'t find at least 2 lettered/numbered options (like "A. ..." or "1. ...") in that paste. Make sure the answer choices are included, each on its own line.'
+      );
+      return;
+    }
+    setBulkError(null);
+    const newQuestion: AssessmentQuestion = {
+      ...blankQuestion(),
+      question: parsed.question,
+      choices: parsed.choices.map((text) => ({ ...blankChoice(), text })),
+    };
+    setQuestions((prev) => [...prev, newQuestion]);
+    setBulkText("");
   }
 
   function addChoice(qIdx: number) {
@@ -115,8 +140,6 @@ What is the most likely diagnosis?`;
       .filter((q) => q.question.length > 0 && q.choices.length >= 2)
       .map((q) => ({
         ...q,
-        // If the marked-correct choice got removed/cleared, don't silently
-        // keep a stale id pointing at nothing.
         correct_choice_id: q.choices.some((c) => c.id === q.correct_choice_id) ? q.correct_choice_id : "",
       }));
 
@@ -135,6 +158,8 @@ What is the most likely diagnosis?`;
     const supabase = createClient();
     const payload = {
       name: name.trim(),
+      kind,
+      test_id: testId.trim() || null,
       questions_per_block: questionsPerBlock ? Number(questionsPerBlock) : 20,
       block_time_minutes: blockMinutes ? Number(blockMinutes) : 30,
       break_minutes: breakMinutes ? Number(breakMinutes) : 15,
@@ -150,7 +175,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push("/admin/assessments");
+    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
     router.refresh();
   }
 
@@ -165,7 +190,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push("/admin/assessments");
+    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
     router.refresh();
   }
 
@@ -173,6 +198,33 @@ What is the most likely diagnosis?`;
     <form onSubmit={handleSave} className="space-y-6">
       <div className="card">
         <h2 className="font-semibold mb-4">Assessment details</h2>
+
+        <label className="label">Type</label>
+        <div className="flex gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => setKind("self_assessment")}
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold border ${
+              kind === "self_assessment"
+                ? "border-brand-400 bg-brand-900/30 text-brand-300"
+                : "border-slate-700 text-slate-300 hover:border-slate-600"
+            }`}
+          >
+            Self Assessment (one attempt)
+          </button>
+          <button
+            type="button"
+            onClick={() => setKind("qbank")}
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold border ${
+              kind === "qbank"
+                ? "border-brand-400 bg-brand-900/30 text-brand-300"
+                : "border-slate-700 text-slate-300 hover:border-slate-600"
+            }`}
+          >
+            Question Bank (retakeable)
+          </button>
+        </div>
+
         <label className="label">Name</label>
         <input
           className="input mb-4"
@@ -180,6 +232,15 @@ What is the most likely diagnosis?`;
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+
+        <label className="label">Test Id (optional, shown to students during the exam)</label>
+        <input
+          className="input mb-4"
+          placeholder="e.g. 427015382"
+          value={testId}
+          onChange={(e) => setTestId(e.target.value)}
+        />
+
         <div className="grid sm:grid-cols-2 gap-4 mb-2">
           <div>
             <label className="label">Questions per block</label>
@@ -224,6 +285,33 @@ What is the most likely diagnosis?`;
             } (${examMin} minutes of exam time + ${brk} minutes of break = ${examMin + brk} minutes total). After each block (except the last), students can continue straight to the next block or take a break - breaks come out of that shared ${brk}-minute pool and can be split across as many breaks as they want. Scores are only shown after every block is done.`;
           })()}
         </p>
+      </div>
+
+      <div className="card">
+        <h2 className="font-semibold mb-2">Paste a question</h2>
+        <p className="text-xs text-slate-400 mb-3">
+          Paste a full question with its lettered/numbered answer choices (e.g. copied straight
+          from UWorld) - it&apos;ll split the stem and options into a new question below. You&apos;ll
+          still need to mark the correct answer and add an explanation.
+        </p>
+        <textarea
+          className="input mb-2"
+          rows={6}
+          placeholder={
+            "A 35-year-old woman presents with...\n\nA. Choice one\nB. Choice two\nC. Choice three"
+          }
+          value={bulkText}
+          onChange={(e) => setBulkText(e.target.value)}
+        />
+        {bulkError && <p className="text-sm text-red-400 mb-2">{bulkError}</p>}
+        <button
+          type="button"
+          onClick={handleBulkParse}
+          className="btn-secondary"
+          disabled={!bulkText.trim()}
+        >
+          Parse &amp; add as new question
+        </button>
       </div>
 
       <div className="space-y-4">
@@ -336,7 +424,7 @@ What is the most likely diagnosis?`;
 
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={saving}>
-          {saving ? "Saving..." : initial ? "Save changes" : "Create assessment"}
+          {saving ? "Saving..." : initial ? "Save changes" : kind === "qbank" ? "Create question bank item" : "Create assessment"}
         </button>
         {initial && (
           <button
