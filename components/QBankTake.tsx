@@ -14,8 +14,7 @@ import QuestionNavigator from "./QuestionNavigator";
 type Phase = "start" | "taking" | "blockDone" | "results";
 
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
-const SECONDS_PER_QUESTION = 90; // ~1.5 min/question, standard USMLE pacing
-
+const SECONDS_PER_QUESTION = 75; // seconds per question 
 export default function QBankTake({
   userId,
   session,
