@@ -17,6 +17,7 @@ function LoginForm() {
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +35,6 @@ function LoginForm() {
       setError(error.message);
       return;
     }
-    // Full page reload (not client-side navigation) so that no cached
-    // data from a previously logged-in account can linger in the browser
-    // when switching between accounts in the same tab.
     window.location.href = params.get("next") || "/dashboard";
   }
 
@@ -57,13 +55,28 @@ function LoginForm() {
         />
 
         <label className="label">Password</label>
-        <input
-          type="password"
-          className="input mb-4"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+        <div className="relative mb-4">
+          <input
+            type={showPassword ? "text" : "password"}
+            className="input pr-16"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 hover:text-slate-200"
+          >
+            {showPassword ? "Hide" : "Show"}
+          </button>
+        </div>
+
+        <p className="text-sm text-right -mt-2 mb-4">
+          <Link href="/forgot-password" className="text-brand-400 font-semibold">
+            Forgot password?
+          </Link>
+        </p>
 
         {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
 
