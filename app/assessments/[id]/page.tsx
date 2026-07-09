@@ -36,7 +36,7 @@ export default async function TakeAssessmentPage({ params }: { params: { id: str
   return (
     <div className="min-h-screen flex">
       <NavBar isAdmin={profile?.is_admin} />
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8">
+      <main className="flex-1 px-6 py-8">
         <AssessmentTake userId={user.id} assessment={assessment} existingAttempt={existingAttempt} />
       </main>
     </div>
