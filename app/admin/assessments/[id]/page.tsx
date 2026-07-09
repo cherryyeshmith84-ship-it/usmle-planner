@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { Assessment, AssessmentAttempt, Profile } from "@/lib/types";
 import { buildErrorBreakdown } from "@/lib/assessments";
@@ -52,7 +53,11 @@ export default async function EditAssessmentPage({ params }: { params: { id: str
               const breakdown = buildErrorBreakdown(assessment.questions, a.answers);
               const wrongCount = breakdown.near + breakdown.far;
               return (
-                <div key={a.id} className="border border-slate-700 rounded-xl px-3 py-2">
+                <Link
+                  key={a.id}
+                  href={`/admin/assessments/attempt/${a.id}`}
+                  className="block border border-slate-700 rounded-xl px-3 py-2 hover:border-brand-500 transition"
+                >
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-semibold">
@@ -83,7 +88,10 @@ export default async function EditAssessmentPage({ params }: { params: { id: str
                       {breakdown.unanswered > 0 ? ` · ${breakdown.unanswered} left blank` : ""}
                     </p>
                   )}
-                </div>
+                  <p className="text-xs text-brand-400 mt-2 font-semibold">
+                    View full question-by-question breakdown &rarr;
+                  </p>
+                </Link>
               );
             })}
           </div>
