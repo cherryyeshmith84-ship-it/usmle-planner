@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -7,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/dashboard", label: "Home" },
   { href: "/planner", label: "Planner" },
+  { href: "/qbank", label: "Question Bank" },
   { href: "/assessments", label: "Self Assessment" },
   { href: "/history", label: "History" },
   { href: "/lab-values", label: "Lab Values" },
