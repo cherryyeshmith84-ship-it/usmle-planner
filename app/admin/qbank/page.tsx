@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
-import type { Assessment, AssessmentAttempt } from "@/lib/types";
+import type { QBankQuestion } from "@/lib/qbankTypes";
 import AdminNav from "@/components/AdminNav";
 
 export const dynamic = "force-dynamic";
@@ -8,62 +8,61 @@ export const dynamic = "force-dynamic";
 export default async function AdminQuestionBankPage() {
   const { supabase } = await requireAdmin();
 
-  const [assessmentsRes, attemptsRes] = await Promise.all([
-    supabase
-      .from("assessments")
-      .select("*")
-      .eq("kind", "qbank")
-      .order("created_at", { ascending: false }),
-    supabase.from("assessment_attempts").select("assessment_id"),
-  ]);
+  const { data } = await supabase
+    .from("qbank_questions")
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  const assessments = (assessmentsRes.data ?? []) as Assessment[];
-  const attempts = (attemptsRes.data ?? []) as Pick<AssessmentAttempt, "assessment_id">[];
-  const attemptCounts = new Map<string, number>();
-  for (const a of attempts) {
-    attemptCounts.set(a.assessment_id, (attemptCounts.get(a.assessment_id) ?? 0) + 1);
-  }
+  const questions = (data ?? []) as QBankQuestion[];
 
   return (
     <div className="min-h-screen flex">
       <AdminNav />
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold">Question bank</h1>
-          <Link href="/admin/assessments/new?kind=qbank" className="btn-primary">
-            New question bank item
+          <div>
+            <h1 className="text-xl font-bold">Question bank</h1>
+            <p className="text-sm text-slate-400">
+              {questions.length} question{questions.length === 1 ? "" : "s"} in the pool. Students
+              build their own custom tests from these by subject, system, and status.
+            </p>
+          </div>
+          <Link href="/admin/qbank/new" className="btn-primary shrink-0">
+            + Add question
           </Link>
         </div>
 
-        {assessments.length === 0 && (
+        {questions.length === 0 && (
           <p className="text-sm text-slate-400">
-            No question bank items yet. Create one and students can practice it as many
-            times as they want from their Question Bank tab - paste a full question with
-            options and it&apos;ll auto-split into the question and choices for you.
+            No questions in the pool yet. Add one - you can paste a full question with its answer
+            choices and it&apos;ll auto-split into the fields for you, then tag it with a subject
+            and system.
           </p>
         )}
 
         <div className="space-y-3">
-          {assessments.map((a) => (
+          {questions.map((q) => (
             <Link
-              key={a.id}
-              href={`/admin/assessments/${a.id}`}
+              key={q.id}
+              href={`/admin/qbank/${q.id}`}
               className="card block hover:border-brand-500 transition"
             >
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="font-semibold">{a.name}</h3>
-                <span className="text-xs font-semibold bg-slate-800 text-slate-300 rounded-full px-2 py-1">
-                  {Math.max(1, Math.ceil(a.questions.length / (a.questions_per_block || 20)))} block
-                  {Math.max(1, Math.ceil(a.questions.length / (a.questions_per_block || 20))) === 1 ? "" : "s"}
-                </span>
+              <p className="text-sm font-semibold mb-2 line-clamp-2">{q.question}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {q.subjects.map((s) => (
+                  <span key={s} className="text-xs font-medium bg-brand-900/30 text-brand-300 rounded-full px-2 py-0.5">
+                    {s}
+                  </span>
+                ))}
+                {q.systems.map((s) => (
+                  <span key={s} className="text-xs font-medium bg-slate-800 text-slate-300 rounded-full px-2 py-0.5">
+                    {s}
+                  </span>
+                ))}
+                {q.subjects.length === 0 && q.systems.length === 0 && (
+                  <span className="text-xs text-amber-400">Untagged</span>
+                )}
               </div>
-              <p className="text-sm text-slate-400">
-                {a.questions.length} question{a.questions.length === 1 ? "" : "s"} · {a.questions_per_block}
-                /block · {a.block_time_minutes} min/block
-                {a.test_id ? ` · Test Id: ${a.test_id}` : ""} ·{" "}
-                {attemptCounts.get(a.id) ?? 0} attempt{(attemptCounts.get(a.id) ?? 0) === 1 ? "" : "s"} so
-                far
-              </p>
             </Link>
           ))}
         </div>
