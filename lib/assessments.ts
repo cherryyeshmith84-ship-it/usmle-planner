@@ -84,7 +84,6 @@ export interface ErrorBreakdown {
   far: number;
   unanswered: number;
   total: number;
-  // Of the questions gotten wrong (near + far), what % was each type.
   nearPctOfWrong: number;
   farPctOfWrong: number;
 }
@@ -115,6 +114,50 @@ export function buildErrorBreakdown(
     nearPctOfWrong: wrong > 0 ? Math.round((near / wrong) * 100) : 0,
     farPctOfWrong: wrong > 0 ? Math.round((far / wrong) * 100) : 0,
   };
+}
+
+/**
+ * Splits a pasted question (stem + lettered/numbered answer choices, like
+ * something copied straight out of UWorld) into a question stem and a clean
+ * list of choice texts. Returns null if it couldn't find at least 2 options.
+ *
+ * Recognizes option lines like "A. text", "A) text", "1. text", "1) text".
+ * Lines that don't start with a marker are treated as part of the question
+ * stem (if before the first option) or a continuation of the previous
+ * choice's text (if an option has already started, e.g. a wrapped line).
+ * Trailing "(NN%)" UWorld answer-stat annotations are stripped automatically.
+ */
+export function parsePastedQuestion(
+  raw: string
+): { question: string; choices: string[] } | null {
+  const lines = raw.split(/\r?\n/);
+  const optionLineRegex = /^\s*(?:[A-Za-z]|\d{1,2})[.)]\s+(.+)$/;
+  const stemLines: string[] = [];
+  const choices: string[] = [];
+  let inOptions = false;
+
+  for (const line of lines) {
+    const match = line.match(optionLineRegex);
+    if (match) {
+      inOptions = true;
+      choices.push(match[1].trim());
+    } else if (!inOptions) {
+      stemLines.push(line);
+    } else {
+      const trimmed = line.trim();
+      if (trimmed.length > 0 && choices.length > 0) {
+        choices[choices.length - 1] = `${choices[choices.length - 1]} ${trimmed}`;
+      }
+    }
+  }
+
+  const question = stemLines.join("\n").trim();
+  const cleanChoices = choices
+    .map((c) => c.replace(/\s*\(\d{1,3}%\)\s*$/, "").trim())
+    .filter(Boolean);
+
+  if (!question || cleanChoices.length < 2) return null;
+  return { question, choices: cleanChoices };
 }
 
 /**
