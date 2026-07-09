@@ -1,3 +1,4 @@
+
 export type PrepStage = "beginning" | "middle" | "end";
 
 export type ExamTrack = "step1" | "subject";
@@ -143,6 +144,9 @@ export interface Assessment {
   // blocks, can be split across multiple breaks.
   break_minutes: number;
   questions: AssessmentQuestion[];
+  // Admin-assigned identifier shown to students during the exam (like a
+  // real NBME/UWorld "Test Id"). Optional - blank until an admin sets it.
+  test_id?: string | null;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
