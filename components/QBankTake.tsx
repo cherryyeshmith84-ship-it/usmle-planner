@@ -14,7 +14,8 @@ import QuestionNavigator from "./QuestionNavigator";
 type Phase = "start" | "taking" | "blockDone" | "results";
 
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
-const SECONDS_PER_QUESTION = 75; // seconds per question 
+const SECONDS_PER_QUESTION = 75; // seconds per question
+
 export default function QBankTake({
   userId,
   session,
@@ -258,7 +259,7 @@ export default function QBankTake({
           {questions.length === 1 ? "" : "s"} total · {session.questions_per_block} per block
         </p>
         <p className="text-sm text-slate-300 mb-6">
-          Each block has its own clock (about 90 seconds per question, like the real exam). You
+          Each block has its own clock (about 75 seconds per question). You
           can switch between Test mode (no feedback until the block ends) and Tutor mode (see
           the answer and explanation right after each question, with the clock paused while you
           read it) at any point.
@@ -418,7 +419,7 @@ export default function QBankTake({
                   <p className={`text-sm font-semibold mb-2 ${answeredCorrectly ? "text-green-400" : "text-red-400"}`}>
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
-                  <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
+                  <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
                 </div>
               )}
             </div>
@@ -533,7 +534,7 @@ export default function QBankTake({
                   );
                 })}
               </div>
-              {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2">{q.explanation}</p>}
+              {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
             </div>
           );
         })}
