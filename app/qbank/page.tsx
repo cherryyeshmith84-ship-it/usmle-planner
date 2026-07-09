@@ -1,12 +1,15 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import type { Assessment, AssessmentAttempt, Profile } from "@/lib/types";
+import type { Profile } from "@/lib/types";
+import type { QBankQuestion, QBankTestSession } from "@/lib/qbankTypes";
+import { computeQuestionStatuses, countByStatus, countByTag } from "@/lib/qbank";
 import NavBar from "@/components/NavBar";
+import QBankCreateTestForm from "@/components/QBankCreateTestForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function QuestionBankListPage() {
+export default async function QuestionBankCreateTestPage() {
   const supabase = createClient();
   const {
     data: { user },
@@ -21,79 +24,51 @@ export default async function QuestionBankListPage() {
   const profile = profileData as Profile | null;
   if (!profile?.onboarding_completed) redirect("/onboarding");
 
-  const [assessmentsRes, attemptsRes] = await Promise.all([
-    supabase
-      .from("assessments")
-      .select("*")
-      .eq("kind", "qbank")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("assessment_attempts")
-      .select("*")
-      .eq("user_id", user.id)
-      .not("submitted_at", "is", null),
+  const [questionsRes, sessionsRes, marksRes] = await Promise.all([
+    supabase.from("qbank_questions").select("*").order("created_at", { ascending: true }),
+    supabase.from("qbank_test_sessions").select("*").eq("user_id", user.id),
+    supabase.from("qbank_marks").select("question_id").eq("user_id", user.id).eq("marked", true),
   ]);
 
-  const assessments = (assessmentsRes.data ?? []) as Assessment[];
-  const attempts = (attemptsRes.data ?? []) as AssessmentAttempt[];
+  const questions = (questionsRes.data ?? []) as QBankQuestion[];
+  const sessions = (sessionsRes.data ?? []) as QBankTestSession[];
+  const markedIds = new Set((marksRes.data ?? []).map((m: { question_id: string }) => m.question_id));
 
-  const bestByAssessment = new Map<string, number>();
-  const attemptCountByAssessment = new Map<string, number>();
-  for (const a of attempts) {
-    const pct = a.score_total > 0 ? Math.round((a.score_correct / a.score_total) * 100) : 0;
-    const current = bestByAssessment.get(a.assessment_id);
-    if (current === undefined || pct > current) bestByAssessment.set(a.assessment_id, pct);
-    attemptCountByAssessment.set(
-      a.assessment_id,
-      (attemptCountByAssessment.get(a.assessment_id) ?? 0) + 1
-    );
-  }
+  const { statuses, marked } = computeQuestionStatuses(questions, sessions, markedIds);
+  const statusCounts = countByStatus(questions, statuses, marked);
+  const subjectCounts = countByTag(questions, "subjects");
+  const systemCounts = countByTag(questions, "systems");
 
   return (
     <div className="min-h-screen flex">
       <NavBar isAdmin={profile?.is_admin} />
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8">
-        <h1 className="text-xl font-bold mb-1">Question bank</h1>
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
+        <div className="flex items-center justify-between mb-1">
+          <h1 className="text-xl font-bold">Question bank</h1>
+          <Link href="/qbank/previous" className="text-sm font-semibold text-brand-400 hover:text-brand-300">
+            Previous tests &rarr;
+          </Link>
+        </div>
         <p className="text-sm text-slate-400 mb-6">
-          Practice sets your coach has put together. Unlike Self Assessment, you can
-          take these as many times as you want - great for repetition and drilling
-          weak areas.
+          Build a custom test from the question pool - filter by whether you&apos;ve seen a
+          question before, by subject, or by organ system, same as UWorld&apos;s Create Test.
         </p>
 
-        {assessments.length === 0 && (
+        {questions.length === 0 ? (
           <p className="text-sm text-slate-400">
-            No question bank sets yet - your coach hasn&apos;t added any.
+            No questions in the pool yet - your coach hasn&apos;t added any.
           </p>
+        ) : (
+          <QBankCreateTestForm
+            questions={questions}
+            statuses={statuses}
+            marked={marked}
+            statusCounts={statusCounts}
+            subjectCounts={subjectCounts}
+            systemCounts={systemCounts}
+            userId={user.id}
+          />
         )}
-
-        <div className="space-y-3">
-          {assessments.map((a) => {
-            const best = bestByAssessment.get(a.id);
-            const attemptCount = attemptCountByAssessment.get(a.id) ?? 0;
-            return (
-              <Link
-                key={a.id}
-                href={`/qbank/${a.id}`}
-                className="card block hover:border-brand-500 transition"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-semibold">{a.name}</h3>
-                  <span className="text-xs font-semibold bg-slate-800 text-slate-300 rounded-full px-2 py-1">
-                    {Math.max(1, Math.ceil(a.questions.length / (a.questions_per_block || 20)))} block
-                    {Math.max(1, Math.ceil(a.questions.length / (a.questions_per_block || 20))) === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-400">
-                  {a.questions.length} question{a.questions.length === 1 ? "" : "s"} · {a.questions_per_block}
-                  /block · {a.block_time_minutes} min/block
-                  {attemptCount > 0
-                    ? ` · ${attemptCount} attempt${attemptCount === 1 ? "" : "s"} · best score: ${best}%`
-                    : " · not attempted yet"}
-                </p>
-              </Link>
-            );
-          })}
-        </div>
       </main>
     </div>
   );
