@@ -16,8 +16,6 @@ import type { Assessment, AssessmentAttempt } from "@/lib/types";
 
 type Phase = "start" | "taking" | "blockDone" | "break" | "results";
 
-// Approximate adult reference ranges - for quick lookup during practice
-// blocks only, not a substitute for an authoritative lab-values table.
 const NORMAL_HORMONE_VALUES: { name: string; range: string }[] = [
   { name: "TSH", range: "0.4-4.0 uU/mL" },
   { name: "Free T4", range: "0.8-1.8 ng/dL" },
@@ -60,7 +58,6 @@ export default function AssessmentTake({
   const examSeconds = blocks.length * blockSeconds;
   const breakSecondsTotal = (assessment.break_minutes || 0) * 60;
 
-  // Already completed this before - show their result, no retaking.
   const alreadyDone = !!existingAttempt;
 
   const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
@@ -123,9 +120,6 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
 
-  // Text highlighting, like the real exam: select text inside the question
-  // or an answer choice and it gets marked in yellow. Click a highlighted
-  // bit again to remove just that highlight.
   useEffect(() => {
     if (phase !== "taking") return;
 
@@ -450,8 +444,6 @@ export default function AssessmentTake({
     );
   }
 
-  // Results - shown only after every block is done (or immediately, if
-  // they've already completed this assessment before).
   if (!result) return null;
   const complete = result.total > 0 && result.pct === 100;
   const breakdown = buildErrorBreakdown(assessment.questions, answers);
