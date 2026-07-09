@@ -22,7 +22,11 @@ export default async function AssessmentsListPage() {
   if (!profile?.onboarding_completed) redirect("/onboarding");
 
   const [assessmentsRes, attemptsRes] = await Promise.all([
-    supabase.from("assessments").select("*").order("created_at", { ascending: false }),
+    supabase
+      .from("assessments")
+      .select("*")
+      .eq("kind", "self_assessment")
+      .order("created_at", { ascending: false }),
     supabase
       .from("assessment_attempts")
       .select("*")
@@ -75,7 +79,7 @@ export default async function AssessmentsListPage() {
                 <p className="text-sm text-slate-400">
                   {a.questions.length} question{a.questions.length === 1 ? "" : "s"} · {a.questions_per_block}
                   /block · {a.block_time_minutes} min/block
-                  {best !== undefined ? ` · best score so far: ${best}%` : " · not attempted yet"}
+                  {best !== undefined ? ` · completed - score: ${best}%` : " · not attempted yet"}
                 </p>
               </Link>
             );
