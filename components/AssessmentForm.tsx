@@ -4,20 +4,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { blankChoice, blankQuestion, parsePastedQuestion } from "@/lib/assessments";
-import type { Assessment, AssessmentKind, AssessmentQuestion } from "@/lib/types";
+import type { Assessment, AssessmentQuestion } from "@/lib/types";
 
 export default function AssessmentForm({
   userId,
   initial,
-  defaultKind,
 }: {
   userId: string;
   initial?: Assessment;
-  defaultKind?: AssessmentKind;
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial?.name ?? "");
-  const [kind, setKind] = useState<AssessmentKind>(initial?.kind ?? defaultKind ?? "self_assessment");
   const [testId, setTestId] = useState(initial?.test_id ?? "");
   const [questionsPerBlock, setQuestionsPerBlock] = useState(
     initial?.questions_per_block?.toString() ?? "20"
@@ -140,6 +137,8 @@ What is the most likely diagnosis?`;
       .filter((q) => q.question.length > 0 && q.choices.length >= 2)
       .map((q) => ({
         ...q,
+        // If the marked-correct choice got removed/cleared, don't silently
+        // keep a stale id pointing at nothing.
         correct_choice_id: q.choices.some((c) => c.id === q.correct_choice_id) ? q.correct_choice_id : "",
       }));
 
@@ -158,7 +157,7 @@ What is the most likely diagnosis?`;
     const supabase = createClient();
     const payload = {
       name: name.trim(),
-      kind,
+      kind: "self_assessment",
       test_id: testId.trim() || null,
       questions_per_block: questionsPerBlock ? Number(questionsPerBlock) : 20,
       block_time_minutes: blockMinutes ? Number(blockMinutes) : 30,
@@ -175,7 +174,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
+    router.push("/admin/assessments");
     router.refresh();
   }
 
@@ -190,7 +189,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
+    router.push("/admin/assessments");
     router.refresh();
   }
 
@@ -198,32 +197,6 @@ What is the most likely diagnosis?`;
     <form onSubmit={handleSave} className="space-y-6">
       <div className="card">
         <h2 className="font-semibold mb-4">Assessment details</h2>
-
-        <label className="label">Type</label>
-        <div className="flex gap-2 mb-4">
-          <button
-            type="button"
-            onClick={() => setKind("self_assessment")}
-            className={`flex-1 rounded-lg py-2 text-sm font-semibold border ${
-              kind === "self_assessment"
-                ? "border-brand-400 bg-brand-900/30 text-brand-300"
-                : "border-slate-700 text-slate-300 hover:border-slate-600"
-            }`}
-          >
-            Self Assessment (one attempt)
-          </button>
-          <button
-            type="button"
-            onClick={() => setKind("qbank")}
-            className={`flex-1 rounded-lg py-2 text-sm font-semibold border ${
-              kind === "qbank"
-                ? "border-brand-400 bg-brand-900/30 text-brand-300"
-                : "border-slate-700 text-slate-300 hover:border-slate-600"
-            }`}
-          >
-            Question Bank (retakeable)
-          </button>
-        </div>
 
         <label className="label">Name</label>
         <input
@@ -424,7 +397,7 @@ What is the most likely diagnosis?`;
 
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={saving}>
-          {saving ? "Saving..." : initial ? "Save changes" : kind === "qbank" ? "Create question bank item" : "Create assessment"}
+          {saving ? "Saving..." : initial ? "Save changes" : "Create assessment"}
         </button>
         {initial && (
           <button
