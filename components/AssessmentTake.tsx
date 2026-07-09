@@ -16,6 +16,33 @@ import type { Assessment, AssessmentAttempt } from "@/lib/types";
 
 type Phase = "start" | "taking" | "blockDone" | "break" | "results";
 
+// Approximate adult reference ranges - for quick lookup during practice
+// blocks only, not a substitute for an authoritative lab-values table.
+const NORMAL_HORMONE_VALUES: { name: string; range: string }[] = [
+  { name: "TSH", range: "0.4-4.0 uU/mL" },
+  { name: "Free T4", range: "0.8-1.8 ng/dL" },
+  { name: "Free T3", range: "2.3-4.2 pg/mL" },
+  { name: "Cortisol (AM)", range: "5-23 ug/dL" },
+  { name: "ACTH", range: "9-52 pg/mL (AM)" },
+  { name: "Prolactin", range: "<20 ng/mL" },
+  { name: "FSH (follicular)", range: "4-13 mIU/mL" },
+  { name: "LH (follicular)", range: "5-25 mIU/mL" },
+  { name: "Testosterone (male)", range: "270-1070 ng/dL" },
+  { name: "Estradiol (follicular)", range: "30-100 pg/mL" },
+  { name: "Progesterone (luteal)", range: "5-20 ng/mL" },
+  { name: "Fasting insulin", range: "2-25 uIU/mL" },
+  { name: "Fasting glucose", range: "70-100 mg/dL" },
+  { name: "C-peptide", range: "0.5-2.0 ng/mL" },
+  { name: "PTH (intact)", range: "10-65 pg/mL" },
+  { name: "Calcium (total)", range: "8.4-10.2 mg/dL" },
+  { name: "Growth hormone", range: "<5 ng/mL (random)" },
+  { name: "IGF-1", range: "Age-dependent, ~100-300 ng/mL (adult)" },
+  { name: "Aldosterone", range: "2-9 ng/dL (upright)" },
+  { name: "Renin activity", range: "0.6-4.3 ng/mL/h" },
+  { name: "hCG (non-pregnant)", range: "<5 mIU/mL" },
+  { name: "Vitamin D, 25-OH", range: "20-50 ng/mL" },
+];
+
 export default function AssessmentTake({
   userId,
   assessment,
@@ -48,22 +75,16 @@ export default function AssessmentTake({
       : null
   );
   const [submitting, setSubmitting] = useState(false);
+  const [showNormalValues, setShowNormalValues] = useState(false);
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
   const advancingRef = useRef(false);
-  // Raw tracking during a live attempt: question id -> seconds elapsed
-  // *within its block* at the moment it was first answered. Converted into
-  // actual per-question time spent (via deriveQuestionTimes) at submit time.
   const rawElapsedRef = useRef<Record<string, number>>({});
-  // Final per-question seconds spent, ready to display on the results screen -
-  // either pulled straight from a past submitted attempt, or computed fresh
-  // when this attempt is finalized below.
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(
     existingAttempt?.question_seconds ?? {}
   );
 
-  // Exam clock: only ticks while actively answering a block.
   useEffect(() => {
     if (phase !== "taking") return;
     const interval = setInterval(() => {
@@ -73,7 +94,6 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase]);
 
-  // Break clock: only ticks while on a break, separate from the exam clock.
   useEffect(() => {
     if (phase !== "break") return;
     const interval = setInterval(() => {
@@ -82,7 +102,6 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase]);
 
-  // Break pool ran out - send them back in.
   useEffect(() => {
     if (phase === "break" && breakSecondsLeft === 0) {
       goToNextBlock();
@@ -90,7 +109,6 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breakSecondsLeft, phase]);
 
-  // Exam clock hit zero - end everything right now, regardless of block progress.
   useEffect(() => {
     if (phase === "taking" && examSecondsLeft === 0) {
       finalizeExam();
@@ -98,13 +116,65 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, phase]);
 
-  // Block clock hit zero - end the block (same as clicking submit).
   useEffect(() => {
     if (phase === "taking" && blockSecondsLeft === 0 && examSecondsLeft > 0) {
       endBlock();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
+
+  // Text highlighting, like the real exam: select text inside the question
+  // or an answer choice and it gets marked in yellow. Click a highlighted
+  // bit again to remove just that highlight.
+  useEffect(() => {
+    if (phase !== "taking") return;
+
+    function applyHighlight() {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      const anchorEl =
+        range.commonAncestorContainer.nodeType === 3
+          ? range.commonAncestorContainer.parentElement
+          : (range.commonAncestorContainer as HTMLElement);
+      if (!anchorEl || !anchorEl.closest("[data-highlight-zone]")) return;
+      if (range.toString().trim().length === 0) return;
+
+      const mark = document.createElement("mark");
+      mark.className = "bg-yellow-300/70 text-black rounded px-0.5 cursor-pointer";
+      mark.title = "Click to remove highlight";
+      try {
+        range.surroundContents(mark);
+      } catch {
+        try {
+          const content = range.extractContents();
+          mark.appendChild(content);
+          range.insertNode(mark);
+        } catch {
+          return;
+        }
+      }
+      selection.removeAllRanges();
+    }
+
+    function removeHighlightOnClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "MARK" && target.closest("[data-highlight-zone]")) {
+        const parent = target.parentNode;
+        if (!parent) return;
+        while (target.firstChild) parent.insertBefore(target.firstChild, target);
+        parent.removeChild(target);
+        parent.normalize();
+      }
+    }
+
+    document.addEventListener("mouseup", applyHighlight);
+    document.addEventListener("click", removeHighlightOnClick);
+    return () => {
+      document.removeEventListener("mouseup", applyHighlight);
+      document.removeEventListener("click", removeHighlightOnClick);
+    };
+  }, [phase]);
 
   function startAssessment() {
     startedAtRef.current = new Date().toISOString();
@@ -123,18 +193,13 @@ export default function AssessmentTake({
 
   function chooseAnswer(questionId: string, choiceId: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
-    // Only record the *first* time they land on an answer for this question -
-    // later changes of mind shouldn't reset the clock used to gauge time spent.
     if (rawElapsedRef.current[questionId] === undefined) {
       rawElapsedRef.current[questionId] = blockSeconds - blockSecondsLeft;
     }
   }
 
-  /** Called when a block's time is up or the student submits it manually. */
   function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
-    // Any question in this block that was never answered still gets a mark
-    // at "now", so the time-spent math below has something to diff against.
     for (const q of currentQuestions) {
       if (rawElapsedRef.current[q.id] === undefined) {
         rawElapsedRef.current[q.id] = blockSeconds - blockSecondsLeft;
@@ -273,6 +338,13 @@ export default function AssessmentTake({
               answered
             </span>
             <div className="flex items-center gap-5">
+              <button
+                type="button"
+                onClick={() => setShowNormalValues(true)}
+                className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1"
+              >
+                Normal values
+              </button>
               <span className="text-xs text-slate-400">
                 Block time{" "}
                 <span
@@ -297,9 +369,13 @@ export default function AssessmentTake({
           </div>
         </div>
 
+        <p className="text-xs text-slate-500">
+          Tip: select any text in a question or choice to highlight it - click a highlight to remove it.
+        </p>
+
         {currentQuestions.map((q, idx) => (
           <div key={q.id} className="card">
-            <p className="text-sm font-semibold mb-3">
+            <p className="text-sm font-semibold mb-3" data-highlight-zone>
               {idx + 1}. {q.question}
             </p>
             <div className="space-y-2">
@@ -319,7 +395,9 @@ export default function AssessmentTake({
                     onChange={() => chooseAnswer(q.id, c.id)}
                     className="w-4 h-4 shrink-0"
                   />
-                  <span className="text-sm">{c.text}</span>
+                  <span className="text-sm" data-highlight-zone>
+                    {c.text}
+                  </span>
                 </label>
               ))}
             </div>
@@ -333,6 +411,40 @@ export default function AssessmentTake({
           <p className="text-xs text-slate-500">
             You won&apos;t be able to come back to this block once you move on.
           </p>
+        )}
+
+        {showNormalValues && (
+          <div
+            className="fixed inset-0 z-20 bg-black/70 flex items-center justify-center px-4"
+            onClick={() => setShowNormalValues(false)}
+          >
+            <div
+              className="card max-w-lg w-full max-h-[80vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-semibold">Normal values - hormones</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowNormalValues(false)}
+                  className="text-slate-400 hover:text-white text-sm"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Approximate adult reference ranges - actual lab ranges vary by assay/lab.
+              </p>
+              <div className="text-sm divide-y divide-slate-800">
+                {NORMAL_HORMONE_VALUES.map((row) => (
+                  <div key={row.name} className="flex items-center justify-between py-2 gap-4">
+                    <span className="text-slate-300">{row.name}</span>
+                    <span className="text-slate-400 text-right">{row.range}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );
