@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,20 +19,22 @@ import ExamSettings, { type ExamTheme, type FontSize } from "./ExamSettings";
 import QuestionNavigator from "./QuestionNavigator";
 
 type Phase = "start" | "taking" | "blockDone" | "break" | "results";
+type ExamMode = "test" | "tutor";
 
-// Inline font-size override applied to question/choice text - deliberately
-// bypasses the fixed Tailwind text-sm class via inline style (which always
-// wins) so the "Medium" setting matches the previous default exactly.
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 
 export default function AssessmentTake({
   userId,
   assessment,
   existingAttempt,
+  allowRetake = false,
+  backHref = "/assessments",
 }: {
   userId: string;
   assessment: Assessment;
   existingAttempt: AssessmentAttempt | null;
+  allowRetake?: boolean;
+  backHref?: string;
 }) {
   const blocks = useMemo(
     () => chunkIntoBlocks(assessment.questions, assessment.questions_per_block),
@@ -43,14 +44,10 @@ export default function AssessmentTake({
   const examSeconds = blocks.length * blockSeconds;
   const breakSecondsTotal = (assessment.break_minutes || 0) * 60;
 
-  // Already completed this before - show their result, no retaking.
-  const alreadyDone = !!existingAttempt;
+  const alreadyDone = !allowRetake && !!existingAttempt;
 
   const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
   const [currentBlock, setCurrentBlock] = useState(0);
-  // Which question within the current block is on screen right now - the
-  // exam shows one question at a time (like UWorld), not the whole block
-  // scrolled out like a PDF.
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [blockSecondsLeft, setBlockSecondsLeft] = useState(blockSeconds);
   const [examSecondsLeft, setExamSecondsLeft] = useState(examSeconds);
@@ -67,44 +64,41 @@ export default function AssessmentTake({
   const [showCalculator, setShowCalculator] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // In-exam display preferences - live only in this component's state, so
-  // they reset to defaults on a fresh page load (not persisted).
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [examTheme, setExamTheme] = useState<ExamTheme>("dark");
   const [splitScreen, setSplitScreen] = useState(false);
 
-  // Question id -> true if flagged "review later" via the flag button.
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
-  // Question id -> set of choice ids the student has struck out (double-click
-  // a choice to toggle). Struck choices stay visible and clickable - this
-  // is just a visual "ruled this out" mark, like UWorld's strikethrough tool.
   const [struckChoices, setStruckChoices] = useState<Record<string, Set<string>>>({});
+
+  const [examMode, setExamMode] = useState<ExamMode>("test");
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
   const advancingRef = useRef(false);
-  // Raw tracking during a live attempt: question id -> seconds elapsed
-  // *within its block* at the moment it was first answered. Converted into
-  // actual per-question time spent (via deriveQuestionTimes) at submit time.
   const rawElapsedRef = useRef<Record<string, number>>({});
-  // Final per-question seconds spent, ready to display on the results screen -
-  // either pulled straight from a past submitted attempt, or computed fresh
-  // when this attempt is finalized below.
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(
     existingAttempt?.question_seconds ?? {}
   );
 
-  // Exam clock: only ticks while actively answering a block.
+  const currentQuestions = blocks[currentBlock] ?? [];
+  const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
+  const isLastBlock = currentBlock >= blocks.length - 1;
+  const currentQuestion = currentQuestions[currentQuestionIndex];
+  const isFirstQuestion = currentQuestionIndex === 0;
+  const isLastQuestion = currentQuestionIndex >= currentQuestions.length - 1;
+  const isRevealedNow = examMode === "tutor" && !!revealed[currentQuestion?.id ?? ""];
+
   useEffect(() => {
-    if (phase !== "taking") return;
+    if (phase !== "taking" || isRevealedNow) return;
     const interval = setInterval(() => {
       setExamSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
       setBlockSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(interval);
-  }, [phase]);
+  }, [phase, isRevealedNow]);
 
-  // Break clock: only ticks while on a break, separate from the exam clock.
   useEffect(() => {
     if (phase !== "break") return;
     const interval = setInterval(() => {
@@ -113,7 +107,6 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase]);
 
-  // Break pool ran out - send them back in.
   useEffect(() => {
     if (phase === "break" && breakSecondsLeft === 0) {
       goToNextBlock();
@@ -121,7 +114,6 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breakSecondsLeft, phase]);
 
-  // Exam clock hit zero - end everything right now, regardless of block progress.
   useEffect(() => {
     if (phase === "taking" && examSecondsLeft === 0) {
       finalizeExam();
@@ -129,7 +121,6 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, phase]);
 
-  // Block clock hit zero - end the block (same as clicking submit).
   useEffect(() => {
     if (phase === "taking" && blockSecondsLeft === 0 && examSecondsLeft > 0) {
       endBlock();
@@ -137,16 +128,10 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
 
-  // Text highlighting, like the real exam: select text inside the question
-  // or an answer choice and it gets marked in yellow. Click a highlighted
-  // bit again to remove just that highlight.
   useEffect(() => {
     if (phase !== "taking") return;
 
     function applyHighlight(e: MouseEvent) {
-      // e.detail > 1 means this mouseup is part of a double/triple click
-      // (browser auto-selects a word) - that's the strike-out gesture, not
-      // a highlight drag-select, so skip it here.
       if (e.detail > 1) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
@@ -205,6 +190,8 @@ export default function AssessmentTake({
     setResult(null);
     setFlagged({});
     setStruckChoices({});
+    setExamMode("test");
+    setRevealed({});
     rawElapsedRef.current = {};
     setQuestionTimes({});
     finalizedRef.current = false;
@@ -214,11 +201,13 @@ export default function AssessmentTake({
 
   function chooseAnswer(questionId: string, choiceId: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
-    // Only record the *first* time they land on an answer for this question -
-    // later changes of mind shouldn't reset the clock used to gauge time spent.
     if (rawElapsedRef.current[questionId] === undefined) {
       rawElapsedRef.current[questionId] = blockSeconds - blockSecondsLeft;
     }
+  }
+
+  function submitTutorAnswer(questionId: string) {
+    setRevealed((prev) => ({ ...prev, [questionId]: true }));
   }
 
   function toggleStrike(questionId: string, choiceId: string) {
@@ -234,11 +223,8 @@ export default function AssessmentTake({
     setFlagged((prev) => ({ ...prev, [questionId]: !prev[questionId] }));
   }
 
-  /** Called when a block's time is up or the student submits it manually. */
   function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
-    // Any question in this block that was never answered still gets a mark
-    // at "now", so the time-spent math below has something to diff against.
     for (const q of currentQuestions) {
       if (rawElapsedRef.current[q.id] === undefined) {
         rawElapsedRef.current[q.id] = blockSeconds - blockSecondsLeft;
@@ -291,13 +277,6 @@ export default function AssessmentTake({
     setPhase("results");
   }
 
-  const currentQuestions = blocks[currentBlock] ?? [];
-  const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
-  const isLastBlock = currentBlock >= blocks.length - 1;
-  const currentQuestion = currentQuestions[currentQuestionIndex];
-  const isFirstQuestion = currentQuestionIndex === 0;
-  const isLastQuestion = currentQuestionIndex >= currentQuestions.length - 1;
-
   if (phase === "start") {
     return (
       <div className="card max-w-xl">
@@ -313,18 +292,24 @@ export default function AssessmentTake({
         </p>
         <p className="text-sm text-slate-300 mb-6">
           This works like a real timed exam. Each block has its own clock, plus there&apos;s
-          an overall exam clock running the whole time you&apos;re answering questions.
+          an overall exam clock running the whole time you&apos;re answering questions. You can
+          switch between Test mode (no feedback until the block ends) and Tutor mode (see the
+          answer and explanation right after each question, with the clock paused while you
+          read it) at any point during the exam.
           {breakSecondsTotal > 0
             ? ` After each block (except the last), you can either continue straight to the next block, or take a break - breaks come out of a shared ${Math.round(
                 breakSecondsTotal / 60
               )}-minute pool you can split up however you want, and the exam clock pauses while you're on break.`
             : ""}{" "}
-          You can&apos;t go back to a block once it&apos;s submitted, and you won&apos;t see
-          your score until you&apos;ve finished the whole thing.
+          {allowRetake
+            ? "You can practice this as many times as you want."
+            : "You can't go back to a block once it's submitted, and you won't see your final score until you've finished the whole thing."}
         </p>
-        <p className="text-xs text-amber-400 mb-6">
-          You only get one attempt at this - once you finish, you can&apos;t retake it.
-        </p>
+        {!allowRetake && (
+          <p className="text-xs text-amber-400 mb-6">
+            You only get one attempt at this - once you finish, you can&apos;t retake it.
+          </p>
+        )}
         <button type="button" onClick={startAssessment} className="btn-primary">
           Start exam
         </button>
@@ -377,6 +362,9 @@ export default function AssessmentTake({
   if (phase === "taking" && currentQuestion) {
     const struck = struckChoices[currentQuestion.id] ?? new Set<string>();
     const isFlagged = !!flagged[currentQuestion.id];
+    const chosen = answers[currentQuestion.id];
+    const answeredCorrectly = chosen === currentQuestion.correct_choice_id;
+
     return (
       <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
         <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-black/90 backdrop-blur border-b border-slate-800">
@@ -389,6 +377,30 @@ export default function AssessmentTake({
               {currentQuestions.length} · {answeredInBlock}/{currentQuestions.length} answered
             </span>
             <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center border border-slate-700 rounded-lg overflow-hidden text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setExamMode("test")}
+                  className={`px-2 py-1 ${
+                    examMode === "test"
+                      ? "bg-brand-900/50 text-brand-200"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExamMode("tutor")}
+                  className={`px-2 py-1 border-l border-slate-700 ${
+                    examMode === "tutor"
+                      ? "bg-brand-900/50 text-brand-200"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Tutor
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => toggleFlag(currentQuestion.id)}
@@ -445,7 +457,7 @@ export default function AssessmentTake({
                     examSecondsLeft <= 300 ? "text-red-400" : "text-white"
                   }`}
                 >
-                  {formatSeconds(examSecondsLeft)}
+                  {isRevealedNow ? "Paused" : formatSeconds(examSecondsLeft)}
                 </span>
               </span>
             </div>
@@ -453,8 +465,11 @@ export default function AssessmentTake({
         </div>
 
         <p className="text-xs text-slate-500">
-          Tip: select text to highlight it (click a highlight to remove it) - double-click an
-          answer choice to strike it out.
+          {examMode === "tutor"
+            ? "Tutor mode: submit an answer to see if it's correct and read the explanation - the clock pauses until you move to another question."
+            : "Test mode: no feedback until you end the block."}{" "}
+          Select text to highlight it (click a highlight to remove it) - double-click an answer
+          choice to strike it out.
         </p>
 
         <div className="flex gap-4 items-start">
@@ -481,19 +496,28 @@ export default function AssessmentTake({
                 <div className="space-y-2">
                   {currentQuestion.choices.map((c) => {
                     const isStruck = struck.has(c.id);
+                    const isChosen = chosen === c.id;
+                    const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
+                    let borderClass = "border-slate-700 hover:border-slate-600";
+                    if (isRevealedNow && isCorrectChoice) {
+                      borderClass = "border-green-600 bg-green-900/20";
+                    } else if (isRevealedNow && isChosen) {
+                      borderClass = "border-red-600 bg-red-900/20";
+                    } else if (isChosen) {
+                      borderClass = "border-brand-400 bg-brand-900/20";
+                    }
                     return (
                       <label
                         key={c.id}
-                        className={`flex items-center gap-3 border rounded-xl px-3 py-2 cursor-pointer transition ${
-                          answers[currentQuestion.id] === c.id
-                            ? "border-brand-400 bg-brand-900/20"
-                            : "border-slate-700 hover:border-slate-600"
+                        className={`flex items-center gap-3 border rounded-xl px-3 py-2 transition ${borderClass} ${
+                          isRevealedNow ? "cursor-default" : "cursor-pointer"
                         }`}
                       >
                         <input
                           type="radio"
                           name={`q-${currentQuestion.id}`}
-                          checked={answers[currentQuestion.id] === c.id}
+                          checked={isChosen}
+                          disabled={isRevealedNow}
                           onChange={() => chooseAnswer(currentQuestion.id, c.id)}
                           className="w-4 h-4 shrink-0"
                         />
@@ -502,6 +526,7 @@ export default function AssessmentTake({
                           data-highlight-zone
                           style={{ fontSize: FONT_SIZE_PX[fontSize] }}
                           onDoubleClick={(e) => {
+                            if (isRevealedNow) return;
                             e.preventDefault();
                             window.getSelection()?.removeAllRanges();
                             toggleStrike(currentQuestion.id, c.id);
@@ -509,11 +534,41 @@ export default function AssessmentTake({
                         >
                           {c.text}
                         </span>
+                        {isRevealedNow && isCorrectChoice && (
+                          <span className="text-xs text-green-400 ml-auto shrink-0">Correct</span>
+                        )}
+                        {isRevealedNow && isChosen && !isCorrectChoice && (
+                          <span className="text-xs text-red-400 ml-auto shrink-0">Your answer</span>
+                        )}
                       </label>
                     );
                   })}
                 </div>
               </div>
+
+              {examMode === "tutor" && !isRevealedNow && (
+                <button
+                  type="button"
+                  onClick={() => submitTutorAnswer(currentQuestion.id)}
+                  disabled={!chosen}
+                  className="btn-primary mt-4"
+                >
+                  Submit answer
+                </button>
+              )}
+
+              {isRevealedNow && (
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  <p
+                    className={`text-sm font-semibold mb-2 ${
+                      answeredCorrectly ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {answeredCorrectly ? "Correct" : "Incorrect"}
+                  </p>
+                  <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -591,8 +646,6 @@ export default function AssessmentTake({
     );
   }
 
-  // Results - shown only after every block is done (or immediately, if
-  // they've already completed this assessment before).
   if (!result) return null;
   const complete = result.total > 0 && result.pct === 100;
   return (
@@ -615,14 +668,19 @@ export default function AssessmentTake({
             {blocks.length === 1 ? "" : "s"}
           </span>
         </div>
-        {alreadyDone && (
+        {!allowRetake && alreadyDone && (
           <p className="text-xs text-slate-500 mt-3">
             You&apos;ve already completed this assessment, so it can&apos;t be retaken.
           </p>
         )}
-        <div className="flex gap-3 mt-4">
-          <Link href="/assessments" className="btn-secondary">
-            Back to assessments
+        <div className="flex flex-wrap gap-3 mt-4">
+          {allowRetake && (
+            <button type="button" onClick={startAssessment} className="btn-primary">
+              Practice again
+            </button>
+          )}
+          <Link href={backHref} className="btn-secondary">
+            {allowRetake ? "Back to question bank" : "Back to assessments"}
           </Link>
         </div>
       </div>
