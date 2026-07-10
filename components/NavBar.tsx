@@ -9,7 +9,6 @@ const LINKS = [
   { href: "/qbank", label: "Question Bank" },
   { href: "/assessments", label: "Self Assessment" },
   { href: "/history", label: "History" },
-  { href: "/lab-values", label: "Lab Values" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -34,6 +33,18 @@ export default function NavBar({ isAdmin }: { isAdmin?: boolean }) {
             {l.label}
           </Link>
         ))}
+        {isAdmin && (
+          <Link
+            href="/lab-values"
+            className={`text-sm font-medium px-3 py-2.5 rounded-lg transition ${
+              pathname === "/lab-values"
+                ? "bg-brand-900/40 text-brand-300"
+                : "text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            Lab Values
+          </Link>
+        )}
         {isAdmin && (
           <Link
             href="/admin"
