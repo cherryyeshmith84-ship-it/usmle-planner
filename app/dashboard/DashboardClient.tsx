@@ -139,38 +139,61 @@ export default function DashboardClient({
   const doneCount = tasks.filter((t) => t.status === "done").length;
   const progressPct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
 
+  // Persist the task list to Supabase right away so a refresh (or navigating
+  // away) never discards a checkmark/skip/add/remove that wasn't followed by
+  // an explicit "Save today's progress" click. This upsert only touches the
+  // tasks column, so it won't clobber hours/notes/rating already saved today.
+  async function persistTasks(next: StudyTask[]) {
+    const supabase = createClient();
+    await supabase
+      .from("daily_logs")
+      .upsert({ user_id: userId, log_date: today, tasks: next }, { onConflict: "user_id,log_date" });
+  }
+
   function toggleDone(id: string) {
-    setTasks((prev) =>
-      prev.map((t) =>
+    setTasks((prev) => {
+      const next = prev.map((t) =>
         t.id === id ? { ...t, status: t.status === "done" ? ("pending" as TaskStatus) : ("done" as TaskStatus) } : t
-      )
-    );
+      );
+      persistTasks(next);
+      return next;
+    });
   }
 
   function toggleSkip(id: string) {
-    setTasks((prev) =>
-      prev.map((t) =>
+    setTasks((prev) => {
+      const next = prev.map((t) =>
         t.id === id ? { ...t, status: t.status === "skipped" ? ("pending" as TaskStatus) : ("skipped" as TaskStatus) } : t
-      )
-    );
+      );
+      persistTasks(next);
+      return next;
+    });
   }
 
   function removeTask(id: string) {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setTasks((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      persistTasks(next);
+      return next;
+    });
   }
 
   function addTask() {
     if (!newTitle.trim()) return;
-    setTasks((prev) => [
-      ...prev,
-      {
-        id: newTaskId(),
-        title: newTitle.trim(),
-        resource: newResource,
-        target: newTarget.trim(),
-        status: "pending",
-      },
-    ]);
+    setTasks((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: newTaskId(),
+          title: newTitle.trim(),
+          resource: newResource,
+          target: newTarget.trim(),
+          status: "pending" as TaskStatus,
+        },
+      ];
+      persistTasks(next);
+      return next;
+    });
     setNewTitle("");
     setNewTarget("");
   }
