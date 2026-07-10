@@ -84,6 +84,7 @@ export interface ErrorBreakdown {
   far: number;
   unanswered: number;
   total: number;
+  // Of the questions gotten wrong (near + far), what % was each type.
   nearPctOfWrong: number;
   farPctOfWrong: number;
 }
@@ -121,7 +122,8 @@ export function buildErrorBreakdown(
  * something copied straight out of UWorld) into a question stem and a clean
  * list of choice texts. Returns null if it couldn't find at least 2 options.
  *
- * Recognizes option lines like "A. text", "A) text", "1. text", "1) text".
+ * Recognizes option lines like "A. text", "A) text", "(A) text", "1. text",
+ * "1) text", and "(1) text".
  * Lines that don't start with a marker are treated as part of the question
  * stem (if before the first option) or a continuation of the previous
  * choice's text (if an option has already started, e.g. a wrapped line).
@@ -131,7 +133,7 @@ export function parsePastedQuestion(
   raw: string
 ): { question: string; choices: string[] } | null {
   const lines = raw.split(/\r?\n/);
-  const optionLineRegex = /^\s*(?:[A-Za-z]|\d{1,2})[.)]\s+(.+)$/;
+  const optionLineRegex = /^\s*\(?(?:[A-Za-z]|\d{1,2})[.)]\s+(.+)$/;
   const stemLines: string[] = [];
   const choices: string[] = [];
   let inOptions = false;
