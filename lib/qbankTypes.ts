@@ -43,6 +43,10 @@ export type Step1System = (typeof STEP1_SYSTEMS)[number];
 export interface QBankChoice {
   id: string;
   text: string;
+  // Only meaningful for choices that are NOT the correct answer.
+  // "near" = a close, plausible distractor (tests fine discrimination).
+  // "far"/unset = an unrelated, easily-ruled-out distractor.
+  distance?: "near" | "far";
 }
 
 export interface QBankQuestion {
