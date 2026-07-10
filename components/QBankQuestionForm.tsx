@@ -50,6 +50,10 @@ export default function QBankQuestionForm({
     setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, text } : c)));
   }
 
+  function updateChoiceDistance(idx: number, distance: "near" | "far") {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, distance } : c)));
+  }
+
   function addChoice() {
     setChoices((prev) => [...prev, blankQBankChoice()]);
   }
@@ -158,35 +162,50 @@ export default function QBankQuestionForm({
         />
 
         <p className="label mb-2">
-          Answer choices - click the circle next to the correct one.
+          Answer choices - click the circle next to the correct one. For each wrong
+          choice, tag whether it&apos;s a close distractor or an unrelated one, so the
+          score report can tell a near-miss from a fundamentals gap.
         </p>
         <div className="space-y-2 mb-3">
-          {choices.map((c, idx) => (
-            <div key={c.id} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="correct-choice"
-                checked={correctChoiceId === c.id}
-                onChange={() => setCorrectChoiceId(c.id)}
-                className="shrink-0 w-4 h-4"
-              />
-              <input
-                className="input flex-1"
-                placeholder={`Choice ${idx + 1}`}
-                value={c.text}
-                onChange={(e) => updateChoice(idx, e.target.value)}
-              />
-              {choices.length > 2 && (
-                <button
-                  type="button"
-                  onClick={() => removeChoice(idx)}
-                  className="text-slate-500 hover:text-red-400 text-sm px-2"
-                >
-                  &times;
-                </button>
-              )}
-            </div>
-          ))}
+          {choices.map((c, idx) => {
+            const isCorrect = correctChoiceId === c.id;
+            return (
+              <div key={c.id} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="correct-choice"
+                  checked={isCorrect}
+                  onChange={() => setCorrectChoiceId(c.id)}
+                  className="shrink-0 w-4 h-4"
+                />
+                <input
+                  className="input flex-1"
+                  placeholder={`Choice ${idx + 1}`}
+                  value={c.text}
+                  onChange={(e) => updateChoice(idx, e.target.value)}
+                />
+                {!isCorrect && (
+                  <select
+                    className="input w-auto text-xs shrink-0"
+                    value={c.distance ?? "far"}
+                    onChange={(e) => updateChoiceDistance(idx, e.target.value as "near" | "far")}
+                  >
+                    <option value="far">Far miss</option>
+                    <option value="near">Near miss</option>
+                  </select>
+                )}
+                {choices.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => removeChoice(idx)}
+                    className="text-slate-500 hover:text-red-400 text-sm px-2"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
         <button type="button" onClick={addChoice} className="text-sm text-brand-400 hover:text-brand-300 font-medium mb-4">
           + Add another choice
