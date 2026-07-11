@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { chunkIntoBlocks, formatSeconds } from "@/lib/assessments";
+import { choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
 import type { QBankQuestion, QBankTestSession, ExamModeOption } from "@/lib/qbankTypes";
 import LabValuesSearch from "./LabValuesSearch";
 import AiHelper from "./AiHelper";
@@ -54,6 +55,13 @@ export default function QBankTake({
 
   const [examMode, setExamMode] = useState<ExamModeOption>(session.mode ?? "test");
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+
+  // Percent of students who picked each choice, keyed by question id, then
+  // choice id -> percent. Loaded lazily (on tutor reveal / entering results)
+  // via the qbank_choice_stats Supabase function - shown as a UWorld-style
+  // "42%" next to each answer choice.
+  const [choiceStats, setChoiceStats] = useState<Record<string, Record<string, number>>>({});
+  const loadedStatsRef = useRef<Set<string>>(new Set());
 
   const currentQuestions = blocks[currentBlock] ?? [];
   const blockSeconds = currentQuestions.length * SECONDS_PER_QUESTION;
@@ -137,6 +145,14 @@ export default function QBankTake({
     };
   }, [phase]);
 
+  useEffect(() => {
+    if (phase !== "results") return;
+    for (const q of questions) {
+      loadChoiceStats(q.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   function startTest() {
     setCurrentBlock(0);
     setCurrentQuestionIndex(0);
@@ -157,6 +173,16 @@ export default function QBankTake({
 
   function submitTutorAnswer(questionId: string) {
     setRevealed((prev) => ({ ...prev, [questionId]: true }));
+    loadChoiceStats(questionId);
+  }
+
+  async function loadChoiceStats(questionId: string) {
+    if (loadedStatsRef.current.has(questionId)) return;
+    loadedStatsRef.current.add(questionId);
+    const supabase = createClient();
+    const { data } = await supabase.rpc("qbank_choice_stats", { p_question_id: questionId });
+    const { percents } = choiceStatsToPercents((data ?? []) as ChoiceStatRow[]);
+    setChoiceStats((prev) => ({ ...prev, [questionId]: percents }));
   }
 
   function toggleStrike(questionId: string, choiceId: string) {
@@ -400,8 +426,17 @@ export default function QBankTake({
                         >
                           {c.text}
                         </span>
-                        {isRevealedNow && isCorrectChoice && <span className="text-xs text-green-400 ml-auto shrink-0">Correct</span>}
-                        {isRevealedNow && isChosen && !isCorrectChoice && <span className="text-xs text-red-400 ml-auto shrink-0">Your answer</span>}
+                        {isRevealedNow && (
+                          <span className="ml-auto shrink-0 flex items-center gap-2">
+                            {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
+                              <span className="text-xs text-slate-400">
+                                {choiceStats[currentQuestion.id][c.id]}%
+                              </span>
+                            )}
+                            {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
+                            {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
+                          </span>
+                        )}
                       </label>
                     );
                   })}
@@ -521,15 +556,19 @@ export default function QBankTake({
                 {q.choices.map((c) => {
                   const isThisCorrect = c.id === q.correct_choice_id;
                   const isThisChosen = c.id === chosen;
+                  const pct = choiceStats[q.id]?.[c.id];
                   return (
                     <p
                       key={c.id}
-                      className={`text-sm px-2 py-1 rounded ${
+                      className={`text-sm px-2 py-1 rounded flex items-center justify-between gap-2 ${
                         isThisCorrect ? "bg-green-900/20 text-green-300" : isThisChosen ? "bg-red-900/20 text-red-300" : "text-slate-400"
                       }`}
                     >
-                      {c.text}
-                      {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
+                      <span>
+                        {c.text}
+                        {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
+                      </span>
+                      {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
                     </p>
                   );
                 })}
