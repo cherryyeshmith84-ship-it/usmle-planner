@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parsePastedQuestion } from "@/lib/assessments";
-import { blankQBankChoice, blankQBankQuestion } from "@/lib/qbank";
+import { blankQBankChoice, blankQBankQuestion, choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS, type QBankQuestion } from "@/lib/qbankTypes";
 
 export default function QBankQuestionForm({
@@ -26,6 +26,30 @@ export default function QBankQuestionForm({
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Aggregate "who picked what" breakdown for this question, across every
+  // submitted Question Bank test - only loaded when editing an existing
+  // question (a brand-new one has no answers to report on yet).
+  const [choicePercents, setChoicePercents] = useState<Record<string, number>>({});
+  const [choiceCounts, setChoiceCounts] = useState<Record<string, number>>({});
+  const [statsTotal, setStatsTotal] = useState(0);
+  const [statsLoading, setStatsLoading] = useState(!!initial);
+
+  useEffect(() => {
+    if (!initial) return;
+    setStatsLoading(true);
+    const supabase = createClient();
+    supabase
+      .rpc("qbank_choice_stats", { p_question_id: initial.id })
+      .then(({ data }) => {
+        const { percents, counts, total } = choiceStatsToPercents((data ?? []) as ChoiceStatRow[]);
+        setChoicePercents(percents);
+        setChoiceCounts(counts);
+        setStatsTotal(total);
+        setStatsLoading(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.id]);
 
   function toggleTag(list: string[], setList: (v: string[]) => void, tag: string) {
     setList(list.includes(tag) ? list.filter((t) => t !== tag) : [...list, tag]);
@@ -220,6 +244,44 @@ export default function QBankQuestionForm({
           onChange={(e) => setExplanation(e.target.value)}
         />
       </div>
+
+      {initial && (
+        <div className="card">
+          <h2 className="font-semibold mb-1">Student answers so far</h2>
+          <p className="text-xs text-slate-400 mb-3">
+            {statsLoading
+              ? "Loading..."
+              : statsTotal > 0
+              ? `${statsTotal} student answer${statsTotal === 1 ? "" : "s"} recorded, across everyone who has taken this question.`
+              : "No one has answered this question yet."}
+          </p>
+          {!statsLoading && statsTotal > 0 && (
+            <div className="space-y-1.5">
+              {choices.map((c) => {
+                const isCorrect = c.id === correctChoiceId;
+                const pct = choicePercents[c.id] ?? 0;
+                const count = choiceCounts[c.id] ?? 0;
+                return (
+                  <div
+                    key={c.id}
+                    className={`flex items-center justify-between gap-2 text-sm px-2 py-1 rounded ${
+                      isCorrect ? "bg-green-900/20 text-green-300" : "text-slate-300"
+                    }`}
+                  >
+                    <span className="truncate">
+                      {c.text || "(blank choice)"}
+                      {isCorrect ? " (correct)" : ""}
+                    </span>
+                    <span className="text-xs text-slate-400 shrink-0">
+                      {pct}% ({count})
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <h2 className="font-semibold mb-1">Subjects</h2>
