@@ -125,3 +125,32 @@ export function filterPool(options: {
     return true;
   });
 }
+
+export interface ChoiceStatRow {
+  choice_id: string;
+  choice_count: number;
+}
+
+/**
+ * Turns the raw per-choice answer counts returned by the qbank_choice_stats
+ * Supabase function into percentages of the total number of students who
+ * answered - used to show a UWorld-style "42%" next to each choice.
+ */
+export function choiceStatsToPercents(rows: ChoiceStatRow[]): {
+  percents: Record<string, number>;
+  counts: Record<string, number>;
+  total: number;
+} {
+  const counts: Record<string, number> = {};
+  let total = 0;
+  for (const row of rows) {
+    if (!row.choice_id) continue;
+    counts[row.choice_id] = row.choice_count;
+    total += row.choice_count;
+  }
+  const percents: Record<string, number> = {};
+  for (const cid of Object.keys(counts)) {
+    percents[cid] = total > 0 ? Math.round((counts[cid] / total) * 100) : 0;
+  }
+  return { percents, counts, total };
+}
