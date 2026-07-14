@@ -7,6 +7,13 @@ import { parsePastedQuestion } from "@/lib/assessments";
 import { blankQBankChoice, blankQBankQuestion, choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS, type QBankQuestion } from "@/lib/qbankTypes";
 
+interface StudentAnswerRow {
+  userId: string;
+  name: string;
+  choiceId: string | undefined;
+  submittedAt: string | null;
+}
+
 export default function QBankQuestionForm({
   userId,
   initial,
@@ -35,6 +42,13 @@ export default function QBankQuestionForm({
   const [statsTotal, setStatsTotal] = useState(0);
   const [statsLoading, setStatsLoading] = useState(!!initial);
 
+  // Admin-only: exactly which student picked which choice for this
+  // question. Relies on the existing RLS policy on qbank_test_sessions
+  // ("user_id = auth.uid() or is_admin()"), which already lets an admin
+  // account read every student's submitted sessions directly - no new
+  // Supabase function needed. Never shown to students.
+  const [studentAnswers, setStudentAnswers] = useState<StudentAnswerRow[]>([]);
+
   useEffect(() => {
     if (!initial) return;
     setStatsLoading(true);
@@ -48,6 +62,46 @@ export default function QBankQuestionForm({
         setStatsTotal(total);
         setStatsLoading(false);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.id]);
+
+  useEffect(() => {
+    if (!initial) return;
+    const supabase = createClient();
+    (async () => {
+      const { data: sessions } = await supabase
+        .from("qbank_test_sessions")
+        .select("user_id, answers, submitted_at")
+        .not("submitted_at", "is", null)
+        .contains("question_ids", [initial.id]);
+      if (!sessions || sessions.length === 0) {
+        setStudentAnswers([]);
+        return;
+      }
+      const userIds = Array.from(new Set(sessions.map((s) => s.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", userIds);
+      const nameById: Record<string, string> = {};
+      for (const p of profiles ?? []) {
+        nameById[p.id] = p.full_name || p.email || "Unknown student";
+      }
+      const rows: StudentAnswerRow[] = sessions
+        .map((s) => ({
+          userId: s.user_id,
+          name: nameById[s.user_id] ?? "Unknown student",
+          choiceId: (s.answers as Record<string, string> | null)?.[initial.id],
+          submittedAt: s.submitted_at as string | null,
+        }))
+        .filter((r): r is StudentAnswerRow => !!r.choiceId)
+        .sort((a, b) =>
+          a.submittedAt && b.submittedAt
+            ? new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+            : 0
+        );
+      setStudentAnswers(rows);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial?.id]);
 
@@ -278,6 +332,31 @@ export default function QBankQuestionForm({
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {!statsLoading && studentAnswers.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-slate-800">
+              <p className="text-xs text-slate-500 mb-2">Who chose what (visible to admins only):</p>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {studentAnswers.map((row) => {
+                  const choiceIdx = choices.findIndex((c) => c.id === row.choiceId);
+                  const choiceLetter = choiceIdx >= 0 ? String.fromCharCode(65 + choiceIdx) : "?";
+                  const isCorrect = row.choiceId === correctChoiceId;
+                  return (
+                    <div
+                      key={row.userId}
+                      className="flex items-center justify-between gap-2 text-sm px-2 py-1 rounded bg-slate-900/40"
+                    >
+                      <span className="truncate">{row.name}</span>
+                      <span className={`text-xs shrink-0 ${isCorrect ? "text-green-400" : "text-red-400"}`}>
+                        Chose {choiceLetter}
+                        {isCorrect ? " (correct)" : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
