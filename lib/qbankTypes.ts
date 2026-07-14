@@ -1,7 +1,7 @@
 // USMLE Step 1 discipline (subject) and organ system categories - the same
 // breakdown the real exam and UWorld use. A question can be tagged with more
 // than one subject and more than one system.
-
+ 
 export const STEP1_SUBJECTS = [
   "Anatomy",
   "Behavioral Health",
@@ -19,7 +19,7 @@ export const STEP1_SUBJECTS = [
   "Physiology",
   "Social Sciences (Ethics/Legal/Communication)",
 ] as const;
-
+ 
 export const STEP1_SYSTEMS = [
   "Behavioral Health & Nervous Systems/Special Senses",
   "Biostatistics & Epidemiology/Population Health",
@@ -36,10 +36,10 @@ export const STEP1_SYSTEMS = [
   "Respiratory System",
   "Social Sciences (Ethics/Legal/Communication)",
 ] as const;
-
+ 
 export type Step1Subject = (typeof STEP1_SUBJECTS)[number];
 export type Step1System = (typeof STEP1_SYSTEMS)[number];
-
+ 
 export interface QBankChoice {
   id: string;
   text: string;
@@ -48,7 +48,7 @@ export interface QBankChoice {
   // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
 }
-
+ 
 export interface QBankQuestion {
   id: string;
   question: string;
@@ -61,9 +61,9 @@ export interface QBankQuestion {
   created_at?: string;
   updated_at?: string;
 }
-
+ 
 export type ExamModeOption = "test" | "tutor";
-
+ 
 export interface QBankTestSession {
   id: string;
   user_id: string;
@@ -79,10 +79,17 @@ export interface QBankTestSession {
   score_total: number | null;
   started_at: string;
   submitted_at: string | null;
+  // Resume-in-progress fields - let a refresh/reload pick back up exactly
+  // where the student left off instead of restarting the test.
+  current_block?: number;
+  current_question_index?: number;
+  revealed?: Record<string, boolean>;
+  tutor_elapsed_seconds?: number;
+  in_progress?: boolean;
 }
-
+ 
 export type QuestionStatus = "unused" | "correct" | "incorrect" | "omitted";
-
+ 
 export interface QuestionStatusInfo {
   status: QuestionStatus;
   marked: boolean;
