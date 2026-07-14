@@ -34,10 +34,14 @@ export default function QBankTake({
   );
 
   const alreadyDone = !!session.submitted_at;
+  // A session that was left mid-test (started, not yet submitted) resumes
+  // straight into "taking" at its saved position, instead of showing the
+  // "Start test" screen again and losing the student's place.
+  const resuming = !alreadyDone && !!session.in_progress;
 
-  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
-  const [currentBlock, setCurrentBlock] = useState(0);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : resuming ? "taking" : "start");
+  const [currentBlock, setCurrentBlock] = useState(session.current_block ?? 0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(session.current_question_index ?? 0);
   const [answers, setAnswers] = useState<Record<string, string>>(session.answers ?? {});
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(session.question_seconds ?? {});
   const [submitting, setSubmitting] = useState(false);
@@ -54,7 +58,7 @@ export default function QBankTake({
   const [struckChoices, setStruckChoices] = useState<Record<string, Set<string>>>({});
 
   const [examMode, setExamMode] = useState<ExamModeOption>(session.mode ?? "test");
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [revealed, setRevealed] = useState<Record<string, boolean>>(session.revealed ?? {});
 
   // Percent of students who picked each choice, keyed by question id, then
   // choice id -> percent. Loaded lazily (on tutor reveal / entering results)
@@ -72,14 +76,64 @@ export default function QBankTake({
   const advancingRef = useRef(false);
   const rawElapsedRef = useRef<Record<string, number>>({});
 
-  // Tutor-mode-only per-question stopwatch: counts UP from 0 while the
-  // current question is unanswered, freezes the instant an answer is
-  // submitted, and resets to 0 on the next question. Kept completely
-  // separate from the shared block countdown used in Test mode.
-  const tutorLiveRef = useRef(0);
-  const [tutorLiveDisplay, setTutorLiveDisplay] = useState(0);
-  const tutorLockedRef = useRef<Record<string, number>>({});
-  const prevQuestionIdRef = useRef<string | undefined>(undefined);
+  // Tutor-mode-only stopwatch for the current block: counts UP continuously
+  // from wherever it was left off (0 for a fresh block, or a resumed value
+  // after a refresh), only pausing while the current question is revealed.
+  // It does NOT reset between questions - question 2 picks up right where
+  // question 1 left off, same as a real exam clock.
+  const tutorLiveRef = useRef(session.tutor_elapsed_seconds ?? 0);
+  const [tutorLiveDisplay, setTutorLiveDisplay] = useState(session.tutor_elapsed_seconds ?? 0);
+
+  // Refs mirroring the latest state, read by the autosave interval below so
+  // it always persists fresh values without needing to be torn down and
+  // recreated on every keystroke/click.
+  const answersRef = useRef(answers);
+  const revealedRef = useRef(revealed);
+  const currentBlockRef = useRef(currentBlock);
+  const currentQuestionIndexRef = useRef(currentQuestionIndex);
+  const examModeRef = useRef(examMode);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+  useEffect(() => {
+    revealedRef.current = revealed;
+  }, [revealed]);
+  useEffect(() => {
+    currentBlockRef.current = currentBlock;
+  }, [currentBlock]);
+  useEffect(() => {
+    currentQuestionIndexRef.current = currentQuestionIndex;
+  }, [currentQuestionIndex]);
+  useEffect(() => {
+    examModeRef.current = examMode;
+  }, [examMode]);
+
+  // Saves current progress (answers, revealed questions, tutor stopwatch,
+  // and position) so a page refresh or closed tab can resume exactly here.
+  // Pass overrides for any value that was just changed in the same tick as
+  // the call (e.g. right after setRevealed) so it doesn't read a stale ref.
+  async function saveProgress(overrides?: {
+    answers?: Record<string, string>;
+    revealed?: Record<string, boolean>;
+    currentBlock?: number;
+    currentQuestionIndex?: number;
+    tutorElapsedSeconds?: number;
+    mode?: ExamModeOption;
+  }) {
+    const supabase = createClient();
+    await supabase
+      .from("qbank_test_sessions")
+      .update({
+        mode: overrides?.mode ?? examModeRef.current,
+        answers: overrides?.answers ?? answersRef.current,
+        revealed: overrides?.revealed ?? revealedRef.current,
+        tutor_elapsed_seconds: overrides?.tutorElapsedSeconds ?? tutorLiveRef.current,
+        current_block: overrides?.currentBlock ?? currentBlockRef.current,
+        current_question_index: overrides?.currentQuestionIndex ?? currentQuestionIndexRef.current,
+        in_progress: true,
+      })
+      .eq("id", session.id);
+  }
 
   const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
   const isLastBlock = currentBlock >= blocks.length - 1;
@@ -103,8 +157,9 @@ export default function QBankTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
 
-  // Ticks the tutor-mode per-question stopwatch up by 1 every second, only
-  // while taking the test, in tutor mode, and not yet revealed.
+  // Ticks the tutor-mode stopwatch up by 1 every second, continuously
+  // across the whole block - only while taking the test, in tutor mode,
+  // and the current question isn't revealed yet.
   useEffect(() => {
     if (phase !== "taking" || examMode !== "tutor" || isRevealedNow) return;
     const interval = setInterval(() => {
@@ -112,21 +167,18 @@ export default function QBankTake({
       setTutorLiveDisplay(tutorLiveRef.current);
     }, 1000);
     return () => clearInterval(interval);
-  }, [phase, examMode, isRevealedNow, currentQuestion?.id]);
+  }, [phase, examMode, isRevealedNow]);
 
-  // Whenever the active question changes, lock in the elapsed tutor-mode
-  // time for the question being left (if it wasn't already locked in by
-  // submitting an answer), then reset the stopwatch to 0 for the new one.
+  // Autosaves progress every few seconds while taking the test, so a
+  // refresh (or an accidentally closed tab) resumes at the same question,
+  // with the same answers/reveals and the same elapsed tutor time, instead
+  // of starting over.
   useEffect(() => {
-    const prevId = prevQuestionIdRef.current;
-    if (prevId && examMode === "tutor" && tutorLockedRef.current[prevId] === undefined) {
-      tutorLockedRef.current[prevId] = tutorLiveRef.current;
-    }
-    prevQuestionIdRef.current = currentQuestion?.id;
-    tutorLiveRef.current = 0;
-    setTutorLiveDisplay(0);
+    if (phase !== "taking") return;
+    const interval = setInterval(saveProgress, 4000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQuestion?.id]);
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "taking") return;
@@ -193,24 +245,26 @@ export default function QBankTake({
     setBlockSecondsLeft((blocks[0] ?? []).length * SECONDS_PER_QUESTION);
     setRevealed({});
     rawElapsedRef.current = {};
+    tutorLiveRef.current = 0;
+    setTutorLiveDisplay(0);
     finalizedRef.current = false;
     advancingRef.current = false;
     setPhase("taking");
+    saveProgress({ currentBlock: 0, currentQuestionIndex: 0, revealed: {}, tutorElapsedSeconds: 0 });
   }
 
   function chooseAnswer(questionId: string, choiceId: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
     if (rawElapsedRef.current[questionId] === undefined) {
-      rawElapsedRef.current[questionId] = blockSeconds - blockSecondsLeft;
+      rawElapsedRef.current[questionId] = examMode === "tutor" ? tutorLiveRef.current : blockSeconds - blockSecondsLeft;
     }
   }
 
   function submitTutorAnswer(questionId: string) {
-    setRevealed((prev) => ({ ...prev, [questionId]: true }));
-    if (tutorLockedRef.current[questionId] === undefined) {
-      tutorLockedRef.current[questionId] = tutorLiveRef.current;
-    }
+    const nextRevealed = { ...revealed, [questionId]: true };
+    setRevealed(nextRevealed);
     loadChoiceStats(questionId);
+    saveProgress({ revealed: nextRevealed });
   }
 
   async function loadChoiceStats(questionId: string) {
@@ -242,12 +296,9 @@ export default function QBankTake({
 
   function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
-    if (examMode === "tutor" && currentQuestion && tutorLockedRef.current[currentQuestion.id] === undefined) {
-      tutorLockedRef.current[currentQuestion.id] = tutorLiveRef.current;
-    }
     for (const q of currentQuestions) {
       if (rawElapsedRef.current[q.id] === undefined) {
-        rawElapsedRef.current[q.id] = blockSeconds - blockSecondsLeft;
+        rawElapsedRef.current[q.id] = examMode === "tutor" ? tutorLiveRef.current : blockSeconds - blockSecondsLeft;
       }
     }
     if (currentBlock >= blocks.length - 1) {
@@ -259,7 +310,16 @@ export default function QBankTake({
     const supabase = createClient();
     supabase
       .from("qbank_test_sessions")
-      .update({ mode: examMode, answers, question_seconds: deriveTimes() })
+      .update({
+        mode: examMode,
+        answers,
+        revealed,
+        current_block: currentBlock,
+        current_question_index: currentQuestionIndex,
+        tutor_elapsed_seconds: tutorLiveRef.current,
+        question_seconds: deriveTimes(),
+        in_progress: true,
+      })
       .eq("id", session.id);
     setPhase("blockDone");
   }
@@ -272,7 +332,10 @@ export default function QBankTake({
     setCurrentBlock(nextIndex);
     setCurrentQuestionIndex(0);
     setBlockSecondsLeft(nextBlockLen * SECONDS_PER_QUESTION);
+    tutorLiveRef.current = 0;
+    setTutorLiveDisplay(0);
     setPhase("taking");
+    saveProgress({ currentBlock: nextIndex, currentQuestionIndex: 0, tutorElapsedSeconds: 0 });
     setTimeout(() => {
       advancingRef.current = false;
     }, 300);
@@ -283,12 +346,6 @@ export default function QBankTake({
     for (const block of blocks) {
       let prev = 0;
       for (const q of block) {
-        // Tutor-mode questions have their own directly-measured stopwatch
-        // time, not derived from the (frozen, in tutor mode) block clock.
-        if (tutorLockedRef.current[q.id] !== undefined) {
-          out[q.id] = tutorLockedRef.current[q.id];
-          continue;
-        }
         const t = rawElapsedRef.current[q.id];
         if (t === undefined) continue;
         out[q.id] = Math.max(0, t - prev);
@@ -315,6 +372,7 @@ export default function QBankTake({
         score_correct: correct,
         score_total: total,
         submitted_at: new Date().toISOString(),
+        in_progress: false,
       })
       .eq("id", session.id);
     setSubmitting(false);
@@ -332,10 +390,10 @@ export default function QBankTake({
         </p>
         <p className="text-sm text-slate-300 mb-6">
           Test mode gives the whole block a shared clock (about 75 seconds per question) and
-          ends the block when it runs out. Tutor mode is different: each question gets its own
-          stopwatch that starts at 0, stops the moment you submit an answer, and resets on the
-          next question - it never forces the block to end. You can switch between the two at
-          any point.
+          ends the block when it runs out. Tutor mode is different: it's a simple stopwatch that
+          starts at 0 and keeps counting up across the whole block - it only pauses while you're
+          reading a submitted answer's explanation, and never forces the block to end. You can
+          switch between the two at any point.
         </p>
         <button type="button" onClick={startTest} className="btn-primary">
           Start test
@@ -411,7 +469,7 @@ export default function QBankTake({
               <span className="text-xs text-slate-400">
                 {examMode === "tutor" ? (
                   <>
-                    Time on this question{" "}
+                    Time elapsed{" "}
                     <span className="font-bold tabular-nums text-sm ml-1 text-white">
                       {formatSeconds(tutorLiveDisplay)}
                     </span>
@@ -431,7 +489,7 @@ export default function QBankTake({
 
         <p className="text-xs text-slate-500">
           {examMode === "tutor"
-            ? "Tutor mode: each question has its own stopwatch starting at 0 - it stops once you submit an answer, and resets on the next question."
+            ? "Tutor mode: the clock keeps running block-wide - it pauses while you're reading a submitted answer's explanation, and picks back up right where it left off on the next question."
             : "Test mode: no feedback until you end the block."}{" "}
           Select text to highlight it (click a highlight to remove it) - double-click an answer choice to strike it out.
         </p>
