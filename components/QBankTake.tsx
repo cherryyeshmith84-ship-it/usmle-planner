@@ -72,6 +72,15 @@ export default function QBankTake({
   const advancingRef = useRef(false);
   const rawElapsedRef = useRef<Record<string, number>>({});
 
+  // Tutor-mode-only per-question stopwatch: counts UP from 0 while the
+  // current question is unanswered, freezes the instant an answer is
+  // submitted, and resets to 0 on the next question. Kept completely
+  // separate from the shared block countdown used in Test mode.
+  const tutorLiveRef = useRef(0);
+  const [tutorLiveDisplay, setTutorLiveDisplay] = useState(0);
+  const tutorLockedRef = useRef<Record<string, number>>({});
+  const prevQuestionIdRef = useRef<string | undefined>(undefined);
+
   const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
   const isLastBlock = currentBlock >= blocks.length - 1;
   const currentQuestion = currentQuestions[currentQuestionIndex];
@@ -80,12 +89,12 @@ export default function QBankTake({
   const isRevealedNow = examMode === "tutor" && !!revealed[currentQuestion?.id ?? ""];
 
   useEffect(() => {
-    if (phase !== "taking" || isRevealedNow) return;
+    if (phase !== "taking" || isRevealedNow || examMode === "tutor") return;
     const interval = setInterval(() => {
       setBlockSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(interval);
-  }, [phase, isRevealedNow]);
+  }, [phase, isRevealedNow, examMode]);
 
   useEffect(() => {
     if (phase === "taking" && blockSecondsLeft === 0) {
@@ -93,6 +102,31 @@ export default function QBankTake({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
+
+  // Ticks the tutor-mode per-question stopwatch up by 1 every second, only
+  // while taking the test, in tutor mode, and not yet revealed.
+  useEffect(() => {
+    if (phase !== "taking" || examMode !== "tutor" || isRevealedNow) return;
+    const interval = setInterval(() => {
+      tutorLiveRef.current += 1;
+      setTutorLiveDisplay(tutorLiveRef.current);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase, examMode, isRevealedNow, currentQuestion?.id]);
+
+  // Whenever the active question changes, lock in the elapsed tutor-mode
+  // time for the question being left (if it wasn't already locked in by
+  // submitting an answer), then reset the stopwatch to 0 for the new one.
+  useEffect(() => {
+    const prevId = prevQuestionIdRef.current;
+    if (prevId && examMode === "tutor" && tutorLockedRef.current[prevId] === undefined) {
+      tutorLockedRef.current[prevId] = tutorLiveRef.current;
+    }
+    prevQuestionIdRef.current = currentQuestion?.id;
+    tutorLiveRef.current = 0;
+    setTutorLiveDisplay(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestion?.id]);
 
   useEffect(() => {
     if (phase !== "taking") return;
@@ -173,6 +207,9 @@ export default function QBankTake({
 
   function submitTutorAnswer(questionId: string) {
     setRevealed((prev) => ({ ...prev, [questionId]: true }));
+    if (tutorLockedRef.current[questionId] === undefined) {
+      tutorLockedRef.current[questionId] = tutorLiveRef.current;
+    }
     loadChoiceStats(questionId);
   }
 
@@ -205,6 +242,9 @@ export default function QBankTake({
 
   function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
+    if (examMode === "tutor" && currentQuestion && tutorLockedRef.current[currentQuestion.id] === undefined) {
+      tutorLockedRef.current[currentQuestion.id] = tutorLiveRef.current;
+    }
     for (const q of currentQuestions) {
       if (rawElapsedRef.current[q.id] === undefined) {
         rawElapsedRef.current[q.id] = blockSeconds - blockSecondsLeft;
@@ -243,6 +283,12 @@ export default function QBankTake({
     for (const block of blocks) {
       let prev = 0;
       for (const q of block) {
+        // Tutor-mode questions have their own directly-measured stopwatch
+        // time, not derived from the (frozen, in tutor mode) block clock.
+        if (tutorLockedRef.current[q.id] !== undefined) {
+          out[q.id] = tutorLockedRef.current[q.id];
+          continue;
+        }
         const t = rawElapsedRef.current[q.id];
         if (t === undefined) continue;
         out[q.id] = Math.max(0, t - prev);
@@ -285,10 +331,11 @@ export default function QBankTake({
           {questions.length === 1 ? "" : "s"} total · {session.questions_per_block} per block
         </p>
         <p className="text-sm text-slate-300 mb-6">
-          Each block has its own clock (about 75 seconds per question). You
-          can switch between Test mode (no feedback until the block ends) and Tutor mode (see
-          the answer and explanation right after each question, with the clock paused while you
-          read it) at any point.
+          Test mode gives the whole block a shared clock (about 75 seconds per question) and
+          ends the block when it runs out. Tutor mode is different: each question gets its own
+          stopwatch that starts at 0, stops the moment you submit an answer, and resets on the
+          next question - it never forces the block to end. You can switch between the two at
+          any point.
         </p>
         <button type="button" onClick={startTest} className="btn-primary">
           Start test
@@ -362,10 +409,21 @@ export default function QBankTake({
                 Settings
               </button>
               <span className="text-xs text-slate-400">
-                Block time{" "}
-                <span className={`font-bold tabular-nums text-sm ml-1 ${blockSecondsLeft <= 60 ? "text-amber-400" : "text-white"}`}>
-                  {isRevealedNow ? "Paused" : formatSeconds(blockSecondsLeft)}
-                </span>
+                {examMode === "tutor" ? (
+                  <>
+                    Time on this question{" "}
+                    <span className="font-bold tabular-nums text-sm ml-1 text-white">
+                      {formatSeconds(tutorLiveDisplay)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Block time{" "}
+                    <span className={`font-bold tabular-nums text-sm ml-1 ${blockSecondsLeft <= 60 ? "text-amber-400" : "text-white"}`}>
+                      {formatSeconds(blockSecondsLeft)}
+                    </span>
+                  </>
+                )}
               </span>
             </div>
           </div>
@@ -373,7 +431,7 @@ export default function QBankTake({
 
         <p className="text-xs text-slate-500">
           {examMode === "tutor"
-            ? "Tutor mode: submit an answer to see if it's correct and read the explanation - the clock pauses until you move to another question."
+            ? "Tutor mode: each question has its own stopwatch starting at 0 - it stops once you submit an answer, and resets on the next question."
             : "Test mode: no feedback until you end the block."}{" "}
           Select text to highlight it (click a highlight to remove it) - double-click an answer choice to strike it out.
         </p>
