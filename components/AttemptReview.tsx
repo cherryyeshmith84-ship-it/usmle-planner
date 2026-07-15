@@ -143,11 +143,6 @@ export default function AttemptReview({
                         <span className="text-xs text-red-400 ml-auto">Chosen answer</span>
                       )}
                     </div>
-                    {c.image_url && (
-                      <div className="mt-2">
-                        <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -159,6 +154,23 @@ export default function AttemptReview({
             )}
             {q.explanation && (
               <p className="text-sm text-slate-400 border-t border-slate-800 pt-3">{q.explanation}</p>
+            )}
+            {/* Per-choice images live here, in the explanation section,
+                each labeled by its own letter - not attached under the
+                answer option itself. */}
+            {q.choices.some((c) => c.image_url) && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                {q.choices.map((c, i) =>
+                  c.image_url ? (
+                    <ImageLink
+                      key={c.id}
+                      url={c.image_url}
+                      label={`View image (Choice ${String.fromCharCode(65 + i)})`}
+                      onOpen={setLightboxUrl}
+                    />
+                  ) : null
+                )}
+              </div>
             )}
           </div>
         );
