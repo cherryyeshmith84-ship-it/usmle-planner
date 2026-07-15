@@ -26,6 +26,23 @@ type ExamMode = "test" | "tutor";
 // wins) so the "Medium" setting matches the previous default exactly.
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 
+/**
+ * Small text link (UWorld-style "Exhibit" link) that opens an image full-size
+ * in a lightbox overlay when clicked, instead of the image sitting inline and
+ * taking up space in the question/choice list.
+ */
+function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="text-xs font-medium text-brand-400 hover:text-brand-300 underline underline-offset-2"
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function AssessmentTake({
   userId,
   assessment,
@@ -72,6 +89,9 @@ export default function AssessmentTake({
   const [showAiHelper, setShowAiHelper] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Whichever image (question/choice/explanation) is currently open in the
+  // full-size lightbox overlay - null means the lightbox is closed.
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // In-exam display preferences - live only in this component's state, so
   // they reset to defaults on a fresh page load (not persisted).
@@ -546,14 +566,9 @@ export default function AssessmentTake({
                   {currentQuestionIndex + 1}. {currentQuestion.question}
                 </p>
                 {currentQuestion.question_image_url && (
-                  <a href={currentQuestion.question_image_url} target="_blank" rel="noopener noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={currentQuestion.question_image_url}
-                      alt="Question"
-                      className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-3"
-                    />
-                  </a>
+                  <div className="mb-3">
+                    <ImageLink url={currentQuestion.question_image_url} label="View image" onOpen={setLightboxUrl} />
+                  </div>
                 )}
                 <div className="space-y-2">
                   {currentQuestion.choices.map((c) => {
@@ -606,16 +621,13 @@ export default function AssessmentTake({
                         </div>
                         {/* Choice images only appear once the answer is revealed
                             (not while still choosing), and sit right under their
-                            own option - not bundled together after the explanation. */}
+                            own option as a click-to-open link - not bundled
+                            together after the explanation, and not a big inline
+                            image cluttering the choice list. */}
                         {isRevealedNow && c.image_url && (
-                          <a href={c.image_url} target="_blank" rel="noopener noreferrer" className="ml-7">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={c.image_url}
-                              alt="Choice"
-                              className="max-h-[32rem] w-auto rounded-lg border border-slate-700"
-                            />
-                          </a>
+                          <div className="ml-7">
+                            <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
+                          </div>
                         )}
                       </label>
                     );
@@ -644,14 +656,9 @@ export default function AssessmentTake({
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
                   {currentQuestion.explanation_image_url && (
-                    <a href={currentQuestion.explanation_image_url} target="_blank" rel="noopener noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={currentQuestion.explanation_image_url}
-                        alt="Explanation"
-                        className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
-                      />
-                    </a>
+                    <div className="mb-2">
+                      <ImageLink url={currentQuestion.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+                    </div>
                   )}
                   <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
                 </div>
@@ -728,6 +735,28 @@ export default function AssessmentTake({
             setSplitScreen={setSplitScreen}
             onClose={() => setShowSettings(false)}
           />
+        )}
+
+        {lightboxUrl && (
+          <div
+            className="fixed inset-0 z-30 bg-black/85 flex items-center justify-center px-4 py-8"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+            >
+              &times;
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightboxUrl}
+              alt=""
+              className="max-w-full max-h-full rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
         )}
       </div>
     );
