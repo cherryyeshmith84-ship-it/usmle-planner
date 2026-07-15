@@ -502,7 +502,13 @@ export default function QBankTake({
           />
 
           <div className="flex-1 min-w-0 space-y-4">
-            <div className="card">
+            {/* key={currentQuestion.id} forces React to fully unmount and
+                rebuild this card on every question change, instead of trying
+                to patch it - text highlighting inserts <mark> tags straight
+                into the DOM, bypassing React, and without this remount those
+                manual edits corrupt the next question's rendered text and can
+                leave navigation looking frozen until a hard refresh. */}
+            <div className="card" key={currentQuestion.id}>
               <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
                 <p className="text-sm font-semibold mb-3" data-highlight-zone style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                   {currentQuestionIndex + 1}. {currentQuestion.question}
