@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { blankChoice, blankQuestion, parsePastedQuestion } from "@/lib/assessments";
-import type { Assessment, AssessmentQuestion } from "@/lib/types";
+import type { Assessment, AssessmentKind, AssessmentQuestion } from "@/lib/types";
+import ImageUploadField from "./ImageUploadField";
 
 export default function AssessmentForm({
   userId,
@@ -15,6 +16,9 @@ export default function AssessmentForm({
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial?.name ?? "");
+  // Question Bank now lives in its own tagged pool (see /admin/qbank) -
+  // this form only ever creates one-attempt Self Assessments.
+  const kind: AssessmentKind = "self_assessment";
   const [testId, setTestId] = useState(initial?.test_id ?? "");
   const [questionsPerBlock, setQuestionsPerBlock] = useState(
     initial?.questions_per_block?.toString() ?? "20"
@@ -157,7 +161,7 @@ What is the most likely diagnosis?`;
     const supabase = createClient();
     const payload = {
       name: name.trim(),
-      kind: "self_assessment",
+      kind,
       test_id: testId.trim() || null,
       questions_per_block: questionsPerBlock ? Number(questionsPerBlock) : 20,
       block_time_minutes: blockMinutes ? Number(blockMinutes) : 30,
@@ -174,7 +178,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push("/admin/assessments");
+    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
     router.refresh();
   }
 
@@ -189,7 +193,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push("/admin/assessments");
+    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
     router.refresh();
   }
 
@@ -321,6 +325,12 @@ What is the most likely diagnosis?`;
               onChange={(e) => updateQuestion(qIdx, { question: e.target.value })}
             />
 
+            <ImageUploadField
+              label="Question image (optional - e.g. a lab-value table, X-ray, ECG)"
+              value={q.question_image_url}
+              onChange={(url) => updateQuestion(qIdx, { question_image_url: url })}
+            />
+
             <p className="label mb-2">
               Answer choices - click the circle next to the correct one. For each wrong
               choice, tag whether it&apos;s a close distractor or an unrelated one, so the
@@ -385,6 +395,12 @@ What is the most likely diagnosis?`;
               value={q.explanation}
               onChange={(e) => updateQuestion(qIdx, { explanation: e.target.value })}
             />
+
+            <ImageUploadField
+              label="Explanation image (optional)"
+              value={q.explanation_image_url}
+              onChange={(url) => updateQuestion(qIdx, { explanation_image_url: url })}
+            />
           </div>
         ))}
       </div>
@@ -397,7 +413,7 @@ What is the most likely diagnosis?`;
 
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={saving}>
-          {saving ? "Saving..." : initial ? "Save changes" : "Create assessment"}
+          {saving ? "Saving..." : initial ? "Save changes" : kind === "qbank" ? "Create question bank item" : "Create assessment"}
         </button>
         {initial && (
           <button
