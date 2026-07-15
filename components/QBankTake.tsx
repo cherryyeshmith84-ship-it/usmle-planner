@@ -533,39 +533,49 @@ export default function QBankTake({
                     return (
                       <label
                         key={c.id}
-                        className={`flex items-center gap-3 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
+                        className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
                       >
-                        <input
-                          type="radio"
-                          name={`q-${currentQuestion.id}`}
-                          checked={isChosen}
-                          disabled={isRevealedNow}
-                          onChange={() => chooseAnswer(currentQuestion.id, c.id)}
-                          className="w-4 h-4 shrink-0"
-                        />
-                        <span
-                          className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
-                          data-highlight-zone
-                          style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-                          onDoubleClick={(e) => {
-                            if (isRevealedNow) return;
-                            e.preventDefault();
-                            window.getSelection()?.removeAllRanges();
-                            toggleStrike(currentQuestion.id, c.id);
-                          }}
-                        >
-                          {c.text}
-                        </span>
-                        {isRevealedNow && (
-                          <span className="ml-auto shrink-0 flex items-center gap-2">
-                            {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
-                              <span className="text-xs text-slate-400">
-                                {choiceStats[currentQuestion.id][c.id]}%
-                              </span>
-                            )}
-                            {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
-                            {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="radio"
+                            name={`q-${currentQuestion.id}`}
+                            checked={isChosen}
+                            disabled={isRevealedNow}
+                            onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                            className="w-4 h-4 shrink-0"
+                          />
+                          <span
+                            className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                            data-highlight-zone
+                            style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                            onDoubleClick={(e) => {
+                              if (isRevealedNow) return;
+                              e.preventDefault();
+                              window.getSelection()?.removeAllRanges();
+                              toggleStrike(currentQuestion.id, c.id);
+                            }}
+                          >
+                            {c.text}
                           </span>
+                          {isRevealedNow && (
+                            <span className="ml-auto shrink-0 flex items-center gap-2">
+                              {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
+                                <span className="text-xs text-slate-400">
+                                  {choiceStats[currentQuestion.id][c.id]}%
+                                </span>
+                              )}
+                              {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
+                              {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
+                            </span>
+                          )}
+                        </div>
+                        {c.image_url && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={c.image_url}
+                            alt="Choice"
+                            className="max-h-40 rounded-lg border border-slate-700 ml-7"
+                          />
                         )}
                       </label>
                     );
@@ -584,15 +594,15 @@ export default function QBankTake({
                   <p className={`text-sm font-semibold mb-2 ${answeredCorrectly ? "text-green-400" : "text-red-400"}`}>
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
-                  <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
                   {currentQuestion.explanation_image_url && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={currentQuestion.explanation_image_url}
                       alt="Explanation"
-                      className="max-h-80 rounded-lg border border-slate-700 mt-2"
+                      className="max-h-80 rounded-lg border border-slate-700 mb-2"
                     />
                   )}
+                  <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
                 </div>
               )}
             </div>
@@ -704,30 +714,40 @@ export default function QBankTake({
                   const isThisChosen = c.id === chosen;
                   const pct = choiceStats[q.id]?.[c.id];
                   return (
-                    <p
+                    <div
                       key={c.id}
-                      className={`text-sm px-2 py-1 rounded flex items-center justify-between gap-2 ${
+                      className={`text-sm px-2 py-1 rounded ${
                         isThisCorrect ? "bg-green-900/20 text-green-300" : isThisChosen ? "bg-red-900/20 text-red-300" : "text-slate-400"
                       }`}
                     >
-                      <span>
-                        {c.text}
-                        {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
-                      </span>
-                      {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
-                    </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>
+                          {c.text}
+                          {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
+                        </span>
+                        {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
+                      </div>
+                      {c.image_url && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={c.image_url}
+                          alt="Choice"
+                          className="max-h-40 rounded-lg border border-slate-700 mt-1"
+                        />
+                      )}
+                    </div>
                   );
                 })}
               </div>
-              {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
               {q.explanation_image_url && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={q.explanation_image_url}
                   alt="Explanation"
-                  className="max-h-80 rounded-lg border border-slate-700 mt-2"
+                  className="max-h-80 rounded-lg border border-slate-700 mb-2"
                 />
               )}
+              {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
             </div>
           );
         })}
@@ -735,4 +755,3 @@ export default function QBankTake({
     </div>
   );
 }
-
