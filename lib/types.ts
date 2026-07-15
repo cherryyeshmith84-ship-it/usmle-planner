@@ -1,11 +1,12 @@
+
 export type PrepStage = "beginning" | "middle" | "end";
-
+ 
 export type ExamTrack = "step1" | "subject";
-
+ 
 export type ActivePlanSource = "coach" | "own";
-
+ 
 export type TaskStatus = "pending" | "done" | "skipped";
-
+ 
 export interface StudyTask {
   id: string;
   title: string;
@@ -13,7 +14,7 @@ export interface StudyTask {
   target: string;
   status: TaskStatus;
 }
-
+ 
 export interface Profile {
   id: string;
   full_name: string | null;
@@ -37,18 +38,18 @@ export interface Profile {
   track_changed_pending?: boolean;
   active_plan_source?: ActivePlanSource;
 }
-
+ 
 export interface TemplateTask {
   title: string;
   resource: string;
   target: string;
 }
-
+ 
 export interface TemplateDay {
   day_number: number;
   tasks: TemplateTask[];
 }
-
+ 
 export interface ScheduleTemplate {
   id: string;
   name: string;
@@ -57,6 +58,9 @@ export interface ScheduleTemplate {
   resource_tags: string[];
   remote_friendly: boolean;
   notes: string | null;
+  // Legacy templates store a flat TemplateTask[] (one repeating day).
+  // Newer templates store a TemplateDay[] (day-by-day sequence).
+  // Use lib/templateDays.ts helpers to read this safely either way.
   tasks: TemplateTask[] | TemplateDay[];
   created_by?: string | null;
   created_at?: string;
@@ -64,23 +68,24 @@ export interface ScheduleTemplate {
   exam_track?: ExamTrack;
   subject_name?: string | null;
 }
-
+ 
 export interface PersonalTemplate {
   user_id: string;
   name: string;
+  // Same day-by-day sequence shape as ScheduleTemplate.tasks.
   tasks: TemplateTask[] | TemplateDay[];
   start_date: string | null;
   created_at?: string;
   updated_at?: string;
 }
-
+ 
 export interface BlockScore {
   id: string;
   resource: string;
   question_count: number;
   percent_correct: number;
 }
-
+ 
 export interface CoachMessage {
   id: string;
   student_id: string;
@@ -88,13 +93,13 @@ export interface CoachMessage {
   body: string;
   created_at: string;
 }
-
+ 
 export interface AiFeedback {
   review: string;
   plan: string;
   generated_at: string;
 }
-
+ 
 export interface DailyLog {
   id: string;
   user_id: string;
@@ -110,31 +115,44 @@ export interface DailyLog {
   created_at?: string;
   updated_at?: string;
 }
-
+ 
 export interface AssessmentChoice {
   id: string;
   text: string;
+  // Only meaningful for choices that are NOT the correct answer.
+  // "near" = a close, plausible distractor (tests fine discrimination).
+  // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
 }
-
+ 
 export interface AssessmentQuestion {
   id: string;
   question: string;
+  // Optional image shown alongside the question stem - e.g. a lab-value
+  // table, X-ray, ECG, or histology slide that doesn't work as plain text.
+  question_image_url?: string | null;
   choices: AssessmentChoice[];
   correct_choice_id: string;
   explanation: string;
+  // Optional image shown alongside the explanation (after the student
+  // answers), same idea as question_image_url.
+  explanation_image_url?: string | null;
 }
-
+ 
 export type AssessmentKind = "self_assessment" | "qbank";
-
+ 
 export interface Assessment {
   id: string;
   name: string;
   // "self_assessment" (default): one attempt only, like a real exam.
   // "qbank": retakeable practice - shows up under the Question Bank tab.
   kind?: AssessmentKind;
+  // Exam is split into blocks: questions_per_block questions each, with
+  // block_time_minutes to complete each block (like an NBME-style exam).
   questions_per_block: number;
   block_time_minutes: number;
+  // Shared break pool for the whole exam (minutes) - only usable between
+  // blocks, can be split across multiple breaks.
   break_minutes: number;
   questions: AssessmentQuestion[];
   // Admin-assigned identifier shown to students during the exam (like a
@@ -144,16 +162,19 @@ export interface Assessment {
   created_at?: string;
   updated_at?: string;
 }
-
+ 
 export interface AssessmentAttempt {
   id: string;
   assessment_id: string;
   user_id: string;
   started_at: string;
   submitted_at: string | null;
+  // Map of question id -> chosen choice id
   answers: Record<string, string>;
   score_correct: number;
   score_total: number;
+  // Map of question id -> approx. seconds spent on that question.
   question_seconds?: Record<string, number>;
   created_at?: string;
 }
+ 
