@@ -21,6 +21,9 @@ import QuestionNavigator from "./QuestionNavigator";
 type Phase = "start" | "taking" | "blockDone" | "break" | "results";
 type ExamMode = "test" | "tutor";
 
+// Inline font-size override applied to question/choice text - deliberately
+// bypasses the fixed Tailwind text-sm class via inline style (which always
+// wins) so the "Medium" setting matches the previous default exactly.
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 
 export default function AssessmentTake({
@@ -33,6 +36,7 @@ export default function AssessmentTake({
   userId: string;
   assessment: Assessment;
   existingAttempt: AssessmentAttempt | null;
+  // Question Bank items are retakeable - Self Assessments are one-shot.
   allowRetake?: boolean;
   backHref?: string;
 }) {
@@ -44,10 +48,15 @@ export default function AssessmentTake({
   const examSeconds = blocks.length * blockSeconds;
   const breakSecondsTotal = (assessment.break_minutes || 0) * 60;
 
+  // Already completed this before - show their result, no retaking. Doesn't
+  // apply when allowRetake is set (Question Bank items can always be redone).
   const alreadyDone = !allowRetake && !!existingAttempt;
 
   const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "start");
   const [currentBlock, setCurrentBlock] = useState(0);
+  // Which question within the current block is on screen right now - the
+  // exam shows one question at a time (like UWorld), not the whole block
+  // scrolled out like a PDF.
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [blockSecondsLeft, setBlockSecondsLeft] = useState(blockSeconds);
   const [examSecondsLeft, setExamSecondsLeft] = useState(examSeconds);
@@ -64,32 +73,55 @@ export default function AssessmentTake({
   const [showCalculator, setShowCalculator] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  // In-exam display preferences - live only in this component's state, so
+  // they reset to defaults on a fresh page load (not persisted).
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [examTheme, setExamTheme] = useState<ExamTheme>("dark");
   const [splitScreen, setSplitScreen] = useState(false);
 
+  // Question id -> true if flagged "review later" via the flag button.
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
+  // Question id -> set of choice ids the student has struck out (double-click
+  // a choice to toggle). Struck choices stay visible and clickable - this
+  // is just a visual "ruled this out" mark, like UWorld's strikethrough tool.
   const [struckChoices, setStruckChoices] = useState<Record<string, Set<string>>>({});
 
+  // Test mode (default): behaves like a real timed block - no feedback until
+  // the block ends. Tutor mode: submit an answer to immediately see if it
+  // was correct plus the explanation, and the clock pauses while reading it.
   const [examMode, setExamMode] = useState<ExamMode>("test");
+  // Question id -> true once the student has "submitted" that question in
+  // tutor mode (locks the answer and reveals correctness + explanation).
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const startedAtRef = useRef<string | null>(null);
   const finalizedRef = useRef(false);
   const advancingRef = useRef(false);
+  // Raw tracking during a live attempt: question id -> seconds elapsed
+  // *within its block* at the moment it was first answered. Converted into
+  // actual per-question time spent (via deriveQuestionTimes) at submit time.
   const rawElapsedRef = useRef<Record<string, number>>({});
+  // Final per-question seconds spent, ready to display on the results screen -
+  // either pulled straight from a past submitted attempt, or computed fresh
+  // when this attempt is finalized below.
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(
     existingAttempt?.question_seconds ?? {}
   );
 
+  // Derived state needed by the timer effects below, so it's computed early
+  // (plain consts, not hooks, so this is safe to place before the effects).
   const currentQuestions = blocks[currentBlock] ?? [];
   const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
   const isLastBlock = currentBlock >= blocks.length - 1;
   const currentQuestion = currentQuestions[currentQuestionIndex];
   const isFirstQuestion = currentQuestionIndex === 0;
   const isLastQuestion = currentQuestionIndex >= currentQuestions.length - 1;
+  // True while viewing a tutor-mode explanation - the clock pauses during
+  // this, and resumes automatically once they move to a different question.
   const isRevealedNow = examMode === "tutor" && !!revealed[currentQuestion?.id ?? ""];
 
+  // Exam clock: only ticks while actively answering a block, and pauses
+  // while reading a tutor-mode explanation.
   useEffect(() => {
     if (phase !== "taking" || isRevealedNow) return;
     const interval = setInterval(() => {
@@ -99,6 +131,7 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase, isRevealedNow]);
 
+  // Break clock: only ticks while on a break, separate from the exam clock.
   useEffect(() => {
     if (phase !== "break") return;
     const interval = setInterval(() => {
@@ -107,6 +140,7 @@ export default function AssessmentTake({
     return () => clearInterval(interval);
   }, [phase]);
 
+  // Break pool ran out - send them back in.
   useEffect(() => {
     if (phase === "break" && breakSecondsLeft === 0) {
       goToNextBlock();
@@ -114,6 +148,7 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breakSecondsLeft, phase]);
 
+  // Exam clock hit zero - end everything right now, regardless of block progress.
   useEffect(() => {
     if (phase === "taking" && examSecondsLeft === 0) {
       finalizeExam();
@@ -121,6 +156,7 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, phase]);
 
+  // Block clock hit zero - end the block (same as clicking submit).
   useEffect(() => {
     if (phase === "taking" && blockSecondsLeft === 0 && examSecondsLeft > 0) {
       endBlock();
@@ -128,10 +164,16 @@ export default function AssessmentTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockSecondsLeft]);
 
+  // Text highlighting, like the real exam: select text inside the question
+  // or an answer choice and it gets marked in yellow. Click a highlighted
+  // bit again to remove just that highlight.
   useEffect(() => {
     if (phase !== "taking") return;
 
     function applyHighlight(e: MouseEvent) {
+      // e.detail > 1 means this mouseup is part of a double/triple click
+      // (browser auto-selects a word) - that's the strike-out gesture, not
+      // a highlight drag-select, so skip it here.
       if (e.detail > 1) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
@@ -201,6 +243,8 @@ export default function AssessmentTake({
 
   function chooseAnswer(questionId: string, choiceId: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
+    // Only record the *first* time they land on an answer for this question -
+    // later changes of mind shouldn't reset the clock used to gauge time spent.
     if (rawElapsedRef.current[questionId] === undefined) {
       rawElapsedRef.current[questionId] = blockSeconds - blockSecondsLeft;
     }
@@ -223,8 +267,11 @@ export default function AssessmentTake({
     setFlagged((prev) => ({ ...prev, [questionId]: !prev[questionId] }));
   }
 
+  /** Called when a block's time is up or the student submits it manually. */
   function endBlock() {
     if (advancingRef.current || finalizedRef.current) return;
+    // Any question in this block that was never answered still gets a mark
+    // at "now", so the time-spent math below has something to diff against.
     for (const q of currentQuestions) {
       if (rawElapsedRef.current[q.id] === undefined) {
         rawElapsedRef.current[q.id] = blockSeconds - blockSecondsLeft;
@@ -484,7 +531,12 @@ export default function AssessmentTake({
           />
 
           <div className="flex-1 min-w-0 space-y-4">
-            <div className="card">
+            {/* key={currentQuestion.id} forces React to fully unmount and
+                rebuild this card on every question change, instead of trying
+                to patch it - text highlighting inserts <mark> tags straight
+                into the DOM, bypassing React, and without this remount those
+                manual edits corrupt the next question's rendered text. */}
+            <div className="card" key={currentQuestion.id}>
               <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
                 <p
                   className="text-sm font-semibold mb-3"
@@ -646,6 +698,8 @@ export default function AssessmentTake({
     );
   }
 
+  // Results - shown only after every block is done (or immediately, if
+  // they've already completed this assessment before and can't retake).
   if (!result) return null;
   const complete = result.total > 0 && result.pct === 100;
   return (
