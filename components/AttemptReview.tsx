@@ -94,15 +94,17 @@ export default function AttemptReview({
               </div>
             </div>
             {q.question_image_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={q.question_image_url}
-                alt="Question"
-                className="max-h-80 rounded-lg border border-slate-700 mb-3"
-              />
+              <a href={q.question_image_url} target="_blank" rel="noopener noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={q.question_image_url}
+                  alt="Question"
+                  className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-3"
+                />
+              </a>
             )}
             <div className="space-y-2 mb-3">
-              {q.choices.map((c) => {
+              {q.choices.map((c, i) => {
                 const isThisCorrect = c.id === q.correct_choice_id;
                 const isThisChosen = c.id === chosen;
                 return (
@@ -117,31 +119,37 @@ export default function AttemptReview({
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <span>{c.text}</span>
+                      <span>
+                        {String.fromCharCode(65 + i)}. {c.text}
+                      </span>
                       {isThisCorrect && <span className="text-xs text-green-400 ml-auto">Correct answer</span>}
                       {isThisChosen && !isThisCorrect && (
                         <span className="text-xs text-red-400 ml-auto">Chosen answer</span>
                       )}
                     </div>
                     {c.image_url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={c.image_url}
-                        alt="Choice"
-                        className="max-h-40 rounded-lg border border-slate-700 mt-2"
-                      />
+                      <a href={c.image_url} target="_blank" rel="noopener noreferrer">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={c.image_url}
+                          alt="Choice"
+                          className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mt-2"
+                        />
+                      </a>
                     )}
                   </div>
                 );
               })}
             </div>
             {q.explanation_image_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={q.explanation_image_url}
-                alt="Explanation"
-                className="max-h-80 rounded-lg border border-slate-700 mb-2"
-              />
+              <a href={q.explanation_image_url} target="_blank" rel="noopener noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={q.explanation_image_url}
+                  alt="Explanation"
+                  className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
+                />
+              </a>
             )}
             {q.explanation && (
               <p className="text-sm text-slate-400 border-t border-slate-800 pt-3">{q.explanation}</p>
