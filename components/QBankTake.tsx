@@ -513,6 +513,14 @@ export default function QBankTake({
                 <p className="text-sm font-semibold mb-3" data-highlight-zone style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                   {currentQuestionIndex + 1}. {currentQuestion.question}
                 </p>
+                {currentQuestion.question_image_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={currentQuestion.question_image_url}
+                    alt="Question"
+                    className="max-h-80 rounded-lg border border-slate-700 mb-3"
+                  />
+                )}
                 <div className="space-y-2">
                   {currentQuestion.choices.map((c) => {
                     const isStruck = struck.has(c.id);
@@ -577,6 +585,14 @@ export default function QBankTake({
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
                   <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
+                  {currentQuestion.explanation_image_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={currentQuestion.explanation_image_url}
+                      alt="Explanation"
+                      className="max-h-80 rounded-lg border border-slate-700 mt-2"
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -674,6 +690,14 @@ export default function QBankTake({
                   </span>
                 </div>
               </div>
+              {q.question_image_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={q.question_image_url}
+                  alt="Question"
+                  className="max-h-80 rounded-lg border border-slate-700 mb-2"
+                />
+              )}
               <div className="space-y-1.5 mb-2">
                 {q.choices.map((c) => {
                   const isThisCorrect = c.id === q.correct_choice_id;
@@ -696,6 +720,14 @@ export default function QBankTake({
                 })}
               </div>
               {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
+              {q.explanation_image_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={q.explanation_image_url}
+                  alt="Explanation"
+                  className="max-h-80 rounded-lg border border-slate-700 mt-2"
+                />
+              )}
             </div>
           );
         })}
@@ -703,3 +735,4 @@ export default function QBankTake({
     </div>
   );
 }
+
