@@ -1,7 +1,7 @@
 // USMLE Step 1 discipline (subject) and organ system categories - the same
 // breakdown the real exam and UWorld use. A question can be tagged with more
 // than one subject and more than one system.
- 
+
 export const STEP1_SUBJECTS = [
   "Anatomy",
   "Behavioral Health",
@@ -19,7 +19,7 @@ export const STEP1_SUBJECTS = [
   "Physiology",
   "Social Sciences (Ethics/Legal/Communication)",
 ] as const;
- 
+
 export const STEP1_SYSTEMS = [
   "Behavioral Health & Nervous Systems/Special Senses",
   "Biostatistics & Epidemiology/Population Health",
@@ -36,10 +36,10 @@ export const STEP1_SYSTEMS = [
   "Respiratory System",
   "Social Sciences (Ethics/Legal/Communication)",
 ] as const;
- 
+
 export type Step1Subject = (typeof STEP1_SUBJECTS)[number];
 export type Step1System = (typeof STEP1_SYSTEMS)[number];
- 
+
 export interface QBankChoice {
   id: string;
   text: string;
@@ -48,22 +48,28 @@ export interface QBankChoice {
   // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
 }
- 
+
 export interface QBankQuestion {
   id: string;
   question: string;
+  // Optional image shown alongside the question stem - e.g. a lab-value
+  // table, X-ray, ECG, or histology slide that doesn't work as plain text.
+  question_image_url?: string | null;
   choices: QBankChoice[];
   correct_choice_id: string;
   explanation: string;
+  // Optional image shown alongside the explanation (after the student
+  // answers), same idea as question_image_url.
+  explanation_image_url?: string | null;
   subjects: string[];
   systems: string[];
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
 }
- 
+
 export type ExamModeOption = "test" | "tutor";
- 
+
 export interface QBankTestSession {
   id: string;
   user_id: string;
@@ -87,9 +93,9 @@ export interface QBankTestSession {
   tutor_elapsed_seconds?: number;
   in_progress?: boolean;
 }
- 
+
 export type QuestionStatus = "unused" | "correct" | "incorrect" | "omitted";
- 
+
 export interface QuestionStatusInfo {
   status: QuestionStatus;
   marked: boolean;
