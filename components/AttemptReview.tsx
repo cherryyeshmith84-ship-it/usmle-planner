@@ -3,6 +3,12 @@
 import { buildErrorBreakdown, classifyAnswer, formatSeconds } from "@/lib/assessments";
 import type { Assessment } from "@/lib/types";
 
+/**
+ * Full question-by-question review of one attempt: which option was picked,
+ * whether it was correct/a near-miss/a far-miss, and how long it took.
+ * Used both on the student's own results screen and on the admin's
+ * per-student attempt detail page.
+ */
 export default function AttemptReview({
   assessment,
   answers,
@@ -87,6 +93,14 @@ export default function AttemptReview({
                 </span>
               </div>
             </div>
+            {q.question_image_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={q.question_image_url}
+                alt="Question"
+                className="max-h-80 rounded-lg border border-slate-700 mb-3"
+              />
+            )}
             <div className="space-y-2 mb-3">
               {q.choices.map((c) => {
                 const isThisCorrect = c.id === q.correct_choice_id;
@@ -113,6 +127,14 @@ export default function AttemptReview({
             </div>
             {q.explanation && (
               <p className="text-sm text-slate-400 border-t border-slate-800 pt-3">{q.explanation}</p>
+            )}
+            {q.explanation_image_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={q.explanation_image_url}
+                alt="Explanation"
+                className="max-h-80 rounded-lg border border-slate-700 mt-2"
+              />
             )}
           </div>
         );
