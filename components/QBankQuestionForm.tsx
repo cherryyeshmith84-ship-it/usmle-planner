@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { parsePastedQuestion } from "@/lib/assessments";
 import { blankQBankChoice, blankQBankQuestion, choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS, type QBankQuestion } from "@/lib/qbankTypes";
+import ImageUploadField from "./ImageUploadField";
 
 interface StudentAnswerRow {
   userId: string;
@@ -24,9 +25,15 @@ export default function QBankQuestionForm({
   const router = useRouter();
   const blank = blankQBankQuestion();
   const [question, setQuestion] = useState(initial?.question ?? blank.question);
+  const [questionImageUrl, setQuestionImageUrl] = useState<string | null>(
+    initial?.question_image_url ?? null
+  );
   const [choices, setChoices] = useState(initial?.choices ?? blank.choices);
   const [correctChoiceId, setCorrectChoiceId] = useState(initial?.correct_choice_id ?? "");
   const [explanation, setExplanation] = useState(initial?.explanation ?? "");
+  const [explanationImageUrl, setExplanationImageUrl] = useState<string | null>(
+    initial?.explanation_image_url ?? null
+  );
   const [subjects, setSubjects] = useState<string[]>(initial?.subjects ?? []);
   const [systems, setSystems] = useState<string[]>(initial?.systems ?? []);
   const [bulkText, setBulkText] = useState("");
@@ -170,9 +177,11 @@ export default function QBankQuestionForm({
     const supabase = createClient();
     const payload = {
       question: question.trim(),
+      question_image_url: questionImageUrl,
       choices: cleanChoices,
       correct_choice_id: correctChoiceId,
       explanation: explanation.trim(),
+      explanation_image_url: explanationImageUrl,
       subjects,
       systems,
     };
@@ -239,6 +248,12 @@ export default function QBankQuestionForm({
           onChange={(e) => setQuestion(e.target.value)}
         />
 
+        <ImageUploadField
+          label="Question image (optional - e.g. a lab-value table, X-ray, ECG)"
+          value={questionImageUrl}
+          onChange={setQuestionImageUrl}
+        />
+
         <p className="label mb-2">
           Answer choices - click the circle next to the correct one. For each wrong
           choice, tag whether it&apos;s a close distractor or an unrelated one, so the
@@ -296,6 +311,12 @@ export default function QBankQuestionForm({
           placeholder="Why this is the right answer"
           value={explanation}
           onChange={(e) => setExplanation(e.target.value)}
+        />
+
+        <ImageUploadField
+          label="Explanation image (optional)"
+          value={explanationImageUrl}
+          onChange={setExplanationImageUrl}
         />
       </div>
 
