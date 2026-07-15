@@ -514,12 +514,14 @@ export default function QBankTake({
                   {currentQuestionIndex + 1}. {currentQuestion.question}
                 </p>
                 {currentQuestion.question_image_url && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={currentQuestion.question_image_url}
-                    alt="Question"
-                    className="max-h-80 rounded-lg border border-slate-700 mb-3"
-                  />
+                  <a href={currentQuestion.question_image_url} target="_blank" rel="noopener noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={currentQuestion.question_image_url}
+                      alt="Question"
+                      className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-3"
+                    />
+                  </a>
                 )}
                 <div className="space-y-2">
                   {currentQuestion.choices.map((c) => {
@@ -533,49 +535,39 @@ export default function QBankTake({
                     return (
                       <label
                         key={c.id}
-                        className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
+                        className={`flex items-center gap-3 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
                       >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            name={`q-${currentQuestion.id}`}
-                            checked={isChosen}
-                            disabled={isRevealedNow}
-                            onChange={() => chooseAnswer(currentQuestion.id, c.id)}
-                            className="w-4 h-4 shrink-0"
-                          />
-                          <span
-                            className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
-                            data-highlight-zone
-                            style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-                            onDoubleClick={(e) => {
-                              if (isRevealedNow) return;
-                              e.preventDefault();
-                              window.getSelection()?.removeAllRanges();
-                              toggleStrike(currentQuestion.id, c.id);
-                            }}
-                          >
-                            {c.text}
+                        <input
+                          type="radio"
+                          name={`q-${currentQuestion.id}`}
+                          checked={isChosen}
+                          disabled={isRevealedNow}
+                          onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                          className="w-4 h-4 shrink-0"
+                        />
+                        <span
+                          className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                          data-highlight-zone
+                          style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                          onDoubleClick={(e) => {
+                            if (isRevealedNow) return;
+                            e.preventDefault();
+                            window.getSelection()?.removeAllRanges();
+                            toggleStrike(currentQuestion.id, c.id);
+                          }}
+                        >
+                          {c.text}
+                        </span>
+                        {isRevealedNow && (
+                          <span className="ml-auto shrink-0 flex items-center gap-2">
+                            {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
+                              <span className="text-xs text-slate-400">
+                                {choiceStats[currentQuestion.id][c.id]}%
+                              </span>
+                            )}
+                            {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
+                            {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
                           </span>
-                          {isRevealedNow && (
-                            <span className="ml-auto shrink-0 flex items-center gap-2">
-                              {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
-                                <span className="text-xs text-slate-400">
-                                  {choiceStats[currentQuestion.id][c.id]}%
-                                </span>
-                              )}
-                              {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
-                              {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
-                            </span>
-                          )}
-                        </div>
-                        {c.image_url && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={c.image_url}
-                            alt="Choice"
-                            className="max-h-40 rounded-lg border border-slate-700 ml-7"
-                          />
                         )}
                       </label>
                     );
@@ -595,14 +587,38 @@ export default function QBankTake({
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
                   {currentQuestion.explanation_image_url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={currentQuestion.explanation_image_url}
-                      alt="Explanation"
-                      className="max-h-80 rounded-lg border border-slate-700 mb-2"
-                    />
+                    <a href={currentQuestion.explanation_image_url} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={currentQuestion.explanation_image_url}
+                        alt="Explanation"
+                        className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
+                      />
+                    </a>
                   )}
                   <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
+                  {currentQuestion.choices.some((c) => c.image_url) && (
+                    <div className="mt-4 space-y-3">
+                      {currentQuestion.choices.map((c, i) =>
+                        c.image_url ? (
+                          <div key={c.id}>
+                            <p className="text-xs text-slate-400 mb-1">
+                              Choice {String.fromCharCode(65 + i)}
+                              {c.id === currentQuestion.correct_choice_id ? " (correct)" : ""}
+                            </p>
+                            <a href={c.image_url} target="_blank" rel="noopener noreferrer">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={c.image_url}
+                                alt={`Choice ${String.fromCharCode(65 + i)}`}
+                                className="max-h-[32rem] w-auto rounded-lg border border-slate-700"
+                              />
+                            </a>
+                          </div>
+                        ) : null
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -701,15 +717,17 @@ export default function QBankTake({
                 </div>
               </div>
               {q.question_image_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={q.question_image_url}
-                  alt="Question"
-                  className="max-h-80 rounded-lg border border-slate-700 mb-2"
-                />
+                <a href={q.question_image_url} target="_blank" rel="noopener noreferrer">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={q.question_image_url}
+                    alt="Question"
+                    className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
+                  />
+                </a>
               )}
               <div className="space-y-1.5 mb-2">
-                {q.choices.map((c) => {
+                {q.choices.map((c, i) => {
                   const isThisCorrect = c.id === q.correct_choice_id;
                   const isThisChosen = c.id === chosen;
                   const pct = choiceStats[q.id]?.[c.id];
@@ -722,30 +740,34 @@ export default function QBankTake({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span>
-                          {c.text}
+                          {String.fromCharCode(65 + i)}. {c.text}
                           {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
                         </span>
                         {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
                       </div>
                       {c.image_url && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={c.image_url}
-                          alt="Choice"
-                          className="max-h-40 rounded-lg border border-slate-700 mt-1"
-                        />
+                        <a href={c.image_url} target="_blank" rel="noopener noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={c.image_url}
+                            alt="Choice"
+                            className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mt-1"
+                          />
+                        </a>
                       )}
                     </div>
                   );
                 })}
               </div>
               {q.explanation_image_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={q.explanation_image_url}
-                  alt="Explanation"
-                  className="max-h-80 rounded-lg border border-slate-700 mb-2"
-                />
+                <a href={q.explanation_image_url} target="_blank" rel="noopener noreferrer">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={q.explanation_image_url}
+                    alt="Explanation"
+                    className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
+                  />
+                </a>
               )}
               {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
             </div>
