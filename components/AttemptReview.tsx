@@ -108,7 +108,7 @@ export default function AttemptReview({
                 return (
                   <div
                     key={c.id}
-                    className={`flex items-center gap-2 border rounded-xl px-3 py-2 text-sm ${
+                    className={`border rounded-xl px-3 py-2 text-sm ${
                       isThisCorrect
                         ? "border-green-700 bg-green-900/20 text-green-300"
                         : isThisChosen
@@ -116,25 +116,35 @@ export default function AttemptReview({
                         : "border-slate-700 text-slate-300"
                     }`}
                   >
-                    {c.text}
-                    {isThisCorrect && <span className="text-xs text-green-400 ml-auto">Correct answer</span>}
-                    {isThisChosen && !isThisCorrect && (
-                      <span className="text-xs text-red-400 ml-auto">Chosen answer</span>
+                    <div className="flex items-center gap-2">
+                      <span>{c.text}</span>
+                      {isThisCorrect && <span className="text-xs text-green-400 ml-auto">Correct answer</span>}
+                      {isThisChosen && !isThisCorrect && (
+                        <span className="text-xs text-red-400 ml-auto">Chosen answer</span>
+                      )}
+                    </div>
+                    {c.image_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={c.image_url}
+                        alt="Choice"
+                        className="max-h-40 rounded-lg border border-slate-700 mt-2"
+                      />
                     )}
                   </div>
                 );
               })}
             </div>
-            {q.explanation && (
-              <p className="text-sm text-slate-400 border-t border-slate-800 pt-3">{q.explanation}</p>
-            )}
             {q.explanation_image_url && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={q.explanation_image_url}
                 alt="Explanation"
-                className="max-h-80 rounded-lg border border-slate-700 mt-2"
+                className="max-h-80 rounded-lg border border-slate-700 mb-2"
               />
+            )}
+            {q.explanation && (
+              <p className="text-sm text-slate-400 border-t border-slate-800 pt-3">{q.explanation}</p>
             )}
           </div>
         );
