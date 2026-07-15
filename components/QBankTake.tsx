@@ -17,6 +17,23 @@ type Phase = "start" | "taking" | "blockDone" | "results";
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 const SECONDS_PER_QUESTION = 75; // seconds per question
 
+/**
+ * Small text link (UWorld-style "Exhibit" link) that opens an image full-size
+ * in a lightbox overlay when clicked, instead of the image sitting inline and
+ * taking up space in the question/choice list.
+ */
+function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="text-xs font-medium text-brand-400 hover:text-brand-300 underline underline-offset-2"
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function QBankTake({
   userId,
   session,
@@ -50,6 +67,9 @@ export default function QBankTake({
   const [showAiHelper, setShowAiHelper] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Whichever image (question/choice/explanation) is currently open in the
+  // full-size lightbox overlay - null means the lightbox is closed.
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [examTheme, setExamTheme] = useState<ExamTheme>("dark");
   const [splitScreen, setSplitScreen] = useState(false);
@@ -514,14 +534,9 @@ export default function QBankTake({
                   {currentQuestionIndex + 1}. {currentQuestion.question}
                 </p>
                 {currentQuestion.question_image_url && (
-                  <a href={currentQuestion.question_image_url} target="_blank" rel="noopener noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={currentQuestion.question_image_url}
-                      alt="Question"
-                      className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-3"
-                    />
-                  </a>
+                  <div className="mb-3">
+                    <ImageLink url={currentQuestion.question_image_url} label="View image" onOpen={setLightboxUrl} />
+                  </div>
                 )}
                 <div className="space-y-2">
                   {currentQuestion.choices.map((c) => {
@@ -573,16 +588,13 @@ export default function QBankTake({
                         </div>
                         {/* Choice images only appear once the answer is revealed
                             (not while still choosing), and sit right under their
-                            own option - not bundled together after the explanation. */}
+                            own option as a click-to-open link - not bundled
+                            together after the explanation, and not a big inline
+                            image cluttering the choice list. */}
                         {isRevealedNow && c.image_url && (
-                          <a href={c.image_url} target="_blank" rel="noopener noreferrer" className="ml-7">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={c.image_url}
-                              alt="Choice"
-                              className="max-h-[32rem] w-auto rounded-lg border border-slate-700"
-                            />
-                          </a>
+                          <div className="ml-7">
+                            <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
+                          </div>
                         )}
                       </label>
                     );
@@ -602,14 +614,9 @@ export default function QBankTake({
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
                   {currentQuestion.explanation_image_url && (
-                    <a href={currentQuestion.explanation_image_url} target="_blank" rel="noopener noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={currentQuestion.explanation_image_url}
-                        alt="Explanation"
-                        className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
-                      />
-                    </a>
+                    <div className="mb-2">
+                      <ImageLink url={currentQuestion.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+                    </div>
                   )}
                   <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
                 </div>
@@ -664,6 +671,28 @@ export default function QBankTake({
             onClose={() => setShowSettings(false)}
           />
         )}
+
+        {lightboxUrl && (
+          <div
+            className="fixed inset-0 z-30 bg-black/85 flex items-center justify-center px-4 py-8"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+            >
+              &times;
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightboxUrl}
+              alt=""
+              className="max-w-full max-h-full rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -710,14 +739,9 @@ export default function QBankTake({
                 </div>
               </div>
               {q.question_image_url && (
-                <a href={q.question_image_url} target="_blank" rel="noopener noreferrer">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={q.question_image_url}
-                    alt="Question"
-                    className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
-                  />
-                </a>
+                <div className="mb-2">
+                  <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
+                </div>
               )}
               <div className="space-y-1.5 mb-2">
                 {q.choices.map((c, i) => {
@@ -739,34 +763,46 @@ export default function QBankTake({
                         {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
                       </div>
                       {c.image_url && (
-                        <a href={c.image_url} target="_blank" rel="noopener noreferrer">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={c.image_url}
-                            alt="Choice"
-                            className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mt-1"
-                          />
-                        </a>
+                        <div className="mt-1">
+                          <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
+                        </div>
                       )}
                     </div>
                   );
                 })}
               </div>
               {q.explanation_image_url && (
-                <a href={q.explanation_image_url} target="_blank" rel="noopener noreferrer">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={q.explanation_image_url}
-                    alt="Explanation"
-                    className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
-                  />
-                </a>
+                <div className="mb-2">
+                  <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+                </div>
               )}
               {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
             </div>
           );
         })}
       </div>
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-30 bg-black/85 flex items-center justify-center px-4 py-8"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+          >
+            &times;
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt=""
+            className="max-w-full max-h-full rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
