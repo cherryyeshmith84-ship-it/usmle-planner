@@ -586,16 +586,6 @@ export default function QBankTake({
                             </span>
                           )}
                         </div>
-                        {/* Choice images only appear once the answer is revealed
-                            (not while still choosing), and sit right under their
-                            own option as a click-to-open link - not bundled
-                            together after the explanation, and not a big inline
-                            image cluttering the choice list. */}
-                        {isRevealedNow && c.image_url && (
-                          <div className="ml-7">
-                            <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
-                          </div>
-                        )}
                       </label>
                     );
                   })}
@@ -619,6 +609,23 @@ export default function QBankTake({
                     </div>
                   )}
                   <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
+                  {/* Per-choice images live here, in the explanation section,
+                      each labeled by its own letter - not attached under the
+                      answer option itself. */}
+                  {currentQuestion.choices.some((c) => c.image_url) && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
+                      {currentQuestion.choices.map((c, i) =>
+                        c.image_url ? (
+                          <ImageLink
+                            key={c.id}
+                            url={c.image_url}
+                            label={`View image (Choice ${String.fromCharCode(65 + i)})`}
+                            onOpen={setLightboxUrl}
+                          />
+                        ) : null
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -762,11 +769,6 @@ export default function QBankTake({
                         </span>
                         {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
                       </div>
-                      {c.image_url && (
-                        <div className="mt-1">
-                          <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -777,6 +779,23 @@ export default function QBankTake({
                 </div>
               )}
               {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
+              {/* Per-choice images live here, in the explanation section,
+                  each labeled by its own letter - not attached under the
+                  answer option itself. */}
+              {q.choices.some((c) => c.image_url) && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                  {q.choices.map((c, i) =>
+                    c.image_url ? (
+                      <ImageLink
+                        key={c.id}
+                        url={c.image_url}
+                        label={`View image (Choice ${String.fromCharCode(65 + i)})`}
+                        onOpen={setLightboxUrl}
+                      />
+                    ) : null
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
