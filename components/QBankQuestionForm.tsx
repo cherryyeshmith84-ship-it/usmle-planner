@@ -139,6 +139,10 @@ export default function QBankQuestionForm({
     setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, distance } : c)));
   }
 
+  function updateChoiceImage(idx: number, url: string | null) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, image_url: url } : c)));
+  }
+
   function addChoice() {
     setChoices((prev) => [...prev, blankQBankChoice()]);
   }
@@ -263,39 +267,48 @@ export default function QBankQuestionForm({
           {choices.map((c, idx) => {
             const isCorrect = correctChoiceId === c.id;
             return (
-              <div key={c.id} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="correct-choice"
-                  checked={isCorrect}
-                  onChange={() => setCorrectChoiceId(c.id)}
-                  className="shrink-0 w-4 h-4"
-                />
-                <input
-                  className="input flex-1"
-                  placeholder={`Choice ${idx + 1}`}
-                  value={c.text}
-                  onChange={(e) => updateChoice(idx, e.target.value)}
-                />
-                {!isCorrect && (
-                  <select
-                    className="input w-auto text-xs shrink-0"
-                    value={c.distance ?? "far"}
-                    onChange={(e) => updateChoiceDistance(idx, e.target.value as "near" | "far")}
-                  >
-                    <option value="far">Far miss</option>
-                    <option value="near">Near miss</option>
-                  </select>
-                )}
-                {choices.length > 2 && (
-                  <button
-                    type="button"
-                    onClick={() => removeChoice(idx)}
-                    className="text-slate-500 hover:text-red-400 text-sm px-2"
-                  >
-                    &times;
-                  </button>
-                )}
+              <div key={c.id} className="border border-slate-800 rounded-lg p-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="correct-choice"
+                    checked={isCorrect}
+                    onChange={() => setCorrectChoiceId(c.id)}
+                    className="shrink-0 w-4 h-4"
+                  />
+                  <input
+                    className="input flex-1"
+                    placeholder={`Choice ${idx + 1}`}
+                    value={c.text}
+                    onChange={(e) => updateChoice(idx, e.target.value)}
+                  />
+                  {!isCorrect && (
+                    <select
+                      className="input w-auto text-xs shrink-0"
+                      value={c.distance ?? "far"}
+                      onChange={(e) => updateChoiceDistance(idx, e.target.value as "near" | "far")}
+                    >
+                      <option value="far">Far miss</option>
+                      <option value="near">Near miss</option>
+                    </select>
+                  )}
+                  {choices.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => removeChoice(idx)}
+                      className="text-slate-500 hover:text-red-400 text-sm px-2"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 pl-6">
+                  <ImageUploadField
+                    label={`Image for choice ${idx + 1} (optional - e.g. an EKG/image the option itself refers to)`}
+                    value={c.image_url}
+                    onChange={(url) => updateChoiceImage(idx, url)}
+                  />
+                </div>
               </div>
             );
           })}
