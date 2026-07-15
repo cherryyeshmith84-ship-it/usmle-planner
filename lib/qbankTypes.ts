@@ -47,6 +47,9 @@ export interface QBankChoice {
   // "near" = a close, plausible distractor (tests fine discrimination).
   // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
+  // Optional image shown alongside this specific choice - e.g. an EKG strip
+  // or histology slide that IS the answer choice, not just the question.
+  image_url?: string | null;
 }
 
 export interface QBankQuestion {
