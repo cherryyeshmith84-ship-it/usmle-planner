@@ -1,12 +1,11 @@
-
 export type PrepStage = "beginning" | "middle" | "end";
- 
+
 export type ExamTrack = "step1" | "subject";
- 
+
 export type ActivePlanSource = "coach" | "own";
- 
+
 export type TaskStatus = "pending" | "done" | "skipped";
- 
+
 export interface StudyTask {
   id: string;
   title: string;
@@ -14,7 +13,7 @@ export interface StudyTask {
   target: string;
   status: TaskStatus;
 }
- 
+
 export interface Profile {
   id: string;
   full_name: string | null;
@@ -38,18 +37,18 @@ export interface Profile {
   track_changed_pending?: boolean;
   active_plan_source?: ActivePlanSource;
 }
- 
+
 export interface TemplateTask {
   title: string;
   resource: string;
   target: string;
 }
- 
+
 export interface TemplateDay {
   day_number: number;
   tasks: TemplateTask[];
 }
- 
+
 export interface ScheduleTemplate {
   id: string;
   name: string;
@@ -68,7 +67,7 @@ export interface ScheduleTemplate {
   exam_track?: ExamTrack;
   subject_name?: string | null;
 }
- 
+
 export interface PersonalTemplate {
   user_id: string;
   name: string;
@@ -78,14 +77,14 @@ export interface PersonalTemplate {
   created_at?: string;
   updated_at?: string;
 }
- 
+
 export interface BlockScore {
   id: string;
   resource: string;
   question_count: number;
   percent_correct: number;
 }
- 
+
 export interface CoachMessage {
   id: string;
   student_id: string;
@@ -93,13 +92,13 @@ export interface CoachMessage {
   body: string;
   created_at: string;
 }
- 
+
 export interface AiFeedback {
   review: string;
   plan: string;
   generated_at: string;
 }
- 
+
 export interface DailyLog {
   id: string;
   user_id: string;
@@ -115,7 +114,7 @@ export interface DailyLog {
   created_at?: string;
   updated_at?: string;
 }
- 
+
 export interface AssessmentChoice {
   id: string;
   text: string;
@@ -123,8 +122,11 @@ export interface AssessmentChoice {
   // "near" = a close, plausible distractor (tests fine discrimination).
   // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
+  // Optional image shown alongside this specific choice - e.g. an EKG strip
+  // or histology slide that IS the answer choice, not just the question.
+  image_url?: string | null;
 }
- 
+
 export interface AssessmentQuestion {
   id: string;
   question: string;
@@ -138,9 +140,9 @@ export interface AssessmentQuestion {
   // answers), same idea as question_image_url.
   explanation_image_url?: string | null;
 }
- 
+
 export type AssessmentKind = "self_assessment" | "qbank";
- 
+
 export interface Assessment {
   id: string;
   name: string;
@@ -162,7 +164,7 @@ export interface Assessment {
   created_at?: string;
   updated_at?: string;
 }
- 
+
 export interface AssessmentAttempt {
   id: string;
   assessment_id: string;
@@ -177,4 +179,3 @@ export interface AssessmentAttempt {
   question_seconds?: Record<string, number>;
   created_at?: string;
 }
- 
