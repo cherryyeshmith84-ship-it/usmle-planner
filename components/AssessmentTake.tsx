@@ -571,36 +571,51 @@ export default function AssessmentTake({
                     return (
                       <label
                         key={c.id}
-                        className={`flex items-center gap-3 border rounded-xl px-3 py-2 transition ${borderClass} ${
+                        className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${
                           isRevealedNow ? "cursor-default" : "cursor-pointer"
                         }`}
                       >
-                        <input
-                          type="radio"
-                          name={`q-${currentQuestion.id}`}
-                          checked={isChosen}
-                          disabled={isRevealedNow}
-                          onChange={() => chooseAnswer(currentQuestion.id, c.id)}
-                          className="w-4 h-4 shrink-0"
-                        />
-                        <span
-                          className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
-                          data-highlight-zone
-                          style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-                          onDoubleClick={(e) => {
-                            if (isRevealedNow) return;
-                            e.preventDefault();
-                            window.getSelection()?.removeAllRanges();
-                            toggleStrike(currentQuestion.id, c.id);
-                          }}
-                        >
-                          {c.text}
-                        </span>
-                        {isRevealedNow && isCorrectChoice && (
-                          <span className="text-xs text-green-400 ml-auto shrink-0">Correct</span>
-                        )}
-                        {isRevealedNow && isChosen && !isCorrectChoice && (
-                          <span className="text-xs text-red-400 ml-auto shrink-0">Your answer</span>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="radio"
+                            name={`q-${currentQuestion.id}`}
+                            checked={isChosen}
+                            disabled={isRevealedNow}
+                            onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                            className="w-4 h-4 shrink-0"
+                          />
+                          <span
+                            className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                            data-highlight-zone
+                            style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                            onDoubleClick={(e) => {
+                              if (isRevealedNow) return;
+                              e.preventDefault();
+                              window.getSelection()?.removeAllRanges();
+                              toggleStrike(currentQuestion.id, c.id);
+                            }}
+                          >
+                            {c.text}
+                          </span>
+                          {isRevealedNow && isCorrectChoice && (
+                            <span className="text-xs text-green-400 ml-auto shrink-0">Correct</span>
+                          )}
+                          {isRevealedNow && isChosen && !isCorrectChoice && (
+                            <span className="text-xs text-red-400 ml-auto shrink-0">Your answer</span>
+                          )}
+                        </div>
+                        {/* Choice images only appear once the answer is revealed
+                            (not while still choosing), and sit right under their
+                            own option - not bundled together after the explanation. */}
+                        {isRevealedNow && c.image_url && (
+                          <a href={c.image_url} target="_blank" rel="noopener noreferrer" className="ml-7">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={c.image_url}
+                              alt="Choice"
+                              className="max-h-[32rem] w-auto rounded-lg border border-slate-700"
+                            />
+                          </a>
                         )}
                       </label>
                     );
@@ -639,28 +654,6 @@ export default function AssessmentTake({
                     </a>
                   )}
                   <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
-                  {currentQuestion.choices.some((c) => c.image_url) && (
-                    <div className="mt-4 space-y-3">
-                      {currentQuestion.choices.map((c, i) =>
-                        c.image_url ? (
-                          <div key={c.id}>
-                            <p className="text-xs text-slate-400 mb-1">
-                              Choice {String.fromCharCode(65 + i)}
-                              {c.id === currentQuestion.correct_choice_id ? " (correct)" : ""}
-                            </p>
-                            <a href={c.image_url} target="_blank" rel="noopener noreferrer">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={c.image_url}
-                                alt={`Choice ${String.fromCharCode(65 + i)}`}
-                                className="max-h-[32rem] w-auto rounded-lg border border-slate-700"
-                              />
-                            </a>
-                          </div>
-                        ) : null
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
