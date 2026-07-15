@@ -58,6 +58,16 @@ export default function AssessmentForm({
     );
   }
 
+  function updateChoiceImage(qIdx: number, cIdx: number, url: string | null) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, image_url: url } : c)) }
+      )
+    );
+  }
+
   const VIGNETTE_TEMPLATE = `A [age]-year-old [gender] presents to the [ED/clinic/hospital] with [chief complaint].
 History: [onset, duration, associated symptoms, relevant PMH]
 Review of systems: [pertinent positives and negatives]
@@ -340,41 +350,50 @@ What is the most likely diagnosis?`;
               {q.choices.map((c, cIdx) => {
                 const isCorrect = q.correct_choice_id === c.id;
                 return (
-                  <div key={c.id} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name={`correct-${q.id}`}
-                      checked={isCorrect}
-                      onChange={() => updateQuestion(qIdx, { correct_choice_id: c.id })}
-                      className="shrink-0 w-4 h-4"
-                    />
-                    <input
-                      className="input flex-1"
-                      placeholder={`Choice ${cIdx + 1}`}
-                      value={c.text}
-                      onChange={(e) => updateChoice(qIdx, cIdx, e.target.value)}
-                    />
-                    {!isCorrect && (
-                      <select
-                        className="input w-auto text-xs shrink-0"
-                        value={c.distance ?? "far"}
-                        onChange={(e) =>
-                          updateChoiceDistance(qIdx, cIdx, e.target.value as "near" | "far")
-                        }
-                      >
-                        <option value="far">Far miss</option>
-                        <option value="near">Near miss</option>
-                      </select>
-                    )}
-                    {q.choices.length > 2 && (
-                      <button
-                        type="button"
-                        onClick={() => removeChoice(qIdx, cIdx)}
-                        className="text-slate-500 hover:text-red-400 text-sm px-2"
-                      >
-                        &times;
-                      </button>
-                    )}
+                  <div key={c.id} className="border border-slate-800 rounded-lg p-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name={`correct-${q.id}`}
+                        checked={isCorrect}
+                        onChange={() => updateQuestion(qIdx, { correct_choice_id: c.id })}
+                        className="shrink-0 w-4 h-4"
+                      />
+                      <input
+                        className="input flex-1"
+                        placeholder={`Choice ${cIdx + 1}`}
+                        value={c.text}
+                        onChange={(e) => updateChoice(qIdx, cIdx, e.target.value)}
+                      />
+                      {!isCorrect && (
+                        <select
+                          className="input w-auto text-xs shrink-0"
+                          value={c.distance ?? "far"}
+                          onChange={(e) =>
+                            updateChoiceDistance(qIdx, cIdx, e.target.value as "near" | "far")
+                          }
+                        >
+                          <option value="far">Far miss</option>
+                          <option value="near">Near miss</option>
+                        </select>
+                      )}
+                      {q.choices.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => removeChoice(qIdx, cIdx)}
+                          className="text-slate-500 hover:text-red-400 text-sm px-2"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-2 pl-6">
+                      <ImageUploadField
+                        label={`Image for choice ${cIdx + 1} (optional - e.g. an EKG/image the option itself refers to)`}
+                        value={c.image_url}
+                        onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
+                      />
+                    </div>
                   </div>
                 );
               })}
