@@ -1,7 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import { buildErrorBreakdown, classifyAnswer, formatSeconds } from "@/lib/assessments";
 import type { Assessment } from "@/lib/types";
+
+/**
+ * Small text link (UWorld-style "Exhibit" link) that opens an image full-size
+ * in a lightbox overlay when clicked, instead of the image sitting inline and
+ * taking up space in the question/choice list.
+ */
+function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="text-xs font-medium text-brand-400 hover:text-brand-300 underline underline-offset-2"
+    >
+      {label}
+    </button>
+  );
+}
 
 /**
  * Full question-by-question review of one attempt: which option was picked,
@@ -22,6 +40,9 @@ export default function AttemptReview({
   const wrongCount = breakdown.near + breakdown.far;
   const times = Object.values(questionTimes);
   const avgSeconds = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0;
+  // Whichever image (question/choice/explanation) is currently open in the
+  // full-size lightbox overlay - null means the lightbox is closed.
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   return (
     <div className="space-y-4">
@@ -94,14 +115,9 @@ export default function AttemptReview({
               </div>
             </div>
             {q.question_image_url && (
-              <a href={q.question_image_url} target="_blank" rel="noopener noreferrer">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={q.question_image_url}
-                  alt="Question"
-                  className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-3"
-                />
-              </a>
+              <div className="mb-3">
+                <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
+              </div>
             )}
             <div className="space-y-2 mb-3">
               {q.choices.map((c, i) => {
@@ -128,28 +144,18 @@ export default function AttemptReview({
                       )}
                     </div>
                     {c.image_url && (
-                      <a href={c.image_url} target="_blank" rel="noopener noreferrer">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={c.image_url}
-                          alt="Choice"
-                          className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mt-2"
-                        />
-                      </a>
+                      <div className="mt-2">
+                        <ImageLink url={c.image_url} label="View image" onOpen={setLightboxUrl} />
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
             {q.explanation_image_url && (
-              <a href={q.explanation_image_url} target="_blank" rel="noopener noreferrer">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={q.explanation_image_url}
-                  alt="Explanation"
-                  className="max-h-[32rem] w-auto rounded-lg border border-slate-700 mb-2"
-                />
-              </a>
+              <div className="mb-2">
+                <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+              </div>
             )}
             {q.explanation && (
               <p className="text-sm text-slate-400 border-t border-slate-800 pt-3">{q.explanation}</p>
@@ -157,6 +163,28 @@ export default function AttemptReview({
           </div>
         );
       })}
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-30 bg-black/85 flex items-center justify-center px-4 py-8"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+          >
+            &times;
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt=""
+            className="max-w-full max-h-full rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
