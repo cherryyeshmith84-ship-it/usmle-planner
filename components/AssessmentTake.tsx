@@ -545,6 +545,14 @@ export default function AssessmentTake({
                 >
                   {currentQuestionIndex + 1}. {currentQuestion.question}
                 </p>
+                {currentQuestion.question_image_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={currentQuestion.question_image_url}
+                    alt="Question"
+                    className="max-h-80 rounded-lg border border-slate-700 mb-3"
+                  />
+                )}
                 <div className="space-y-2">
                   {currentQuestion.choices.map((c) => {
                     const isStruck = struck.has(c.id);
@@ -619,6 +627,14 @@ export default function AssessmentTake({
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
                   <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
+                  {currentQuestion.explanation_image_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={currentQuestion.explanation_image_url}
+                      alt="Explanation"
+                      className="max-h-80 rounded-lg border border-slate-700 mt-2"
+                    />
+                  )}
                 </div>
               )}
             </div>
