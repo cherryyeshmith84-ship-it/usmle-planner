@@ -178,7 +178,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
+    router.push("/admin/assessments");
     router.refresh();
   }
 
@@ -193,7 +193,7 @@ What is the most likely diagnosis?`;
       setError(error.message);
       return;
     }
-    router.push(kind === "qbank" ? "/admin/qbank" : "/admin/assessments");
+    router.push("/admin/assessments");
     router.refresh();
   }
 
@@ -413,7 +413,7 @@ What is the most likely diagnosis?`;
 
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={saving}>
-          {saving ? "Saving..." : initial ? "Save changes" : kind === "qbank" ? "Create question bank item" : "Create assessment"}
+          {saving ? "Saving..." : initial ? "Save changes" : "Create assessment"}
         </button>
         {initial && (
           <button
