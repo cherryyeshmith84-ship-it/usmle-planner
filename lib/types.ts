@@ -1,3 +1,5 @@
+import type { ErrorType, QBankQuestionType, QuestionDifficulty } from "./qbankTypes";
+
 export type PrepStage = "beginning" | "middle" | "end";
 
 export type ExamTrack = "step1" | "subject";
@@ -129,6 +131,32 @@ export interface AssessmentChoice {
   // because..."), shown in the explanation section right next to this
   // choice's letter and image - not buried in one big shared paragraph.
   rationale?: string | null;
+  // "Error DNA" fields - only meaningful on wrong choices. A short mnemonic
+  // note plus tagging used to spot patterns in what a student tends to
+  // confuse. Mirrors QBankChoice in lib/qbankTypes.ts.
+  error_note?: string | null;
+  error_type?: ErrorType | string | null;
+  confused_with?: string | null;
+  weak_concept?: string | null;
+  // Correct-choice-only field - the one-line "why this is right" takeaway.
+  key_concept?: string | null;
+}
+
+// Extra per-question editor fields, mirroring QBankQuestionMeta in
+// lib/qbankTypes.ts (minus the draft/review/publish status, which doesn't
+// apply here - a whole assessment is saved as one unit, not per question).
+export interface AssessmentQuestionMeta {
+  educational_objective?: string;
+  key_takeaway?: string;
+  exam_trap?: string;
+  topic?: string;
+  subtopic?: string;
+  primary_concept?: string;
+  // Comma-separated free text (kept as a plain string here, rather than an
+  // array, since it's edited inline per-question in a long form).
+  secondary_concepts?: string;
+  difficulty?: QuestionDifficulty;
+  question_type?: QBankQuestionType | string;
 }
 
 export interface AssessmentQuestion {
@@ -143,6 +171,7 @@ export interface AssessmentQuestion {
   // Optional image shown alongside the explanation (after the student
   // answers), same idea as question_image_url.
   explanation_image_url?: string | null;
+  meta?: AssessmentQuestionMeta | null;
 }
 
 export type AssessmentKind = "self_assessment" | "qbank";
