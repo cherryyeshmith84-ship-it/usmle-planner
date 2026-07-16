@@ -61,7 +61,7 @@ export function computeDashboardInsights(
   let totalCorrect = 0;
 
   const systemBuckets: Record<string, { correct: number; total: number; timeline: boolean[] }> = {};
-  const conceptBuckets: Record<
+  const conceptBuckets: Record
     string,
     { answers: { correct: boolean; submittedAt: string; errorType: string | null }[] }
   > = {};
@@ -275,4 +275,84 @@ export function computeMasteryGrid(
   }
 
   return result.sort((a, b) => b.total - a.total);
+}
+
+export interface ReviewQueueItem {
+  concept: string;
+  priority: "high" | "medium" | "low";
+  missed: number;
+  total: number;
+  missRate: number;
+  primaryProblem: string | null;
+  lastMissedAt: string;
+}
+
+/**
+ * Smart Review's priority queue - every concept the student hasn't yet
+ * "earned back" after missing it. A concept is due if it's had at least one
+ * miss among the student's last (up to) 7 attempts at it; priority is set by
+ * how often they're still missing it in that recent window. Concepts with
+ * zero misses in the recent window are treated as mastered and drop out of
+ * the queue entirely - this is deliberately simple (no literal per-day
+ * scheduling) rather than a full spaced-repetition date engine.
+ */
+export function computeSmartReviewQueue(
+  qbankEvents: QBankAnswerEvent[],
+  questionById: Map<string, QBankQuestion>
+): ReviewQueueItem[] {
+  const sorted = [...qbankEvents].sort(
+    (a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
+  );
+
+  const conceptBuckets: Record
+    string,
+    { answers: { correct: boolean; submittedAt: string; errorType: string | null }[] }
+  > = {};
+
+  for (const ev of sorted) {
+    const q = questionById.get(ev.questionId);
+    if (!q || !ev.choiceId) continue;
+    const isCorrect = ev.choiceId === q.correct_choice_id;
+    const concept = q.meta?.primary_concept?.trim() || q.meta?.topic?.trim() || null;
+    if (!concept) continue;
+
+    if (!conceptBuckets[concept]) conceptBuckets[concept] = { answers: [] };
+    let errorType: string | null = null;
+    if (!isCorrect) {
+      const choice = q.choices.find((c) => c.id === ev.choiceId);
+      errorType = choice?.error_type ?? null;
+    }
+    conceptBuckets[concept].answers.push({ correct: isCorrect, submittedAt: ev.submittedAt, errorType });
+  }
+
+  const queue: ReviewQueueItem[] = [];
+  for (const [concept, bucket] of Object.entries(conceptBuckets)) {
+    if (bucket.answers.length < 3) continue;
+    const recent = [...bucket.answers]
+      .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+      .slice(0, 7);
+    const missed = recent.filter((a) => !a.correct).length;
+    if (missed === 0) continue;
+
+    const missRate = missed / recent.length;
+    const priority: ReviewQueueItem["priority"] =
+      missRate >= 0.5 ? "high" : missRate >= 0.3 ? "medium" : "low";
+
+    const errorTypeCounts: Record<string, number> = {};
+    for (const a of recent) {
+      if (!a.correct && a.errorType) errorTypeCounts[a.errorType] = (errorTypeCounts[a.errorType] ?? 0) + 1;
+    }
+    const primaryProblem = Object.entries(errorTypeCounts).sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+    const lastMissedAt = recent.find((a) => !a.correct)?.submittedAt ?? recent[0].submittedAt;
+
+    queue.push({ concept, priority, missed, total: recent.length, missRate, primaryProblem, lastMissedAt });
+  }
+
+  const priorityRank: Record<ReviewQueueItem["priority"], number> = { high: 0, medium: 1, low: 2 };
+  return queue.sort((a, b) => {
+    if (priorityRank[a.priority] !== priorityRank[b.priority]) {
+      return priorityRank[a.priority] - priorityRank[b.priority];
+    }
+    return new Date(b.lastMissedAt).getTime() - new Date(a.lastMissedAt).getTime();
+  });
 }
