@@ -52,25 +52,43 @@ function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen:
  */
 function ChoiceExplanations({
   choices,
+  correctChoiceId,
   onOpen,
 }: {
-  choices: { id: string; rationale?: string | null; image_url?: string | null }[];
+  choices: {
+    id: string;
+    rationale?: string | null;
+    image_url?: string | null;
+    error_note?: string | null;
+    key_concept?: string | null;
+  }[];
+  correctChoiceId: string;
   onOpen: (url: string) => void;
 }) {
-  const relevant = choices.filter((c) => c.rationale || c.image_url);
+  const relevant = choices.filter((c) => c.rationale || c.image_url || c.error_note || c.key_concept);
   if (relevant.length === 0) return null;
   return (
     <div className="mt-3 space-y-2">
       {choices.map((c, i) => {
-        if (!c.rationale && !c.image_url) return null;
+        if (!c.rationale && !c.image_url && !c.error_note && !c.key_concept) return null;
+        const isCorrect = c.id === correctChoiceId;
         return (
           <div key={c.id} className="text-sm text-slate-300">
-            <span className="font-semibold text-slate-400">Choice {String.fromCharCode(65 + i)}: </span>
-            {c.rationale}
-            {c.image_url && (
-              <span className="ml-2 align-middle">
-                <ImageLink url={c.image_url} label="View image" onOpen={onOpen} />
+            <p>
+              <span className={`font-semibold ${isCorrect ? "text-green-400" : "text-slate-400"}`}>
+                Choice {String.fromCharCode(65 + i)}
+                {isCorrect ? " (correct)" : ""}:{" "}
               </span>
+              {c.rationale}
+              {c.image_url && (
+                <span className="ml-2 align-middle">
+                  <ImageLink url={c.image_url} label="View image" onOpen={onOpen} />
+                </span>
+              )}
+            </p>
+            {c.error_note && <p className="text-xs text-amber-400 mt-1">Error note: {c.error_note}</p>}
+            {isCorrect && c.key_concept && (
+              <p className="text-xs text-brand-300 mt-1">Key concept: {c.key_concept}</p>
             )}
           </div>
         );
@@ -681,6 +699,12 @@ export default function AssessmentTake({
                   >
                     {answeredCorrectly ? "Correct" : "Incorrect"}
                   </p>
+                  {currentQuestion.meta?.educational_objective && (
+                    <div className="mb-2 p-2 rounded bg-slate-900/60 border border-slate-800">
+                      <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
+                      <p className="text-sm text-slate-300">{currentQuestion.meta.educational_objective}</p>
+                    </div>
+                  )}
                   {currentQuestion.explanation_image_url && (
                     <div className="mb-2">
                       <ImageLink url={currentQuestion.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
@@ -689,7 +713,23 @@ export default function AssessmentTake({
                   {currentQuestion.explanation && (
                     <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
                   )}
-                  <ChoiceExplanations choices={currentQuestion.choices} onOpen={setLightboxUrl} />
+                  {currentQuestion.meta?.key_takeaway && (
+                    <div className="mt-2 p-2 rounded bg-brand-900/20 border border-brand-800/40">
+                      <p className="text-xs font-semibold text-brand-300 mb-1">Key takeaway</p>
+                      <p className="text-sm text-slate-200 whitespace-pre-line">{currentQuestion.meta.key_takeaway}</p>
+                    </div>
+                  )}
+                  {currentQuestion.meta?.exam_trap && (
+                    <div className="mt-2 p-2 rounded bg-amber-900/20 border border-amber-800/40">
+                      <p className="text-xs font-semibold text-amber-300 mb-1">Exam trap</p>
+                      <p className="text-sm text-slate-200 whitespace-pre-line">{currentQuestion.meta.exam_trap}</p>
+                    </div>
+                  )}
+                  <ChoiceExplanations
+                    choices={currentQuestion.choices}
+                    correctChoiceId={currentQuestion.correct_choice_id}
+                    onOpen={setLightboxUrl}
+                  />
                 </div>
               )}
             </div>
