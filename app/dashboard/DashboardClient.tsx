@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { defaultTasksForStage } from "@/lib/defaultTasks";
 import { computeResourceAverages, templateTasksToStudyTasks, type PlanProgress } from "@/lib/templateDays";
@@ -14,7 +15,8 @@ import type {
   TaskStatus,
   TemplateTask,
 } from "@/lib/types";
-import NavBar from "@/components/NavBar";
+import type { DashboardInsights } from "@/lib/masteryDashboard";
+import AppShell from "@/components/AppShell";
 
 function newTaskId() {
   return Math.random().toString(36).slice(2, 10);
@@ -68,6 +70,9 @@ export default function DashboardClient({
   planProgress,
   allBlockScores,
   initialMessages,
+  insights,
+  questionsAnsweredToday,
+  dailyQuestionGoal,
 }: {
   userId: string;
   profile: Profile;
@@ -81,6 +86,9 @@ export default function DashboardClient({
   planProgress: PlanProgress | null;
   allBlockScores: BlockScore[];
   initialMessages: CoachMessage[];
+  insights: DashboardInsights;
+  questionsAnsweredToday: number;
+  dailyQuestionGoal: number;
 }) {
   const [tasks, setTasks] = useState<StudyTask[]>(
     seedTasks(todayLog, profile, templateDayTasks)
@@ -238,19 +246,49 @@ export default function DashboardClient({
     }
   }
 
+  const examLabel = profile.exam_track === "subject" ? (profile.subject_name || "your exam") : "Step 1";
   const examLine = useMemo(() => {
     if (daysUntilExam === null) return "No exam date set";
     if (daysUntilExam < 0) return "Exam date has passed";
     if (daysUntilExam === 0) return "Exam is today - good luck!";
-    return `${daysUntilExam} day${daysUntilExam === 1 ? "" : "s"} until exam`;
-  }, [daysUntilExam]);
+    return `${daysUntilExam} day${daysUntilExam === 1 ? "" : "s"} until ${examLabel}`;
+  }, [daysUntilExam, examLabel]);
 
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
+  const firstName = profile.full_name?.trim().split(/\s+/)[0];
+
+  // Weakest systems (with a large enough sample to be meaningful) drive the
+  // "today's recommended session" focus line - falls back to a generic line
+  // when there isn't enough Question Bank history yet.
+  const weakSystems = useMemo(
+    () =>
+      [...insights.systemStats]
+        .filter((s) => s.total >= 3)
+        .sort((a, b) => a.pct - b.pct)
+        .slice(0, 2)
+        .map((s) => s.system),
+    [insights.systemStats]
+  );
+  const recommendedFocusLine =
+    weakSystems.length > 0 ? `Focused on ${weakSystems.join(" & ")}` : "Focused on your weakest areas";
+  const recommendedCount = Math.max(10, Math.min(dailyQuestionGoal || 20, 40));
+
+  function pctColorClass(pct: number) {
+    if (pct >= 75) return "text-green-400";
+    if (pct >= 60) return "text-yellow-400";
+    if (pct >= 45) return "text-orange-400";
+    return "text-red-400";
+  }
+
+  function trendArrow(trend: "up" | "down" | "flat") {
+    if (trend === "up") return <span className="text-green-400">&uarr;</span>;
+    if (trend === "down") return <span className="text-red-400">&darr;</span>;
+    return <span className="text-slate-500">&rarr;</span>;
+  }
 
   return (
-    <div className="min-h-screen flex">
-      <NavBar isAdmin={profile.is_admin} />
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 space-y-6">
+    <AppShell isAdmin={profile.is_admin} userName={profile.full_name} streak={streak}>
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 space-y-6 w-full">
         {pendingCount > 0 && (
           <div className="rounded-xl border border-amber-900 bg-amber-900/20 px-4 py-3 flex items-center justify-between">
             <p className="text-sm text-amber-300">
@@ -259,12 +297,96 @@ export default function DashboardClient({
           </div>
         )}
 
-        <div className="grid sm:grid-cols-4 gap-4">
-          <StatCard label="Streak" value={`${streak} day${streak === 1 ? "" : "s"}`} />
-          <StatCard label="Countdown" value={examLine} />
-          <StatCard label="Today's tasks" value={`${doneCount}/${tasks.length} done`} />
-          <StatCard label="Daily goal" value={profile.daily_hour_goal ? `${profile.daily_hour_goal}h` : "not set"} />
+        <div>
+          <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}</h1>
+          <p className="text-sm text-slate-400 mt-1">{examLine}</p>
         </div>
+
+        <div className="card border border-brand-800/40 bg-gradient-to-br from-brand-900/20 to-transparent">
+          <p className="text-xs font-semibold text-brand-300 uppercase tracking-wide mb-2">
+            Today&apos;s recommended session
+          </p>
+          <p className="text-lg font-semibold mb-1">
+            {recommendedCount} questions &middot; Mixed &middot; {recommendedFocusLine}
+          </p>
+          <p className="text-sm text-slate-400 mb-4">
+            You&apos;ve answered {questionsAnsweredToday} of your {dailyQuestionGoal}-question goal today.
+          </p>
+          <Link href="/qbank" className="btn-primary inline-block">
+            Start Session &rarr;
+          </Link>
+        </div>
+
+        <div className="grid sm:grid-cols-4 gap-4">
+          <StatCard label="Questions" value={insights.totalAnswered.toLocaleString()} />
+          <StatCard
+            label="Overall accuracy"
+            value={insights.totalAnswered > 0 ? `${insights.overallAccuracyPct}%` : "—"}
+            valueClassName={insights.totalAnswered > 0 ? pctColorClass(insights.overallAccuracyPct) : undefined}
+          />
+          <StatCard label="Current streak" value={`${streak} day${streak === 1 ? "" : "s"}`} />
+          <StatCard
+            label="Mastery"
+            value={insights.masteryPct !== null ? `${insights.masteryPct}%` : "—"}
+            valueClassName={insights.masteryPct !== null ? pctColorClass(insights.masteryPct) : undefined}
+          />
+        </div>
+
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-lg">Your Master Grid</h2>
+            <Link href="/master-grid" className="text-sm text-brand-400 hover:text-brand-300 font-medium">
+              View full map &rarr;
+            </Link>
+          </div>
+          {insights.systemStats.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Answer some Question Bank questions to start building your mastery map.
+            </p>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between text-xs text-slate-500 uppercase tracking-wide px-1 mb-1">
+                <span>System</span>
+                <span className="flex items-center gap-8">
+                  <span>Mastery</span>
+                  <span>Trend</span>
+                </span>
+              </div>
+              {insights.systemStats.slice(0, 5).map((s) => (
+                <div
+                  key={s.system}
+                  className="flex items-center justify-between px-1 py-2 border-t border-slate-800 text-sm"
+                >
+                  <span className="text-slate-200">{s.system}</span>
+                  <span className="flex items-center gap-8">
+                    <span className={`font-semibold w-10 text-right ${pctColorClass(s.pct)}`}>{s.pct}%</span>
+                    <span className="w-4 text-center">{trendArrow(s.trend)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {insights.opportunity && (
+          <div className="card border border-purple-800/40 bg-purple-900/10">
+            <p className="text-sm font-semibold text-purple-300 mb-2">&#127919; Your biggest opportunity</p>
+            <p className="text-lg font-bold mb-1">{insights.opportunity.concept}</p>
+            <p className="text-sm text-slate-300 mb-3">
+              You&apos;ve missed {insights.opportunity.missed} of your last {insights.opportunity.total} questions
+              involving {insights.opportunity.concept}.
+            </p>
+            {insights.opportunity.primaryProblem && (
+              <p className="text-xs text-slate-400 mb-4">
+                Primary problem:{" "}
+                <span className="text-amber-400 font-medium">{insights.opportunity.primaryProblem}</span>
+              </p>
+            )}
+            <Link href="/qbank" className="btn-secondary inline-block">
+              Fix this weakness &rarr;
+            </Link>
+          </div>
+        )}
 
         {planProgress && (
           <div className="card">
@@ -619,15 +741,23 @@ export default function DashboardClient({
           </div>
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="card py-4">
       <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</p>
-      <p className="text-lg font-bold mt-1">{value}</p>
+      <p className={`text-lg font-bold mt-1 ${valueClassName ?? ""}`}>{value}</p>
     </div>
   );
 }
