@@ -25,6 +25,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/qbank", label: "Question Bank", addHref: "/admin/qbank/new", addLabel: "New question" },
       { href: "/admin/qbank/review", label: "Review queue" },
+      { href: "/admin/error-dna", label: "Error DNA" },
       {
         href: "/admin/assessments",
         label: "Self Assessments",
