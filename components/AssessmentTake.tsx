@@ -44,48 +44,39 @@ function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen:
 }
 
 /**
- * Splits an explanation string on `[img:A]`-style tokens (which the admin
- * types directly into the explanation text, right where they want a given
- * choice's image link to appear - start of a sentence, end of it, wherever)
- * and swaps each token for a real click-to-open ImageLink for that choice.
- * Any choice that has an image but whose token never appears in the text
- * still gets listed in `leftover`, so an image is never silently hidden
- * just because the admin forgot to place its token.
+ * Renders each choice's own short explanation (typed by the admin directly
+ * under that choice in the editor) plus its image link, one line per choice,
+ * right inside the explanation section - so "why B is wrong" and B's image
+ * sit together, instead of the admin having to place manual markers.
+ * Choices with neither a rationale nor an image are skipped entirely.
  */
-function renderExplanation(
-  text: string,
-  choices: { id: string; image_url?: string | null }[],
-  onOpen: (url: string) => void
-): { nodes: React.ReactNode[]; leftover: { id: string; image_url: string; letter: string }[] } {
-  const tokenRe = /\[img:([A-Za-z])\]/g;
-  const matchedLetters = new Set<string>();
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  while ((m = tokenRe.exec(text))) {
-    if (m.index > lastIndex) {
-      nodes.push(<span key={key++}>{text.slice(lastIndex, m.index)}</span>);
-    }
-    const letter = m[1].toUpperCase();
-    const choice = choices[letter.charCodeAt(0) - 65];
-    if (choice?.image_url) {
-      matchedLetters.add(letter);
-      nodes.push(
-        <ImageLink key={`img-${key++}`} url={choice.image_url} label={`View image (Choice ${letter})`} onOpen={onOpen} />
-      );
-    } else {
-      nodes.push(<span key={key++}>{m[0]}</span>);
-    }
-    lastIndex = tokenRe.lastIndex;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(<span key={key++}>{text.slice(lastIndex)}</span>);
-  }
-  const leftover = choices
-    .map((c, i) => ({ id: c.id, image_url: c.image_url, letter: String.fromCharCode(65 + i) }))
-    .filter((x): x is { id: string; image_url: string; letter: string } => !!x.image_url && !matchedLetters.has(x.letter));
-  return { nodes, leftover };
+function ChoiceExplanations({
+  choices,
+  onOpen,
+}: {
+  choices: { id: string; rationale?: string | null; image_url?: string | null }[];
+  onOpen: (url: string) => void;
+}) {
+  const relevant = choices.filter((c) => c.rationale || c.image_url);
+  if (relevant.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {choices.map((c, i) => {
+        if (!c.rationale && !c.image_url) return null;
+        return (
+          <div key={c.id} className="text-sm text-slate-300">
+            <span className="font-semibold text-slate-400">Choice {String.fromCharCode(65 + i)}: </span>
+            {c.rationale}
+            {c.image_url && (
+              <span className="ml-2 align-middle">
+                <ImageLink url={c.image_url} label="View image" onOpen={onOpen} />
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function AssessmentTake({
@@ -695,30 +686,10 @@ export default function AssessmentTake({
                       <ImageLink url={currentQuestion.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
                     </div>
                   )}
-                  {(() => {
-                    const { nodes, leftover } = renderExplanation(
-                      currentQuestion.explanation,
-                      currentQuestion.choices,
-                      setLightboxUrl
-                    );
-                    return (
-                      <>
-                        <p className="text-sm text-slate-300">{nodes}</p>
-                        {leftover.length > 0 && (
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                            {leftover.map((l) => (
-                              <ImageLink
-                                key={l.id}
-                                url={l.image_url}
-                                label={`View image (Choice ${l.letter})`}
-                                onOpen={setLightboxUrl}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
+                  {currentQuestion.explanation && (
+                    <p className="text-sm text-slate-300">{currentQuestion.explanation}</p>
+                  )}
+                  <ChoiceExplanations choices={currentQuestion.choices} onOpen={setLightboxUrl} />
                 </div>
               )}
             </div>
