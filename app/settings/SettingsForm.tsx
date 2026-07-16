@@ -32,6 +32,7 @@ export default function SettingsForm({
   const [prepStage, setPrepStage] = useState<PrepStage | "">(profile.prep_stage ?? "");
   const [examDate, setExamDate] = useState(profile.exam_date ?? "");
   const [hourGoal, setHourGoal] = useState(profile.daily_hour_goal?.toString() ?? "");
+  const [questionGoal, setQuestionGoal] = useState(profile.daily_question_goal?.toString() ?? "");
   const [resources, setResources] = useState<string[]>(profile.resources ?? []);
   const [customResource, setCustomResource] = useState("");
   const [completedSoFar, setCompletedSoFar] = useState(profile.completed_so_far ?? "");
@@ -64,6 +65,7 @@ export default function SettingsForm({
         prep_stage: track === "step1" ? prepStage || null : null,
         exam_date: examDate || null,
         daily_hour_goal: hourGoal ? Number(hourGoal) : null,
+        daily_question_goal: questionGoal ? Number(questionGoal) : null,
         resources: finalResources,
         completed_so_far: completedSoFar || null,
         strong_areas: strongAreas || null,
@@ -186,6 +188,17 @@ export default function SettingsForm({
           className="input mb-5"
           value={hourGoal}
           onChange={(e) => setHourGoal(e.target.value)}
+        />
+
+        <label className="label">Target questions per day (shown on your dashboard - defaults to 20)</label>
+        <input
+          type="number"
+          min={1}
+          max={200}
+          className="input mb-5"
+          placeholder="20"
+          value={questionGoal}
+          onChange={(e) => setQuestionGoal(e.target.value)}
         />
 
         <label className="label">Preferred resources</label>
