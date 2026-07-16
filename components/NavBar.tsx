@@ -1,3 +1,45 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+interface NavItem {
+  href: string;
+  label: string;
+}
+
+interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
+
+const GROUPS: NavGroup[] = [
+  {
+    title: "Learn",
+    items: [
+      { href: "/qbank", label: "Question Bank" },
+      { href: "/assessments", label: "Self Assessments" },
+    ],
+  },
+  {
+    title: "Improve",
+    items: [
+      { href: "/master-grid", label: "Master Grid" },
+      { href: "/smart-review", label: "Smart Review" },
+      { href: "/error-notes", label: "Error Notes" },
+      { href: "/visual-lab", label: "Visual Lab" },
+    ],
+  },
+  {
+    title: "Plan",
+    items: [
+      { href: "/planner", label: "Study Planner" },
+      // "Performance" absorbs what used to be the standalone History page -
+      // detailed day-by-day history lives here now, not as its own nav item.
+      { href: "/history", label: "Performance" },
+    ],
+  },
+];
 
 function isActive(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === "/dashboard";
