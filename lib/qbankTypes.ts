@@ -40,6 +40,45 @@ export const STEP1_SYSTEMS = [
 export type Step1Subject = (typeof STEP1_SUBJECTS)[number];
 export type Step1System = (typeof STEP1_SYSTEMS)[number];
 
+// Fixed dropdown options for the "Error DNA" fields on a wrong choice, and
+// for the overall question's type - kept as plain string enums (not a
+// separate lookup table/library) for this first pass of the editor.
+export const ERROR_TYPES = [
+  "Knowledge gap",
+  "Mechanism confusion",
+  "Diagnosis confusion",
+  "Process-sequence confusion",
+  "Location/compartment confusion",
+  "Image recognition failure",
+  "Question interpretation error",
+  "Second-order reasoning failure",
+  "Therapeutic-effect anchoring",
+  "Calculation error",
+] as const;
+export type ErrorType = (typeof ERROR_TYPES)[number];
+
+export const QUESTION_TYPES = [
+  "Diagnosis",
+  "Pathophysiology",
+  "Mechanism of action",
+  "Next best step",
+  "Adverse effect",
+  "Risk factor",
+  "Anatomy",
+  "Histology recognition",
+  "Drug mechanism",
+  "Drug toxicity",
+  "Experimental interpretation",
+] as const;
+export type QBankQuestionType = (typeof QUESTION_TYPES)[number];
+
+export const DIFFICULTY_LEVELS = ["easy", "moderate", "hard", "killer"] as const;
+export type QuestionDifficulty = (typeof DIFFICULTY_LEVELS)[number];
+
+// Admin publish workflow - separate from QuestionStatus below, which is a
+// per-student "have I done this one" status, not an authoring state.
+export type QuestionAdminStatus = "draft" | "under_review" | "published";
+
 export interface QBankChoice {
   id: string;
   text: string;
@@ -54,6 +93,31 @@ export interface QBankChoice {
   // because..."), shown in the explanation section right next to this
   // choice's letter and image - not buried in one big shared paragraph.
   rationale?: string | null;
+  // "Error DNA" fields - only meaningful on wrong choices. A short mnemonic
+  // note (e.g. "Acarbose -> carbs, Orlistat -> fats") plus tagging used to
+  // spot patterns in what a student tends to confuse.
+  error_note?: string | null;
+  error_type?: ErrorType | string | null;
+  confused_with?: string | null;
+  weak_concept?: string | null;
+  // Correct-choice-only field - the one-line "why this is right" takeaway.
+  key_concept?: string | null;
+}
+
+// Extra Question Editor fields, kept in one flexible jsonb blob on the
+// question row (see supabase/schema_v18_qbank_meta.sql) so adding more of
+// these later doesn't need another database migration.
+export interface QBankQuestionMeta {
+  educational_objective?: string;
+  key_takeaway?: string;
+  exam_trap?: string;
+  topic?: string;
+  subtopic?: string;
+  primary_concept?: string;
+  secondary_concepts?: string[];
+  difficulty?: QuestionDifficulty;
+  question_type?: QBankQuestionType | string;
+  status?: QuestionAdminStatus;
 }
 
 export interface QBankQuestion {
@@ -70,6 +134,7 @@ export interface QBankQuestion {
   explanation_image_url?: string | null;
   subjects: string[];
   systems: string[];
+  meta?: QBankQuestionMeta | null;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
