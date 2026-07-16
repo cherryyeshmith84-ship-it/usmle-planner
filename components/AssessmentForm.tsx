@@ -68,6 +68,16 @@ export default function AssessmentForm({
     );
   }
 
+  function updateChoiceRationale(qIdx: number, cIdx: number, rationale: string) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, rationale } : c)) }
+      )
+    );
+  }
+
   const VIGNETTE_TEMPLATE = `A [age]-year-old [gender] presents to the [ED/clinic/hospital] with [chief complaint].
 History: [onset, duration, associated symptoms, relevant PMH]
 Review of systems: [pertinent positives and negatives]
@@ -387,22 +397,25 @@ What is the most likely diagnosis?`;
                         </button>
                       )}
                     </div>
-                    <div className="mt-2 pl-6">
+                    <div className="mt-2 pl-6 space-y-2">
+                      <div>
+                        <label className="label mb-1">
+                          Explanation for choice {cIdx + 1} (optional - why it&apos;s right/wrong, shown in the
+                          explanation section next to this choice's image)
+                        </label>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          placeholder={`e.g. "${String.fromCharCode(65 + cIdx)} is incorrect because..."`}
+                          value={c.rationale ?? ""}
+                          onChange={(e) => updateChoiceRationale(qIdx, cIdx, e.target.value)}
+                        />
+                      </div>
                       <ImageUploadField
-                        label={`Image for choice ${cIdx + 1} (optional - e.g. an EKG/image the option itself refers to)`}
+                        label={`Image for choice ${cIdx + 1} (optional - shown right next to this choice's explanation above)`}
                         value={c.image_url}
                         onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
                       />
-                      {c.image_url && (
-                        <p className="text-xs text-slate-500 mt-1">
-                          To show this image inside the explanation text (not under the option), type{" "}
-                          <code className="text-slate-300 bg-slate-800 px-1 rounded">
-                            [img:{String.fromCharCode(65 + cIdx)}]
-                          </code>{" "}
-                          anywhere in the Explanation box below - at the start or end of the sentence
-                          discussing this choice, wherever you want the link to sit.
-                        </p>
-                      )}
                     </div>
                   </div>
                 );
@@ -416,11 +429,14 @@ What is the most likely diagnosis?`;
               + Add another choice
             </button>
 
-            <label className="label">Explanation (shown to the student after they submit)</label>
+            <label className="label">
+              Overall explanation (optional - the high-yield summary/big picture, shown above the
+              per-choice explanations you added next to each choice)
+            </label>
             <textarea
               className="input"
               rows={2}
-              placeholder="Why this is the right answer, optional but helpful"
+              placeholder="High-yield chain / key distinction / bottom line"
               value={q.explanation}
               onChange={(e) => updateQuestion(qIdx, { explanation: e.target.value })}
             />
