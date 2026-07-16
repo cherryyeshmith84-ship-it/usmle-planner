@@ -16,6 +16,7 @@ export function blankQBankQuestion(): Omit<QBankQuestion, "id"> {
     explanation: "",
     subjects: [],
     systems: [],
+    meta: {},
   };
 }
 
