@@ -5,7 +5,16 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parsePastedQuestion } from "@/lib/assessments";
 import { blankQBankChoice, blankQBankQuestion, choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
-import { STEP1_SUBJECTS, STEP1_SYSTEMS, type QBankQuestion } from "@/lib/qbankTypes";
+import {
+  DIFFICULTY_LEVELS,
+  ERROR_TYPES,
+  QUESTION_TYPES,
+  STEP1_SUBJECTS,
+  STEP1_SYSTEMS,
+  type QBankQuestion,
+  type QuestionAdminStatus,
+  type QuestionDifficulty,
+} from "@/lib/qbankTypes";
 import ImageUploadField from "./ImageUploadField";
 
 interface StudentAnswerRow {
@@ -13,6 +22,23 @@ interface StudentAnswerRow {
   name: string;
   choiceId: string | undefined;
   submittedAt: string | null;
+}
+
+/**
+ * Small text link that opens an image full-size in a lightbox overlay -
+ * used only inside the "Preview as student" modal below, so the admin can
+ * check an uploaded image the same way a student would see it.
+ */
+function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="text-xs font-medium text-brand-400 hover:text-brand-300 underline underline-offset-2"
+    >
+      {label}
+    </button>
+  );
 }
 
 export default function QBankQuestionForm({
@@ -36,10 +62,37 @@ export default function QBankQuestionForm({
   );
   const [subjects, setSubjects] = useState<string[]>(initial?.subjects ?? []);
   const [systems, setSystems] = useState<string[]>(initial?.systems ?? []);
+
+  // Main-explanation extras (section 2 of the editor spec) - kept in the
+  // question's "meta" jsonb blob rather than their own columns.
+  const [educationalObjective, setEducationalObjective] = useState(initial?.meta?.educational_objective ?? "");
+  const [keyTakeaway, setKeyTakeaway] = useState(initial?.meta?.key_takeaway ?? "");
+  const [examTrap, setExamTrap] = useState(initial?.meta?.exam_trap ?? "");
+
+  // Classification extras (section 4) - Subjects/Systems above already act
+  // as Discipline/System tags, these add finer categorization.
+  const [topic, setTopic] = useState(initial?.meta?.topic ?? "");
+  const [subtopic, setSubtopic] = useState(initial?.meta?.subtopic ?? "");
+  const [primaryConcept, setPrimaryConcept] = useState(initial?.meta?.primary_concept ?? "");
+  const [secondaryConceptsText, setSecondaryConceptsText] = useState(
+    (initial?.meta?.secondary_concepts ?? []).join(", ")
+  );
+  const [difficulty, setDifficulty] = useState<QuestionDifficulty | "">(initial?.meta?.difficulty ?? "");
+  const [questionType, setQuestionType] = useState(initial?.meta?.question_type ?? "");
+
+  // Admin publish workflow (section 1 status + section 7 buttons).
+  const [status, setStatus] = useState<QuestionAdminStatus>(initial?.meta?.status ?? "draft");
+
   const [bulkText, setBulkText] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // "Preview as student" modal (section 6) - simulates the take-a-question
+  // screen using whatever is currently typed in the form, without saving.
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewChoiceId, setPreviewChoiceId] = useState<string | null>(null);
+  const [previewLightbox, setPreviewLightbox] = useState<string | null>(null);
 
   // Aggregate "who picked what" breakdown for this question, across every
   // submitted Question Bank test - only loaded when editing an existing
@@ -147,6 +200,26 @@ export default function QBankQuestionForm({
     setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, rationale } : c)));
   }
 
+  function updateChoiceErrorNote(idx: number, error_note: string) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, error_note } : c)));
+  }
+
+  function updateChoiceErrorType(idx: number, error_type: string) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, error_type } : c)));
+  }
+
+  function updateChoiceConfusedWith(idx: number, confused_with: string) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, confused_with } : c)));
+  }
+
+  function updateChoiceWeakConcept(idx: number, weak_concept: string) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, weak_concept } : c)));
+  }
+
+  function updateChoiceKeyConcept(idx: number, key_concept: string) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, key_concept } : c)));
+  }
+
   function addChoice() {
     setChoices((prev) => [...prev, blankQBankChoice()]);
   }
@@ -160,38 +233,61 @@ export default function QBankQuestionForm({
     });
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    const cleanChoices = choices.map((c) => ({ ...c, text: c.text.trim() })).filter((c) => c.text.length > 0);
-    if (!question.trim()) {
-      setError("Add the question text.");
-      return;
-    }
-    if (cleanChoices.length < 2) {
-      setError("Add at least 2 answer choices.");
-      return;
-    }
+  /** Returns an error string if this status can't be saved yet, else null. */
+  function validateForStatus(nextStatus: QuestionAdminStatus, cleanChoices: typeof choices): string | null {
+    if (!question.trim()) return "Add the question text.";
+    if (cleanChoices.length < 2) return "Add at least 2 answer choices.";
+    // Drafts are allowed to be incomplete - that's the point of a draft.
+    if (nextStatus === "draft") return null;
     if (!cleanChoices.some((c) => c.id === correctChoiceId)) {
-      setError("Mark which choice is correct (the radio button next to a choice).");
-      return;
+      return "Mark which choice is correct (the radio button next to a choice).";
     }
     if (subjects.length === 0 && systems.length === 0) {
-      setError("Tag this question with at least one subject or system.");
+      return "Tag this question with at least one subject or system.";
+    }
+    if (nextStatus === "published") {
+      if (!correctChoiceId) return "Add a correct answer before publishing.";
+      if (!explanation.trim()) return "Add a main explanation before publishing.";
+    }
+    return null;
+  }
+
+  async function saveWithStatus(nextStatus: QuestionAdminStatus) {
+    const cleanChoices = choices.map((c) => ({ ...c, text: c.text.trim() })).filter((c) => c.text.length > 0);
+    const validationError = validateForStatus(nextStatus, cleanChoices);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     setSaving(true);
     setError(null);
     const supabase = createClient();
+    const secondaryConcepts = secondaryConceptsText
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
     const payload = {
       question: question.trim(),
       question_image_url: questionImageUrl,
       choices: cleanChoices,
-      correct_choice_id: correctChoiceId,
+      correct_choice_id: cleanChoices.some((c) => c.id === correctChoiceId) ? correctChoiceId : "",
       explanation: explanation.trim(),
       explanation_image_url: explanationImageUrl,
       subjects,
       systems,
+      meta: {
+        educational_objective: educationalObjective.trim() || undefined,
+        key_takeaway: keyTakeaway.trim() || undefined,
+        exam_trap: examTrap.trim() || undefined,
+        topic: topic.trim() || undefined,
+        subtopic: subtopic.trim() || undefined,
+        primary_concept: primaryConcept.trim() || undefined,
+        secondary_concepts: secondaryConcepts.length > 0 ? secondaryConcepts : undefined,
+        difficulty: difficulty || undefined,
+        question_type: questionType || undefined,
+        status: nextStatus,
+      },
     };
 
     const { error } = initial
@@ -203,6 +299,7 @@ export default function QBankQuestionForm({
       setError(error.message);
       return;
     }
+    setStatus(nextStatus);
     router.push("/admin/qbank");
     router.refresh();
   }
@@ -222,8 +319,54 @@ export default function QBankQuestionForm({
     router.refresh();
   }
 
+  // Quality checklist (section 7) - informational, doesn't block Save Draft
+  // or Send for Review. Only Publish is actually blocked (see
+  // validateForStatus above), when the correct answer or main explanation
+  // is missing.
+  const wrongChoices = choices.filter((c) => c.id !== correctChoiceId);
+  const checklist = [
+    { label: "Correct answer selected", ok: !!correctChoiceId },
+    {
+      label: "All options have explanations",
+      ok: choices.length > 0 && choices.every((c) => (c.rationale ?? "").trim().length > 0),
+    },
+    {
+      label: "All wrong options have Error Notes",
+      ok: wrongChoices.length === 0 || wrongChoices.every((c) => (c.error_note ?? "").trim().length > 0),
+    },
+    { label: "System and discipline selected", ok: subjects.length > 0 && systems.length > 0 },
+    { label: "Educational objective completed", ok: educationalObjective.trim().length > 0 },
+  ];
+
+  const statusLabel: Record<QuestionAdminStatus, string> = {
+    draft: "Draft",
+    under_review: "Under Review",
+    published: "Published",
+  };
+
   return (
-    <form onSubmit={handleSave} className="space-y-6">
+    <div className="space-y-6">
+      <div className="card flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <p className="text-xs text-slate-500">Question ID</p>
+          <p className="text-sm text-slate-300">{initial?.id ?? "(assigned on save)"}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Status</p>
+          <span
+            className={`text-xs font-semibold rounded-full px-2 py-1 ${
+              status === "published"
+                ? "bg-green-900/40 text-green-400"
+                : status === "under_review"
+                ? "bg-amber-900/40 text-amber-400"
+                : "bg-slate-800 text-slate-400"
+            }`}
+          >
+            {statusLabel[status]}
+          </span>
+        </div>
+      </div>
+
       <div className="card">
         <h2 className="font-semibold mb-2">Paste a question</h2>
         <p className="text-xs text-slate-400 mb-3">
@@ -315,7 +458,18 @@ export default function QBankQuestionForm({
         </button>
 
         <label className="label">
-          Overall explanation (optional - the high-yield summary/big picture, shown above the
+          Educational objective (optional - the one-line "point" of this question)
+        </label>
+        <textarea
+          className="input mb-4"
+          rows={2}
+          placeholder='e.g. "Orlistat inhibits gastric and pancreatic lipases, reducing fat absorption."'
+          value={educationalObjective}
+          onChange={(e) => setEducationalObjective(e.target.value)}
+        />
+
+        <label className="label">
+          Main explanation (optional - the high-yield summary/big picture, shown above the
           per-choice explanations below)
         </label>
         <textarea
@@ -332,31 +486,117 @@ export default function QBankQuestionForm({
           onChange={setExplanationImageUrl}
         />
 
+        <label className="label mt-4">Key takeaway (optional - shown as a highlighted callout)</label>
+        <textarea
+          className="input mb-4"
+          rows={2}
+          placeholder={"e.g. \"Orlistat -> inhibits gastric & pancreatic lipases -> ↓ fat absorption -> steatorrhea\""}
+          value={keyTakeaway}
+          onChange={(e) => setKeyTakeaway(e.target.value)}
+        />
+
+        <label className="label">Exam trap (optional - a common mix-up worth flagging, shown as a callout)</label>
+        <textarea
+          className="input"
+          rows={2}
+          placeholder="e.g. Don't confuse this drug's mechanism with a similar-looking one."
+          value={examTrap}
+          onChange={(e) => setExamTrap(e.target.value)}
+        />
+
         <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
           <p className="label mb-0">
             Per-choice explanations (optional - each one is shown together with that choice's
             letter and image in the explanation section, all in one place)
           </p>
-          {choices.map((c, idx) => (
-            <div key={c.id} className="border border-slate-800 rounded-lg p-2">
-              <p className="text-xs text-slate-500 mb-1">
-                Choice {String.fromCharCode(65 + idx)}
-                {c.text ? `: ${c.text}` : ""}
-              </p>
-              <textarea
-                className="input mb-2"
-                rows={2}
-                placeholder={`e.g. "${String.fromCharCode(65 + idx)} is incorrect because..."`}
-                value={c.rationale ?? ""}
-                onChange={(e) => updateChoiceRationale(idx, e.target.value)}
-              />
-              <ImageUploadField
-                label={`Image for choice ${idx + 1} (optional)`}
-                value={c.image_url}
-                onChange={(url) => updateChoiceImage(idx, url)}
-              />
-            </div>
-          ))}
+          {choices.map((c, idx) => {
+            const isCorrect = correctChoiceId === c.id;
+            const letter = String.fromCharCode(65 + idx);
+            return (
+              <div key={c.id} className="border border-slate-800 rounded-lg p-3">
+                <p className="text-xs font-semibold mb-2 flex items-center gap-1.5 flex-wrap">
+                  <span className={isCorrect ? "text-green-400" : "text-red-400"}>{isCorrect ? "✓" : "✗"}</span>
+                  <span className="text-slate-300">
+                    Choice {letter}
+                    {c.text ? `: ${c.text}` : ""}
+                  </span>
+                  {isCorrect && <span className="text-green-400 font-normal">(Correct answer)</span>}
+                </p>
+                <label className="label mb-1">Why this option is {isCorrect ? "correct" : "wrong"}</label>
+                <textarea
+                  className="input mb-2"
+                  rows={2}
+                  placeholder={`e.g. "${letter} is ${isCorrect ? "correct" : "incorrect"} because..."`}
+                  value={c.rationale ?? ""}
+                  onChange={(e) => updateChoiceRationale(idx, e.target.value)}
+                />
+                <ImageUploadField
+                  label={`Image for choice ${idx + 1} (optional)`}
+                  value={c.image_url}
+                  onChange={(url) => updateChoiceImage(idx, url)}
+                />
+                {isCorrect ? (
+                  <div className="mt-2">
+                    <label className="label mb-1">Key concept</label>
+                    <input
+                      className="input"
+                      placeholder="One-line takeaway for why this is right"
+                      value={c.key_concept ?? ""}
+                      onChange={(e) => updateChoiceKeyConcept(idx, e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    <div>
+                      <label className="label mb-1">Error note</label>
+                      <textarea
+                        className="input"
+                        rows={2}
+                        placeholder='e.g. "Acarbose -> carbs, Orlistat -> fats"'
+                        value={c.error_note ?? ""}
+                        onChange={(e) => updateChoiceErrorNote(idx, e.target.value)}
+                      />
+                    </div>
+                    <div className="grid sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="label mb-1">Error type</label>
+                        <select
+                          className="input text-xs"
+                          value={c.error_type ?? ""}
+                          onChange={(e) => updateChoiceErrorType(idx, e.target.value)}
+                        >
+                          <option value="">Not set</option>
+                          {ERROR_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label mb-1">Confused with</label>
+                        <input
+                          className="input text-xs"
+                          placeholder="e.g. Orlistat"
+                          value={c.confused_with ?? ""}
+                          onChange={(e) => updateChoiceConfusedWith(idx, e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label mb-1">Weak concept</label>
+                        <input
+                          className="input text-xs"
+                          placeholder="e.g. GI-acting metabolic drugs"
+                          value={c.weak_concept ?? ""}
+                          onChange={(e) => updateChoiceWeakConcept(idx, e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -464,11 +704,122 @@ export default function QBankQuestionForm({
         </div>
       </div>
 
+      <div className="card">
+        <h2 className="font-semibold mb-1">Classification</h2>
+        <p className="text-xs text-slate-400 mb-3">
+          Finer-grained tags on top of Subjects/Systems above - useful for search and future
+          performance analytics. All optional.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="label">Topic</label>
+            <input className="input" placeholder="e.g. Obesity" value={topic} onChange={(e) => setTopic(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Subtopic</label>
+            <input
+              className="input"
+              placeholder="e.g. Obesity pharmacotherapy"
+              value={subtopic}
+              onChange={(e) => setSubtopic(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="label">Primary concept</label>
+            <input
+              className="input"
+              placeholder="e.g. Orlistat"
+              value={primaryConcept}
+              onChange={(e) => setPrimaryConcept(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Secondary concepts (comma-separated)</label>
+            <input
+              className="input"
+              placeholder="e.g. Fat absorption, Pancreatic lipase"
+              value={secondaryConceptsText}
+              onChange={(e) => setSecondaryConceptsText(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Difficulty</label>
+            <select
+              className="input"
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value as QuestionDifficulty | "")}
+            >
+              <option value="">Not set</option>
+              {DIFFICULTY_LEVELS.map((d) => (
+                <option key={d} value={d}>
+                  {d[0].toUpperCase() + d.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Question type</label>
+            <select className="input" value={questionType} onChange={(e) => setQuestionType(e.target.value)}>
+              <option value="">Not set</option>
+              {QUESTION_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="font-semibold mb-3">Question quality</h2>
+        <div className="space-y-1.5 mb-3">
+          {checklist.map((item) => (
+            <p
+              key={item.label}
+              className={`text-sm flex items-center gap-2 ${item.ok ? "text-green-400" : "text-slate-500"}`}
+            >
+              <span>{item.ok ? "✓" : "○"}</span> {item.label}
+            </p>
+          ))}
+          {!explanationImageUrl && (
+            <p className="text-sm text-amber-400 flex items-center gap-2">
+              <span>⚠</span> No explanation image added
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setPreviewChoiceId(null);
+            setPreviewOpen(true);
+          }}
+          className="btn-secondary"
+        >
+          Preview as student
+        </button>
+      </div>
+
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      <div className="flex items-center gap-3">
-        <button className="btn-primary" disabled={saving}>
-          {saving ? "Saving..." : initial ? "Save changes" : "Add question to pool"}
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" className="btn-secondary" disabled={saving} onClick={() => saveWithStatus("draft")}>
+          {saving ? "Saving..." : "Save draft"}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={saving}
+          onClick={() => saveWithStatus("under_review")}
+        >
+          Send for review
+        </button>
+        <button type="button" className="btn-primary" disabled={saving} onClick={() => saveWithStatus("published")}>
+          Publish
         </button>
         {initial && (
           <button type="button" onClick={handleDelete} className="btn-secondary text-red-400" disabled={saving}>
@@ -476,6 +827,138 @@ export default function QBankQuestionForm({
           </button>
         )}
       </div>
-    </form>
+
+      {previewOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center px-4 py-8"
+          onClick={() => setPreviewOpen(false)}
+        >
+          <div
+            className="card max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">Preview as student</h2>
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(false)}
+                className="text-slate-400 hover:text-white text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <p className="text-sm font-semibold mb-3">{question || "(no question text yet)"}</p>
+            {questionImageUrl && (
+              <div className="mb-3">
+                <ImageLink url={questionImageUrl} label="View image" onOpen={setPreviewLightbox} />
+              </div>
+            )}
+            <div className="space-y-2 mb-4">
+              {choices.map((c, i) => {
+                const isChosen = previewChoiceId === c.id;
+                const isCorrect = c.id === correctChoiceId;
+                let borderClass = "border-slate-700 hover:border-slate-600";
+                if (previewChoiceId) {
+                  if (isCorrect) borderClass = "border-green-600 bg-green-900/20";
+                  else if (isChosen) borderClass = "border-red-600 bg-red-900/20";
+                }
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    disabled={!!previewChoiceId}
+                    onClick={() => setPreviewChoiceId(c.id)}
+                    className={`w-full text-left border rounded-xl px-3 py-2 text-sm transition ${borderClass}`}
+                  >
+                    {String.fromCharCode(65 + i)}. {c.text || "(blank choice)"}
+                  </button>
+                );
+              })}
+            </div>
+            {previewChoiceId && (
+              <div className="pt-3 border-t border-slate-800 space-y-3">
+                <p
+                  className={`text-sm font-semibold ${
+                    previewChoiceId === correctChoiceId ? "text-green-400" : "text-red-400"
+                  }`}
+                >
+                  {previewChoiceId === correctChoiceId ? "Correct" : "Incorrect"}
+                </p>
+                {educationalObjective && (
+                  <div className="p-2 rounded bg-slate-900/60 border border-slate-800">
+                    <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
+                    <p className="text-sm text-slate-300">{educationalObjective}</p>
+                  </div>
+                )}
+                {explanationImageUrl && (
+                  <ImageLink url={explanationImageUrl} label="View image" onOpen={setPreviewLightbox} />
+                )}
+                {explanation && <p className="text-sm text-slate-300 whitespace-pre-line">{explanation}</p>}
+                {keyTakeaway && (
+                  <div className="p-2 rounded bg-brand-900/20 border border-brand-800/40">
+                    <p className="text-xs font-semibold text-brand-300 mb-1">Key takeaway</p>
+                    <p className="text-sm text-slate-200 whitespace-pre-line">{keyTakeaway}</p>
+                  </div>
+                )}
+                {examTrap && (
+                  <div className="p-2 rounded bg-amber-900/20 border border-amber-800/40">
+                    <p className="text-xs font-semibold text-amber-300 mb-1">Exam trap</p>
+                    <p className="text-sm text-slate-200 whitespace-pre-line">{examTrap}</p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {choices.map((c, i) => {
+                    if (!c.rationale && !c.image_url && !c.error_note && !c.key_concept) return null;
+                    const isCorrect = c.id === correctChoiceId;
+                    return (
+                      <div key={c.id} className="text-sm text-slate-300">
+                        <p>
+                          <span className={`font-semibold ${isCorrect ? "text-green-400" : "text-slate-400"}`}>
+                            Choice {String.fromCharCode(65 + i)}
+                            {isCorrect ? " (correct)" : ""}:{" "}
+                          </span>
+                          {c.rationale}
+                          {c.image_url && (
+                            <span className="ml-2 align-middle">
+                              <ImageLink url={c.image_url} label="View image" onOpen={setPreviewLightbox} />
+                            </span>
+                          )}
+                        </p>
+                        {c.error_note && <p className="text-xs text-amber-400 mt-1">Error note: {c.error_note}</p>}
+                        {isCorrect && c.key_concept && (
+                          <p className="text-xs text-brand-300 mt-1">Key concept: {c.key_concept}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {previewLightbox && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center px-4 py-8"
+          onClick={() => setPreviewLightbox(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setPreviewLightbox(null)}
+            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+          >
+            &times;
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewLightbox}
+            alt=""
+            className="max-w-full max-h-full rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
   );
 }
