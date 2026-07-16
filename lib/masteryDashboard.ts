@@ -144,3 +144,135 @@ export function computeDashboardInsights(
 
   return { totalAnswered, totalCorrect, overallAccuracyPct, masteryPct, systemStats, opportunity };
 }
+
+export interface ConceptStat {
+  concept: string;
+  correct: number;
+  total: number;
+  pct: number;
+}
+
+export interface TopicStat {
+  topic: string;
+  correct: number;
+  total: number;
+  pct: number;
+  concepts: ConceptStat[];
+}
+
+export interface SystemGridStat {
+  system: string;
+  correct: number;
+  total: number;
+  pct: number;
+  trend: "up" | "down" | "flat";
+  topics: TopicStat[];
+}
+
+function trendFromTimeline(timeline: boolean[]): "up" | "down" | "flat" {
+  if (timeline.length < 4) return "flat";
+  const mid = Math.floor(timeline.length / 2);
+  const first = timeline.slice(0, mid);
+  const second = timeline.slice(mid);
+  const firstPct = first.length ? (first.filter(Boolean).length / first.length) * 100 : 0;
+  const secondPct = second.length ? (second.filter(Boolean).length / second.length) * 100 : 0;
+  if (secondPct - firstPct >= 8) return "up";
+  if (firstPct - secondPct >= 8) return "down";
+  return "flat";
+}
+
+/**
+ * The full System -> Topic -> Concept drill-down behind the Master Grid
+ * page - same underlying answer events as computeDashboardInsights, just
+ * kept nested instead of flattened to a top-5 list. Topics/concepts only
+ * show up once questions have been tagged with meta.topic/primary_concept
+ * in the editor - systems with no tagged topics yet still show their
+ * overall accuracy, just with an empty topics list.
+ */
+export function computeMasteryGrid(
+  qbankEvents: QBankAnswerEvent[],
+  questionById: Map<string, QBankQuestion>
+): SystemGridStat[] {
+  const sorted = [...qbankEvents].sort(
+    (a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
+  );
+
+  interface TopicBucket {
+    correct: number;
+    total: number;
+    concepts: Map<string, { correct: number; total: number }>;
+  }
+  interface SystemBucket {
+    correct: number;
+    total: number;
+    timeline: boolean[];
+    topics: Map<string, TopicBucket>;
+  }
+  const systemBuckets = new Map<string, SystemBucket>();
+
+  for (const ev of sorted) {
+    const q = questionById.get(ev.questionId);
+    if (!q || !ev.choiceId) continue;
+    const isCorrect = ev.choiceId === q.correct_choice_id;
+    const topic = q.meta?.topic?.trim() || null;
+    const concept = q.meta?.primary_concept?.trim() || null;
+
+    for (const system of q.systems ?? []) {
+      if (!systemBuckets.has(system)) {
+        systemBuckets.set(system, { correct: 0, total: 0, timeline: [], topics: new Map() });
+      }
+      const sb = systemBuckets.get(system)!;
+      sb.total++;
+      if (isCorrect) sb.correct++;
+      sb.timeline.push(isCorrect);
+
+      if (topic) {
+        if (!sb.topics.has(topic)) sb.topics.set(topic, { correct: 0, total: 0, concepts: new Map() });
+        const tb = sb.topics.get(topic)!;
+        tb.total++;
+        if (isCorrect) tb.correct++;
+
+        if (concept) {
+          if (!tb.concepts.has(concept)) tb.concepts.set(concept, { correct: 0, total: 0 });
+          const cb = tb.concepts.get(concept)!;
+          cb.total++;
+          if (isCorrect) cb.correct++;
+        }
+      }
+    }
+  }
+
+  const result: SystemGridStat[] = [];
+  for (const [system, sb] of systemBuckets.entries()) {
+    const topics: TopicStat[] = Array.from(sb.topics.entries())
+      .map(([topic, tb]) => {
+        const concepts: ConceptStat[] = Array.from(tb.concepts.entries())
+          .map(([concept, cb]) => ({
+            concept,
+            correct: cb.correct,
+            total: cb.total,
+            pct: cb.total > 0 ? Math.round((cb.correct / cb.total) * 100) : 0,
+          }))
+          .sort((a, b) => b.total - a.total);
+        return {
+          topic,
+          correct: tb.correct,
+          total: tb.total,
+          pct: tb.total > 0 ? Math.round((tb.correct / tb.total) * 100) : 0,
+          concepts,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    result.push({
+      system,
+      correct: sb.correct,
+      total: sb.total,
+      pct: sb.total > 0 ? Math.round((sb.correct / sb.total) * 100) : 0,
+      trend: trendFromTimeline(sb.timeline),
+      topics,
+    });
+  }
+
+  return result.sort((a, b) => b.total - a.total);
+}
