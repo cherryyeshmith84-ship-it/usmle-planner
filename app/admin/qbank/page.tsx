@@ -42,28 +42,39 @@ export default async function AdminQuestionBankPage() {
 
         <div className="space-y-3">
           {questions.map((q) => (
-            <Link
-              key={q.id}
-              href={`/admin/qbank/${q.id}`}
-              className="card block hover:border-brand-500 transition"
-            >
-              <p className="text-sm font-semibold mb-2 line-clamp-2">{q.question}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {q.subjects.map((s) => (
-                  <span key={s} className="text-xs font-medium bg-brand-900/30 text-brand-300 rounded-full px-2 py-0.5">
-                    {s}
-                  </span>
-                ))}
-                {q.systems.map((s) => (
-                  <span key={s} className="text-xs font-medium bg-slate-800 text-slate-300 rounded-full px-2 py-0.5">
-                    {s}
-                  </span>
-                ))}
-                {q.subjects.length === 0 && q.systems.length === 0 && (
-                  <span className="text-xs text-amber-400">Untagged</span>
-                )}
+            <div key={q.id} className="card hover:border-brand-500 transition">
+              <Link href={`/admin/qbank/${q.id}`} className="block mb-2">
+                <p className="text-sm font-semibold line-clamp-2">{q.question}</p>
+              </Link>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-1.5">
+                  {q.subjects.map((s) => (
+                    <span key={s} className="text-xs font-medium bg-brand-900/30 text-brand-300 rounded-full px-2 py-0.5">
+                      {s}
+                    </span>
+                  ))}
+                  {q.systems.map((s) => (
+                    <span key={s} className="text-xs font-medium bg-slate-800 text-slate-300 rounded-full px-2 py-0.5">
+                      {s}
+                    </span>
+                  ))}
+                  {q.subjects.length === 0 && q.systems.length === 0 && (
+                    <span className="text-xs text-amber-400">Untagged</span>
+                  )}
+                  {q.meta?.status && q.meta.status !== "published" && (
+                    <span className="text-xs font-medium bg-amber-900/30 text-amber-300 rounded-full px-2 py-0.5">
+                      {q.meta.status === "under_review" ? "Under review" : "Draft"}
+                    </span>
+                  )}
+                </div>
+                <Link
+                  href={`/admin/qbank/${q.id}/performance`}
+                  className="text-xs font-medium text-brand-400 hover:text-brand-300 shrink-0"
+                >
+                  View performance
+                </Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       </main>
