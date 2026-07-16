@@ -2,10 +2,15 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { QBankQuestion } from "@/lib/qbankTypes";
 import AdminNav from "@/components/AdminNav";
+import QBankFilters from "@/components/QBankFilters";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminQuestionBankPage() {
+export default async function AdminQuestionBankPage({
+  searchParams,
+}: {
+  searchParams?: { status?: string; subject?: string; system?: string; difficulty?: string };
+}) {
   const { supabase } = await requireAdmin();
 
   const { data } = await supabase
@@ -13,7 +18,22 @@ export default async function AdminQuestionBankPage() {
     .select("*")
     .order("created_at", { ascending: false });
 
-  const questions = (data ?? []) as QBankQuestion[];
+  const allQuestions = (data ?? []) as QBankQuestion[];
+
+  const statusFilter = searchParams?.status ?? "";
+  const subjectFilter = searchParams?.subject ?? "";
+  const systemFilter = searchParams?.system ?? "";
+  const difficultyFilter = searchParams?.difficulty ?? "";
+
+  const questions = allQuestions.filter((q) => {
+    if (statusFilter && (q.meta?.status ?? "draft") !== statusFilter) return false;
+    if (subjectFilter && !q.subjects.includes(subjectFilter)) return false;
+    if (systemFilter && !q.systems.includes(systemFilter)) return false;
+    if (difficultyFilter && q.meta?.difficulty !== difficultyFilter) return false;
+    return true;
+  });
+
+  const hasFilters = !!(statusFilter || subjectFilter || systemFilter || difficultyFilter);
 
   return (
     <div className="min-h-screen flex">
@@ -23,8 +43,10 @@ export default async function AdminQuestionBankPage() {
           <div>
             <h1 className="text-xl font-bold">Question bank</h1>
             <p className="text-sm text-slate-400">
-              {questions.length} question{questions.length === 1 ? "" : "s"} in the pool. Students
-              build their own custom tests from these by subject, system, and status.
+              {hasFilters
+                ? `${questions.length} of ${allQuestions.length} questions match these filters.`
+                : `${allQuestions.length} question${allQuestions.length === 1 ? "" : "s"} in the pool.`}{" "}
+              Students build their own custom tests from these by subject, system, and status.
             </p>
           </div>
           <Link href="/admin/qbank/new" className="btn-primary shrink-0">
@@ -32,12 +54,23 @@ export default async function AdminQuestionBankPage() {
           </Link>
         </div>
 
-        {questions.length === 0 && (
+        <QBankFilters
+          status={statusFilter}
+          subject={subjectFilter}
+          system={systemFilter}
+          difficulty={difficultyFilter}
+        />
+
+        {allQuestions.length === 0 && (
           <p className="text-sm text-slate-400">
             No questions in the pool yet. Add one - you can paste a full question with its answer
             choices and it&apos;ll auto-split into the fields for you, then tag it with a subject
             and system.
           </p>
+        )}
+
+        {allQuestions.length > 0 && questions.length === 0 && (
+          <p className="text-sm text-slate-400">No questions match these filters.</p>
         )}
 
         <div className="space-y-3">
