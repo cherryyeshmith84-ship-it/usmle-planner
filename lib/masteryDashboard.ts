@@ -1,3 +1,4 @@
+
 import type { QBankQuestion } from "./qbankTypes";
 
 export interface QBankAnswerEvent {
@@ -25,11 +26,28 @@ export interface DashboardInsights {
   totalAnswered: number;
   totalCorrect: number;
   overallAccuracyPct: number;
+  // Average of per-system accuracy (each system weighted equally), distinct
+  // from overall accuracy (which is question-weighted) - null if the student
+  // hasn't answered any tagged Question Bank questions yet.
   masteryPct: number | null;
   systemStats: SystemStat[];
   opportunity: OpportunityInsight | null;
 }
 
+/**
+ * Turns a student's raw Question Bank answer history (plus however many
+ * un-tagged self-assessment answers they also have) into the dashboard's
+ * headline numbers: total questions/accuracy, per-system mastery + trend,
+ * and their single biggest "opportunity" concept - the concept they've
+ * missed most among their last few attempts at it, along with the most
+ * common Error DNA tag behind those misses.
+ *
+ * Only Question Bank questions carry subjects/systems/Error DNA tags today
+ * (self-assessment questions don't), so system mastery and the opportunity
+ * card are both derived from `qbankEvents` + `questionById` only.
+ * `extraAnswered`/`extraCorrect` fold in self-assessment attempts for the
+ * plain "Questions answered" / "Overall accuracy" totals only.
+ */
 export function computeDashboardInsights(
   qbankEvents: QBankAnswerEvent[],
   questionById: Map<string, QBankQuestion>,
@@ -99,6 +117,9 @@ export function computeDashboardInsights(
       ? Math.round(systemStats.reduce((sum, s) => sum + s.pct, 0) / systemStats.length)
       : null;
 
+  // Biggest opportunity: among concepts with enough of a track record, the
+  // one with the most misses among the student's last (up to) 7 attempts at
+  // it - not just all-time worst, so it reflects what's currently going wrong.
   let opportunity: OpportunityInsight | null = null;
   let bestMissed = 1;
   for (const [concept, bucket] of Object.entries(conceptBuckets)) {
@@ -159,6 +180,14 @@ function trendFromTimeline(timeline: boolean[]): "up" | "down" | "flat" {
   return "flat";
 }
 
+/**
+ * The full System -> Topic -> Concept drill-down behind the Master Grid
+ * page - same underlying answer events as computeDashboardInsights, just
+ * kept nested instead of flattened to a top-5 list. Topics/concepts only
+ * show up once questions have been tagged with meta.topic/primary_concept
+ * in the editor - systems with no tagged topics yet still show their
+ * overall accuracy, just with an empty topics list.
+ */
 export function computeMasteryGrid(
   qbankEvents: QBankAnswerEvent[],
   questionById: Map<string, QBankQuestion>
@@ -257,6 +286,15 @@ export interface ReviewQueueItem {
   lastMissedAt: string;
 }
 
+/**
+ * Smart Review's priority queue - every concept the student hasn't yet
+ * "earned back" after missing it. A concept is due if it's had at least one
+ * miss among the student's last (up to) 7 attempts at it; priority is set by
+ * how often they're still missing it in that recent window. Concepts with
+ * zero misses in the recent window are treated as mastered and drop out of
+ * the queue entirely - this is deliberately simple (no literal per-day
+ * scheduling) rather than a full spaced-repetition date engine.
+ */
 export function computeSmartReviewQueue(
   qbankEvents: QBankAnswerEvent[],
   questionById: Map<string, QBankQuestion>
