@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parsePastedQuestion } from "@/lib/assessments";
@@ -602,7 +603,15 @@ export default function QBankQuestionForm({
 
       {initial && (
         <div className="card">
-          <h2 className="font-semibold mb-1">Student answers so far</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-semibold">Student answers so far</h2>
+            <Link
+              href={`/admin/qbank/${initial.id}/performance`}
+              className="text-xs font-medium text-brand-400 hover:text-brand-300"
+            >
+              View performance &rarr;
+            </Link>
+          </div>
           <p className="text-xs text-slate-400 mb-3">
             {statsLoading
               ? "Loading..."
