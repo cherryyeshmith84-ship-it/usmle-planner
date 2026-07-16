@@ -22,6 +22,7 @@ export interface Profile {
   exam_date: string | null;
   prep_stage: PrepStage | null;
   daily_hour_goal: number | null;
+  daily_question_goal?: number | null;
   resources: string[] | null;
   ai_instructions: string | null;
   is_admin?: boolean;
