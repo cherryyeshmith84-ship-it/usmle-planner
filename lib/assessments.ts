@@ -15,6 +15,7 @@ export function blankQuestion(): AssessmentQuestion {
     choices: [blankChoice(), blankChoice(), blankChoice(), blankChoice()],
     correct_choice_id: "",
     explanation: "",
+    meta: {},
   };
 }
 
