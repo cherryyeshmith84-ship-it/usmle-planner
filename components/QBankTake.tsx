@@ -34,6 +34,51 @@ function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen:
   );
 }
 
+/**
+ * Splits an explanation string on `[img:A]`-style tokens (which the admin
+ * types directly into the explanation text, right where they want a given
+ * choice's image link to appear - start of a sentence, end of it, wherever)
+ * and swaps each token for a real click-to-open ImageLink for that choice.
+ * Any choice that has an image but whose token never appears in the text
+ * still gets listed in `leftover`, so an image is never silently hidden
+ * just because the admin forgot to place its token.
+ */
+function renderExplanation(
+  text: string,
+  choices: { id: string; image_url?: string | null }[],
+  onOpen: (url: string) => void
+): { nodes: React.ReactNode[]; leftover: { id: string; image_url: string; letter: string }[] } {
+  const tokenRe = /\[img:([A-Za-z])\]/g;
+  const matchedLetters = new Set<string>();
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = tokenRe.exec(text))) {
+    if (m.index > lastIndex) {
+      nodes.push(<span key={key++}>{text.slice(lastIndex, m.index)}</span>);
+    }
+    const letter = m[1].toUpperCase();
+    const choice = choices[letter.charCodeAt(0) - 65];
+    if (choice?.image_url) {
+      matchedLetters.add(letter);
+      nodes.push(
+        <ImageLink key={`img-${key++}`} url={choice.image_url} label={`View image (Choice ${letter})`} onOpen={onOpen} />
+      );
+    } else {
+      nodes.push(<span key={key++}>{m[0]}</span>);
+    }
+    lastIndex = tokenRe.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(<span key={key++}>{text.slice(lastIndex)}</span>);
+  }
+  const leftover = choices
+    .map((c, i) => ({ id: c.id, image_url: c.image_url, letter: String.fromCharCode(65 + i) }))
+    .filter((x): x is { id: string; image_url: string; letter: string } => !!x.image_url && !matchedLetters.has(x.letter));
+  return { nodes, leftover };
+}
+
 export default function QBankTake({
   userId,
   session,
@@ -608,24 +653,30 @@ export default function QBankTake({
                       <ImageLink url={currentQuestion.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
                     </div>
                   )}
-                  <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
-                  {/* Per-choice images live here, in the explanation section,
-                      each labeled by its own letter - not attached under the
-                      answer option itself. */}
-                  {currentQuestion.choices.some((c) => c.image_url) && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                      {currentQuestion.choices.map((c, i) =>
-                        c.image_url ? (
-                          <ImageLink
-                            key={c.id}
-                            url={c.image_url}
-                            label={`View image (Choice ${String.fromCharCode(65 + i)})`}
-                            onOpen={setLightboxUrl}
-                          />
-                        ) : null
-                      )}
-                    </div>
-                  )}
+                  {(() => {
+                    const { nodes, leftover } = renderExplanation(
+                      currentQuestion.explanation,
+                      currentQuestion.choices,
+                      setLightboxUrl
+                    );
+                    return (
+                      <>
+                        <p className="text-sm text-slate-300 whitespace-pre-line">{nodes}</p>
+                        {leftover.length > 0 && (
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
+                            {leftover.map((l) => (
+                              <ImageLink
+                                key={l.id}
+                                url={l.image_url}
+                                label={`View image (Choice ${l.letter})`}
+                                onOpen={setLightboxUrl}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -778,24 +829,27 @@ export default function QBankTake({
                   <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
                 </div>
               )}
-              {q.explanation && <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{q.explanation}</p>}
-              {/* Per-choice images live here, in the explanation section,
-                  each labeled by its own letter - not attached under the
-                  answer option itself. */}
-              {q.choices.some((c) => c.image_url) && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                  {q.choices.map((c, i) =>
-                    c.image_url ? (
-                      <ImageLink
-                        key={c.id}
-                        url={c.image_url}
-                        label={`View image (Choice ${String.fromCharCode(65 + i)})`}
-                        onOpen={setLightboxUrl}
-                      />
-                    ) : null
-                  )}
-                </div>
-              )}
+              {q.explanation &&
+                (() => {
+                  const { nodes, leftover } = renderExplanation(q.explanation, q.choices, setLightboxUrl);
+                  return (
+                    <>
+                      <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">{nodes}</p>
+                      {leftover.length > 0 && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                          {leftover.map((l) => (
+                            <ImageLink
+                              key={l.id}
+                              url={l.image_url}
+                              label={`View image (Choice ${l.letter})`}
+                              onOpen={setLightboxUrl}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
             </div>
           );
         })}
