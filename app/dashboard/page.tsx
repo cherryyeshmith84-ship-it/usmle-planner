@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  AssessmentQuestion,
   BlockScore,
   CoachMessage,
   DailyLog,
@@ -9,7 +10,9 @@ import type {
   ScheduleTemplate,
   TemplateTask,
 } from "@/lib/types";
+import type { QBankQuestion } from "@/lib/qbankTypes";
 import { computePlanProgress, dayNumberFor, getTemplateDays, tasksForDay, type PlanProgress } from "@/lib/templateDays";
+import { computeDashboardInsights, type QBankAnswerEvent } from "@/lib/masteryDashboard";
 import DashboardClient from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +67,17 @@ export default async function DashboardPage() {
   // Run every query that doesn't depend on another query's result at the
   // same time, instead of one after another - this is most of what was
   // making page loads feel slow.
-  const [logsRes, assignedTemplateRes, personalTemplateRes, messagesRes, scoreRes] = await Promise.all([
+  const [
+    logsRes,
+    assignedTemplateRes,
+    personalTemplateRes,
+    messagesRes,
+    scoreRes,
+    qbankSessionsRes,
+    qbankQuestionsRes,
+    assessmentAttemptsRes,
+    assessmentsRes,
+  ] = await Promise.all([
     supabase
       .from("daily_logs")
       .select("*")
@@ -79,6 +92,18 @@ export default async function DashboardPage() {
       : Promise.resolve({ data: null } as any),
     supabase.from("messages").select("*").eq("student_id", user.id).order("created_at", { ascending: true }),
     supabase.from("daily_logs").select("block_scores").eq("user_id", user.id),
+    supabase
+      .from("qbank_test_sessions")
+      .select("answers, submitted_at")
+      .eq("user_id", user.id)
+      .not("submitted_at", "is", null),
+    supabase.from("qbank_questions").select("*"),
+    supabase
+      .from("assessment_attempts")
+      .select("answers, assessment_id")
+      .eq("user_id", user.id)
+      .not("submitted_at", "is", null),
+    supabase.from("assessments").select("id, questions"),
   ]);
 
   const logs = (logsRes.data ?? []) as DailyLog[];
@@ -125,6 +150,54 @@ export default async function DashboardPage() {
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
 
+  // Flatten every submitted Question Bank session into individual
+  // question-answer events - this is what the mastery/opportunity math and
+  // "today's questions" count are both built from.
+  const qbankSessions = (qbankSessionsRes.data ?? []) as {
+    answers: Record<string, string> | null;
+    submitted_at: string | null;
+  }[];
+  const qbankQuestions = (qbankQuestionsRes.data ?? []) as QBankQuestion[];
+  const questionById = new Map(qbankQuestions.map((q) => [q.id, q]));
+
+  const qbankEvents: QBankAnswerEvent[] = [];
+  for (const session of qbankSessions) {
+    if (!session.submitted_at) continue;
+    for (const [questionId, choiceId] of Object.entries(session.answers ?? {})) {
+      if (!choiceId) continue;
+      qbankEvents.push({ questionId, choiceId, submittedAt: session.submitted_at });
+    }
+  }
+
+  // Self-assessment questions don't carry subjects/systems/Error DNA tags,
+  // so they only fold into the plain "questions answered"/"accuracy" totals,
+  // not the per-system mastery breakdown or the opportunity card.
+  const assessmentAttempts = (assessmentAttemptsRes.data ?? []) as {
+    answers: Record<string, string> | null;
+    assessment_id: string;
+  }[];
+  const assessments = (assessmentsRes.data ?? []) as { id: string; questions: AssessmentQuestion[] }[];
+  const assessmentCorrectById = new Map<string, string>();
+  for (const a of assessments) {
+    for (const q of a.questions ?? []) {
+      assessmentCorrectById.set(q.id, q.correct_choice_id);
+    }
+  }
+  let extraAnswered = 0;
+  let extraCorrect = 0;
+  for (const attempt of assessmentAttempts) {
+    for (const [questionId, choiceId] of Object.entries(attempt.answers ?? {})) {
+      const correctId = assessmentCorrectById.get(questionId);
+      if (correctId === undefined || !choiceId) continue;
+      extraAnswered++;
+      if (choiceId === correctId) extraCorrect++;
+    }
+  }
+
+  const insights = computeDashboardInsights(qbankEvents, questionById, extraAnswered, extraCorrect);
+  const questionsAnsweredToday = qbankEvents.filter((e) => e.submittedAt.slice(0, 10) === today).length;
+  const dailyQuestionGoal = profile.daily_question_goal ?? 20;
+
   return (
     <DashboardClient
       userId={user.id}
@@ -139,6 +212,9 @@ export default async function DashboardPage() {
       planProgress={planProgress}
       allBlockScores={allBlockScores}
       initialMessages={(messagesData ?? []) as CoachMessage[]}
+      insights={insights}
+      questionsAnsweredToday={questionsAnsweredToday}
+      dailyQuestionGoal={dailyQuestionGoal}
     />
   );
 }
