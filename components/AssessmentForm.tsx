@@ -393,6 +393,16 @@ What is the most likely diagnosis?`;
                         value={c.image_url}
                         onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
                       />
+                      {c.image_url && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          To show this image inside the explanation text (not under the option), type{" "}
+                          <code className="text-slate-300 bg-slate-800 px-1 rounded">
+                            [img:{String.fromCharCode(65 + cIdx)}]
+                          </code>{" "}
+                          anywhere in the Explanation box below - at the start or end of the sentence
+                          discussing this choice, wherever you want the link to sit.
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
