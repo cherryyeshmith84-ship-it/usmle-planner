@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { blankChoice, blankQuestion, parsePastedQuestion } from "@/lib/assessments";
-import type { Assessment, AssessmentKind, AssessmentQuestion } from "@/lib/types";
+import type { Assessment, AssessmentKind, AssessmentQuestion, AssessmentQuestionMeta } from "@/lib/types";
+import { DIFFICULTY_LEVELS, ERROR_TYPES, QUESTION_TYPES, type QuestionDifficulty } from "@/lib/qbankTypes";
 import ImageUploadField from "./ImageUploadField";
 
 export default function AssessmentForm({
@@ -75,6 +76,62 @@ export default function AssessmentForm({
           ? q
           : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, rationale } : c)) }
       )
+    );
+  }
+
+  function updateChoiceErrorNote(qIdx: number, cIdx: number, error_note: string) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, error_note } : c)) }
+      )
+    );
+  }
+
+  function updateChoiceErrorType(qIdx: number, cIdx: number, error_type: string) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, error_type } : c)) }
+      )
+    );
+  }
+
+  function updateChoiceConfusedWith(qIdx: number, cIdx: number, confused_with: string) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, confused_with } : c)) }
+      )
+    );
+  }
+
+  function updateChoiceWeakConcept(qIdx: number, cIdx: number, weak_concept: string) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, weak_concept } : c)) }
+      )
+    );
+  }
+
+  function updateChoiceKeyConcept(qIdx: number, cIdx: number, key_concept: string) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i !== qIdx
+          ? q
+          : { ...q, choices: q.choices.map((c, ci) => (ci === cIdx ? { ...c, key_concept } : c)) }
+      )
+    );
+  }
+
+  function updateQuestionMeta(qIdx: number, patch: Partial<AssessmentQuestionMeta>) {
+    setQuestions((prev) =>
+      prev.map((q, i) => (i !== qIdx ? q : { ...q, meta: { ...(q.meta ?? {}), ...patch } }))
     );
   }
 
@@ -164,6 +221,17 @@ What is the most likely diagnosis?`;
         // If the marked-correct choice got removed/cleared, don't silently
         // keep a stale id pointing at nothing.
         correct_choice_id: q.choices.some((c) => c.id === q.correct_choice_id) ? q.correct_choice_id : "",
+        meta: {
+          educational_objective: q.meta?.educational_objective?.trim() || undefined,
+          key_takeaway: q.meta?.key_takeaway?.trim() || undefined,
+          exam_trap: q.meta?.exam_trap?.trim() || undefined,
+          topic: q.meta?.topic?.trim() || undefined,
+          subtopic: q.meta?.subtopic?.trim() || undefined,
+          primary_concept: q.meta?.primary_concept?.trim() || undefined,
+          secondary_concepts: q.meta?.secondary_concepts?.trim() || undefined,
+          difficulty: q.meta?.difficulty || undefined,
+          question_type: q.meta?.question_type || undefined,
+        },
       }));
 
     if (cleanQuestions.length === 0) {
@@ -427,31 +495,207 @@ What is the most likely diagnosis?`;
               onChange={(url) => updateQuestion(qIdx, { explanation_image_url: url })}
             />
 
+            <label className="label mt-4">Key takeaway (optional - shown as a highlighted callout)</label>
+            <textarea
+              className="input mb-4"
+              rows={2}
+              placeholder={"e.g. \"Orlistat -> inhibits gastric & pancreatic lipases -> ↓ fat absorption -> steatorrhea\""}
+              value={q.meta?.key_takeaway ?? ""}
+              onChange={(e) => updateQuestionMeta(qIdx, { key_takeaway: e.target.value })}
+            />
+
+            <label className="label">Exam trap (optional - a common mix-up worth flagging, shown as a callout)</label>
+            <textarea
+              className="input mb-4"
+              rows={2}
+              placeholder="e.g. Don't confuse this drug's mechanism with a similar-looking one."
+              value={q.meta?.exam_trap ?? ""}
+              onChange={(e) => updateQuestionMeta(qIdx, { exam_trap: e.target.value })}
+            />
+
+            <label className="label">
+              Educational objective (optional - the one-line &quot;point&quot; of this question)
+            </label>
+            <textarea
+              className="input"
+              rows={2}
+              placeholder='e.g. "Orlistat inhibits gastric and pancreatic lipases, reducing fat absorption."'
+              value={q.meta?.educational_objective ?? ""}
+              onChange={(e) => updateQuestionMeta(qIdx, { educational_objective: e.target.value })}
+            />
+
             <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
               <p className="label mb-0">
                 Per-choice explanations (optional - each one is shown together with that
                 choice's letter and image in the explanation section, all in one place)
               </p>
-              {q.choices.map((c, cIdx) => (
-                <div key={c.id} className="border border-slate-800 rounded-lg p-2">
-                  <p className="text-xs text-slate-500 mb-1">
-                    Choice {String.fromCharCode(65 + cIdx)}
-                    {c.text ? `: ${c.text}` : ""}
-                  </p>
-                  <textarea
-                    className="input mb-2"
-                    rows={2}
-                    placeholder={`e.g. "${String.fromCharCode(65 + cIdx)} is incorrect because..."`}
-                    value={c.rationale ?? ""}
-                    onChange={(e) => updateChoiceRationale(qIdx, cIdx, e.target.value)}
-                  />
-                  <ImageUploadField
-                    label={`Image for choice ${cIdx + 1} (optional)`}
-                    value={c.image_url}
-                    onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
+              {q.choices.map((c, cIdx) => {
+                const isCorrect = q.correct_choice_id === c.id;
+                const letter = String.fromCharCode(65 + cIdx);
+                return (
+                  <div key={c.id} className="border border-slate-800 rounded-lg p-3">
+                    <p className="text-xs font-semibold mb-2 flex items-center gap-1.5 flex-wrap">
+                      <span className={isCorrect ? "text-green-400" : "text-red-400"}>
+                        {isCorrect ? "✓" : "✗"}
+                      </span>
+                      <span className="text-slate-300">
+                        Choice {letter}
+                        {c.text ? `: ${c.text}` : ""}
+                      </span>
+                      {isCorrect && <span className="text-green-400 font-normal">(Correct answer)</span>}
+                    </p>
+                    <textarea
+                      className="input mb-2"
+                      rows={2}
+                      placeholder={`e.g. "${letter} is ${isCorrect ? "correct" : "incorrect"} because..."`}
+                      value={c.rationale ?? ""}
+                      onChange={(e) => updateChoiceRationale(qIdx, cIdx, e.target.value)}
+                    />
+                    <ImageUploadField
+                      label={`Image for choice ${cIdx + 1} (optional)`}
+                      value={c.image_url}
+                      onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
+                    />
+                    {isCorrect ? (
+                      <div className="mt-2">
+                        <label className="label mb-1">Key concept</label>
+                        <input
+                          className="input"
+                          placeholder="One-line takeaway for why this is right"
+                          value={c.key_concept ?? ""}
+                          onChange={(e) => updateChoiceKeyConcept(qIdx, cIdx, e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-2">
+                        <div>
+                          <label className="label mb-1">Error note</label>
+                          <textarea
+                            className="input"
+                            rows={2}
+                            placeholder='e.g. "Acarbose -> carbs, Orlistat -> fats"'
+                            value={c.error_note ?? ""}
+                            onChange={(e) => updateChoiceErrorNote(qIdx, cIdx, e.target.value)}
+                          />
+                        </div>
+                        <div className="grid sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="label mb-1">Error type</label>
+                            <select
+                              className="input text-xs"
+                              value={c.error_type ?? ""}
+                              onChange={(e) => updateChoiceErrorType(qIdx, cIdx, e.target.value)}
+                            >
+                              <option value="">Not set</option>
+                              {ERROR_TYPES.map((t) => (
+                                <option key={t} value={t}>
+                                  {t}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label mb-1">Confused with</label>
+                            <input
+                              className="input text-xs"
+                              placeholder="e.g. Orlistat"
+                              value={c.confused_with ?? ""}
+                              onChange={(e) => updateChoiceConfusedWith(qIdx, cIdx, e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="label mb-1">Weak concept</label>
+                            <input
+                              className="input text-xs"
+                              placeholder="e.g. GI-acting metabolic drugs"
+                              value={c.weak_concept ?? ""}
+                              onChange={(e) => updateChoiceWeakConcept(qIdx, cIdx, e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-800">
+              <p className="label mb-2">Classification (optional - useful for search and analytics)</p>
+              <div className="grid sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="label">Topic</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Obesity"
+                    value={q.meta?.topic ?? ""}
+                    onChange={(e) => updateQuestionMeta(qIdx, { topic: e.target.value })}
                   />
                 </div>
-              ))}
+                <div>
+                  <label className="label">Subtopic</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Obesity pharmacotherapy"
+                    value={q.meta?.subtopic ?? ""}
+                    onChange={(e) => updateQuestionMeta(qIdx, { subtopic: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="label">Primary concept</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Orlistat"
+                    value={q.meta?.primary_concept ?? ""}
+                    onChange={(e) => updateQuestionMeta(qIdx, { primary_concept: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Secondary concepts (comma-separated)</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Fat absorption, Pancreatic lipase"
+                    value={q.meta?.secondary_concepts ?? ""}
+                    onChange={(e) => updateQuestionMeta(qIdx, { secondary_concepts: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Difficulty</label>
+                  <select
+                    className="input"
+                    value={q.meta?.difficulty ?? ""}
+                    onChange={(e) =>
+                      updateQuestionMeta(qIdx, { difficulty: (e.target.value || undefined) as QuestionDifficulty | undefined })
+                    }
+                  >
+                    <option value="">Not set</option>
+                    {DIFFICULTY_LEVELS.map((d) => (
+                      <option key={d} value={d}>
+                        {d[0].toUpperCase() + d.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Question type</label>
+                  <select
+                    className="input"
+                    value={q.meta?.question_type ?? ""}
+                    onChange={(e) => updateQuestionMeta(qIdx, { question_type: e.target.value })}
+                  >
+                    <option value="">Not set</option>
+                    {QUESTION_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
         ))}
