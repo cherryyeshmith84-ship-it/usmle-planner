@@ -397,26 +397,6 @@ What is the most likely diagnosis?`;
                         </button>
                       )}
                     </div>
-                    <div className="mt-2 pl-6 space-y-2">
-                      <div>
-                        <label className="label mb-1">
-                          Explanation for choice {cIdx + 1} (optional - why it&apos;s right/wrong, shown in the
-                          explanation section next to this choice's image)
-                        </label>
-                        <textarea
-                          className="input"
-                          rows={2}
-                          placeholder={`e.g. "${String.fromCharCode(65 + cIdx)} is incorrect because..."`}
-                          value={c.rationale ?? ""}
-                          onChange={(e) => updateChoiceRationale(qIdx, cIdx, e.target.value)}
-                        />
-                      </div>
-                      <ImageUploadField
-                        label={`Image for choice ${cIdx + 1} (optional - shown right next to this choice's explanation above)`}
-                        value={c.image_url}
-                        onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
-                      />
-                    </div>
                   </div>
                 );
               })}
@@ -431,7 +411,7 @@ What is the most likely diagnosis?`;
 
             <label className="label">
               Overall explanation (optional - the high-yield summary/big picture, shown above the
-              per-choice explanations you added next to each choice)
+              per-choice explanations below)
             </label>
             <textarea
               className="input"
@@ -446,6 +426,33 @@ What is the most likely diagnosis?`;
               value={q.explanation_image_url}
               onChange={(url) => updateQuestion(qIdx, { explanation_image_url: url })}
             />
+
+            <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+              <p className="label mb-0">
+                Per-choice explanations (optional - each one is shown together with that
+                choice's letter and image in the explanation section, all in one place)
+              </p>
+              {q.choices.map((c, cIdx) => (
+                <div key={c.id} className="border border-slate-800 rounded-lg p-2">
+                  <p className="text-xs text-slate-500 mb-1">
+                    Choice {String.fromCharCode(65 + cIdx)}
+                    {c.text ? `: ${c.text}` : ""}
+                  </p>
+                  <textarea
+                    className="input mb-2"
+                    rows={2}
+                    placeholder={`e.g. "${String.fromCharCode(65 + cIdx)} is incorrect because..."`}
+                    value={c.rationale ?? ""}
+                    onChange={(e) => updateChoiceRationale(qIdx, cIdx, e.target.value)}
+                  />
+                  <ImageUploadField
+                    label={`Image for choice ${cIdx + 1} (optional)`}
+                    value={c.image_url}
+                    onChange={(url) => updateChoiceImage(qIdx, cIdx, url)}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
