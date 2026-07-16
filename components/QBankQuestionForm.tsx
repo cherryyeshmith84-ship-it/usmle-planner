@@ -143,6 +143,10 @@ export default function QBankQuestionForm({
     setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, image_url: url } : c)));
   }
 
+  function updateChoiceRationale(idx: number, rationale: string) {
+    setChoices((prev) => prev.map((c, i) => (i === idx ? { ...c, rationale } : c)));
+  }
+
   function addChoice() {
     setChoices((prev) => [...prev, blankQBankChoice()]);
   }
@@ -302,22 +306,25 @@ export default function QBankQuestionForm({
                     </button>
                   )}
                 </div>
-                <div className="mt-2 pl-6">
+                <div className="mt-2 pl-6 space-y-2">
+                  <div>
+                    <label className="label mb-1">
+                      Explanation for choice {idx + 1} (optional - why it&apos;s right/wrong, shown in
+                      the explanation section next to this choice's image)
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      placeholder={`e.g. "${String.fromCharCode(65 + idx)} is incorrect because..."`}
+                      value={c.rationale ?? ""}
+                      onChange={(e) => updateChoiceRationale(idx, e.target.value)}
+                    />
+                  </div>
                   <ImageUploadField
-                    label={`Image for choice ${idx + 1} (optional - e.g. an EKG/image the option itself refers to)`}
+                    label={`Image for choice ${idx + 1} (optional - shown right next to this choice's explanation above)`}
                     value={c.image_url}
                     onChange={(url) => updateChoiceImage(idx, url)}
                   />
-                  {c.image_url && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      To show this image inside the explanation text (not under the option), type{" "}
-                      <code className="text-slate-300 bg-slate-800 px-1 rounded">
-                        [img:{String.fromCharCode(65 + idx)}]
-                      </code>{" "}
-                      anywhere in the Explanation box below - at the start or end of the sentence
-                      discussing this choice, wherever you want the link to sit.
-                    </p>
-                  )}
                 </div>
               </div>
             );
@@ -327,11 +334,14 @@ export default function QBankQuestionForm({
           + Add another choice
         </button>
 
-        <label className="label">Explanation (shown after the student submits)</label>
+        <label className="label">
+          Overall explanation (optional - the high-yield summary/big picture, shown above the
+          per-choice explanations you added next to each choice)
+        </label>
         <textarea
           className="input"
           rows={3}
-          placeholder="Why this is the right answer"
+          placeholder="High-yield chain / key distinction / bottom line"
           value={explanation}
           onChange={(e) => setExplanation(e.target.value)}
         />
