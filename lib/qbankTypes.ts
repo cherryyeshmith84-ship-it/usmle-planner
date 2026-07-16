@@ -50,6 +50,10 @@ export interface QBankChoice {
   // Optional image shown alongside this specific choice - e.g. an EKG strip
   // or histology slide that IS the answer choice, not just the question.
   image_url?: string | null;
+  // Optional short explanation for just this choice (e.g. "A is incorrect
+  // because..."), shown in the explanation section right next to this
+  // choice's letter and image - not buried in one big shared paragraph.
+  rationale?: string | null;
 }
 
 export interface QBankQuestion {
