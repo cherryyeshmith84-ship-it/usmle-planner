@@ -32,7 +32,7 @@ export default function ConceptLibraryClient({
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<ConceptLibraryRow[]>(initialRows);
-  const [system, setSystem] = useState(STEP1_SYSTEMS[0] ?? "");
+  const [system, setSystem] = useState<string>(STEP1_SYSTEMS[0] ?? "");
   const [topic, setTopic] = useState("");
   const [subtopic, setSubtopic] = useState("");
   const [concept, setConcept] = useState("");
