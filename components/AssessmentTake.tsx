@@ -413,10 +413,10 @@ export default function AssessmentTake({
         </p>
         <p className="text-sm text-slate-300 mb-6">
           This works like a real timed exam. Each block has its own clock, plus there&apos;s
-          an overall exam clock running the whole time you&apos;re answering questions. You can
-          switch between Test mode (no feedback until the block ends) and Tutor mode (see the
-          answer and explanation right after each question, with the clock paused while you
-          read it) at any point during the exam.
+          an overall exam clock running the whole time you&apos;re answering questions.{" "}
+          {allowRetake
+            ? "You can switch between Test mode (no feedback until the block ends) and Tutor mode (see the answer and explanation right after each question, with the clock paused while you read it) at any point during the exam."
+            : "There's no feedback on any question until you finish the whole exam, just like the real thing."}
           {breakSecondsTotal > 0
             ? ` After each block (except the last), you can either continue straight to the next block, or take a break - breaks come out of a shared ${Math.round(
                 breakSecondsTotal / 60
@@ -498,30 +498,32 @@ export default function AssessmentTake({
               {currentQuestions.length} · {answeredInBlock}/{currentQuestions.length} answered
             </span>
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center border border-slate-700 rounded-lg overflow-hidden text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setExamMode("test")}
-                  className={`px-2 py-1 ${
-                    examMode === "test"
-                      ? "bg-brand-900/50 text-brand-200"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  Test
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExamMode("tutor")}
-                  className={`px-2 py-1 border-l border-slate-700 ${
-                    examMode === "tutor"
-                      ? "bg-brand-900/50 text-brand-200"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  Tutor
-                </button>
-              </div>
+              {allowRetake && (
+                <div className="flex items-center border border-slate-700 rounded-lg overflow-hidden text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setExamMode("test")}
+                    className={`px-2 py-1 ${
+                      examMode === "test"
+                        ? "bg-brand-900/50 text-brand-200"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Test
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExamMode("tutor")}
+                    className={`px-2 py-1 border-l border-slate-700 ${
+                      examMode === "tutor"
+                        ? "bg-brand-900/50 text-brand-200"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Tutor
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => toggleFlag(currentQuestion.id)}
