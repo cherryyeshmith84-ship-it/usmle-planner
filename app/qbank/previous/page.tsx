@@ -7,6 +7,17 @@ import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
+// Same four-tier semantic scale used across Master Grid, the dashboard, and
+// Smart Review: green = strong, yellow = needs review, orange = weak, red =
+// critical.
+function scoreBadgeClass(pct: number | null) {
+  if (pct === null) return "bg-slate-800 text-slate-300";
+  if (pct >= 75) return "bg-green-900/40 text-green-400";
+  if (pct >= 60) return "bg-yellow-900/40 text-yellow-400";
+  if (pct >= 45) return "bg-orange-900/40 text-orange-400";
+  return "bg-red-900/40 text-red-400";
+}
+
 export default async function PreviousQBankTestsPage() {
   const supabase = createClient();
   const {
@@ -60,9 +71,7 @@ export default async function PreviousQBankTestsPage() {
                 </div>
                 {done ? (
                   <span
-                    className={`text-sm font-semibold rounded-full px-3 py-1 shrink-0 ml-3 ${
-                      pct !== null && pct >= 70 ? "bg-green-900/40 text-green-400" : pct !== null && pct >= 50 ? "bg-amber-900/40 text-amber-400" : "bg-red-900/40 text-red-400"
-                    }`}
+                    className={`text-sm font-semibold rounded-full px-3 py-1 shrink-0 ml-3 ${scoreBadgeClass(pct)}`}
                   >
                     {s.score_correct}/{s.score_total} ({pct}%)
                   </span>
