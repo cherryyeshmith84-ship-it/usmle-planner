@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -85,6 +85,38 @@ export default function QBankQuestionForm({
   );
   const [difficulty, setDifficulty] = useState<QuestionDifficulty | "">(initial?.meta?.difficulty ?? "");
   const [questionType, setQuestionType] = useState(initial?.meta?.question_type ?? "");
+
+  // Concept Library entries, fetched once so Topic/Subtopic/Primary concept
+  // below can suggest the canonical spelling instead of relying on memory -
+  // a typo here ("Vipoma" vs "VIPoma") silently fragments Master Grid and
+  // Smart Review later, since they group by exact string match. Suggestions
+  // only - typing a new value not yet in the library still works, it just
+  // won't be offered as an existing option until it's added there too.
+  const [conceptOptions, setConceptOptions] = useState<
+    { system: string; topic: string; subtopic: string | null; concept: string }[]
+  >([]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("concept_library")
+      .select("system, topic, subtopic, concept")
+      .then(({ data }) => setConceptOptions(data ?? []));
+  }, []);
+
+  const topicOptions = useMemo(
+    () => Array.from(new Set(conceptOptions.map((c) => c.topic))).sort(),
+    [conceptOptions]
+  );
+  const subtopicOptions = useMemo(
+    () =>
+      Array.from(new Set(conceptOptions.map((c) => c.subtopic).filter((s): s is string => !!s))).sort(),
+    [conceptOptions]
+  );
+  const conceptNameOptions = useMemo(
+    () => Array.from(new Set(conceptOptions.map((c) => c.concept))).sort(),
+    [conceptOptions]
+  );
 
   // Admin publish workflow (section 1 status + section 7 buttons).
   const [status, setStatus] = useState<QuestionAdminStatus>(initial?.meta?.status ?? "draft");
@@ -745,24 +777,48 @@ export default function QBankQuestionForm({
       </div>
 
       <div className="card">
-        <h2 className="font-semibold mb-1">Classification</h2>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-semibold">Classification</h2>
+          <Link href="/admin/concepts" className="text-xs font-medium text-brand-400 hover:text-brand-300">
+            Manage Concept Library &rarr;
+          </Link>
+        </div>
         <p className="text-xs text-slate-400 mb-3">
           Finer-grained tags on top of Subjects/Systems above - useful for search and future
-          performance analytics. All optional.
+          performance analytics. Topic/Subtopic/Primary concept suggest existing names from the
+          Concept Library as you type - pick a suggestion instead of retyping it to keep Master
+          Grid and Smart Review from splitting one concept into near-duplicates. All optional.
         </p>
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="label">Topic</label>
-            <input className="input" placeholder="e.g. Obesity" value={topic} onChange={(e) => setTopic(e.target.value)} />
+            <input
+              className="input"
+              list="topic-options"
+              placeholder="e.g. Obesity"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+            <datalist id="topic-options">
+              {topicOptions.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </div>
           <div>
             <label className="label">Subtopic</label>
             <input
               className="input"
+              list="subtopic-options"
               placeholder="e.g. Obesity pharmacotherapy"
               value={subtopic}
               onChange={(e) => setSubtopic(e.target.value)}
             />
+            <datalist id="subtopic-options">
+              {subtopicOptions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
           </div>
         </div>
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
@@ -770,10 +826,16 @@ export default function QBankQuestionForm({
             <label className="label">Primary concept</label>
             <input
               className="input"
+              list="concept-options"
               placeholder="e.g. Orlistat"
               value={primaryConcept}
               onChange={(e) => setPrimaryConcept(e.target.value)}
             />
+            <datalist id="concept-options">
+              {conceptNameOptions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
           <div>
             <label className="label">Secondary concepts (comma-separated)</label>
