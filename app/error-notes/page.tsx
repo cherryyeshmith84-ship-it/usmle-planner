@@ -182,7 +182,7 @@ export default async function ErrorNotesPage() {
                   href={`/error-notes/practice/${e.questionId}/${e.choiceId}`}
                   className="btn-secondary inline-block text-sm"
                 >
-                  Practice this concept &rarr;
+                  Start Review &rarr;
                 </Link>
               </div>
             ))}
