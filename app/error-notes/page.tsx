@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { QBankQuestion } from "@/lib/qbankTypes";
+import { buildReframedExplanation, extractQuestionAsk } from "@/lib/errorNotes";
 import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ interface ErrorNoteEntry {
   questionText: string;
   chosenText: string;
   correctText: string;
+  reframed: string;
   errorNote: string | null;
   errorType: string | null;
   confusedWith: string | null;
@@ -26,7 +28,10 @@ interface ErrorNoteEntry {
  * admin set on the wrong choice they picked. One card per distinct
  * question+wrong-choice pairing - if they've missed the same one more than
  * once (e.g. on a retake), that's shown as a "Missed Nx" badge instead of
- * duplicate cards.
+ * duplicate cards. Each card leads with a plain-language recap of the
+ * mistake (what they picked, why that's tempting, what was actually being
+ * asked, why the real answer is right) built by lib/errorNotes.ts, rather
+ * than just the raw tag fields.
  */
 export default async function ErrorNotesPage() {
   const supabase = createClient();
@@ -78,12 +83,22 @@ export default async function ErrorNotesPage() {
           existing.lastMissedAt = session.submitted_at;
         }
       } else {
+        const questionAsk = extractQuestionAsk(q.question);
+        const reframed = buildReframedExplanation({
+          chosenText: choice.text,
+          correctText: correctChoice?.text ?? "",
+          confusedWith: choice.confused_with ?? null,
+          weakConcept: choice.weak_concept ?? null,
+          correctKeyConcept: correctChoice?.key_concept ?? null,
+          questionAsk,
+        });
         entries.set(key, {
           questionId,
           choiceId,
           questionText: q.question,
           chosenText: choice.text,
           correctText: correctChoice?.text ?? "",
+          reframed,
           errorNote: choice.error_note ?? null,
           errorType: choice.error_type ?? null,
           confusedWith: choice.confused_with ?? null,
@@ -135,7 +150,11 @@ export default async function ErrorNotesPage() {
                   )}
                 </div>
 
-                {e.errorNote && <p className="text-sm text-slate-300 mb-3">{e.errorNote}</p>}
+                <p className="text-sm text-slate-200 mb-3">{e.reframed}</p>
+
+                {e.errorNote && (
+                  <p className="text-xs text-amber-400 mb-3">The mix-up: {e.errorNote}</p>
+                )}
 
                 {(e.errorType || e.confusedWith) && (
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -152,13 +171,17 @@ export default async function ErrorNotesPage() {
                   </div>
                 )}
 
-                <p className="text-xs text-slate-500 mb-1">
-                  You picked <span className="text-red-400">{e.chosenText}</span> instead of{" "}
-                  <span className="text-green-400">{e.correctText}</span>
-                </p>
-                <p className="text-xs text-slate-600 line-clamp-2 mb-3">Source: {e.questionText}</p>
+                <details className="mb-3">
+                  <summary className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer">
+                    Show the full question this came from
+                  </summary>
+                  <p className="text-sm text-slate-400 mt-2 whitespace-pre-line">{e.questionText}</p>
+                </details>
 
-                <Link href="/qbank" className="btn-secondary inline-block text-sm">
+                <Link
+                  href={`/error-notes/practice/${e.questionId}/${e.choiceId}`}
+                  className="btn-secondary inline-block text-sm"
+                >
                   Practice this concept &rarr;
                 </Link>
               </div>
