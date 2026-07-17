@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { QBankQuestion, QBankTestSession } from "@/lib/qbankTypes";
 import { computeQuestionStatuses, countByStatus, countByTag } from "@/lib/qbank";
-import AppShell from "@/components/AppShell";
+import NavBar from "@/components/NavBar";
 import QBankCreateTestForm from "@/components/QBankCreateTestForm";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +40,9 @@ export default async function QuestionBankCreateTestPage() {
   const systemCounts = countByTag(questions, "systems");
 
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
+    <div className="min-h-screen flex">
+      <NavBar isAdmin={profile?.is_admin} />
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-xl font-bold">Question bank</h1>
           <Link href="/qbank/previous" className="text-sm font-semibold text-brand-400 hover:text-brand-300">
@@ -49,7 +50,8 @@ export default async function QuestionBankCreateTestPage() {
           </Link>
         </div>
         <p className="text-sm text-slate-400 mb-6">
-          Build a custom test by question status, subject, system, and difficulty.
+          Build a custom test from the question pool - filter by whether you&apos;ve seen a
+          question before, by subject, or by organ system.
         </p>
 
         {questions.length === 0 ? (
@@ -68,6 +70,6 @@ export default async function QuestionBankCreateTestPage() {
           />
         )}
       </main>
-    </AppShell>
+    </div>
   );
 }
