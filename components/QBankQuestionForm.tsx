@@ -80,27 +80,31 @@ export default function QBankQuestionForm({
   const [topic, setTopic] = useState(initial?.meta?.topic ?? "");
   const [subtopic, setSubtopic] = useState(initial?.meta?.subtopic ?? "");
   const [primaryConcept, setPrimaryConcept] = useState(initial?.meta?.primary_concept ?? "");
+  const [primaryConceptId, setPrimaryConceptId] = useState<string | null>(
+    initial?.meta?.primary_concept_id ?? null
+  );
+  const [conceptSearch, setConceptSearch] = useState("");
+  const [conceptDropdownOpen, setConceptDropdownOpen] = useState(false);
   const [secondaryConceptsText, setSecondaryConceptsText] = useState(
     (initial?.meta?.secondary_concepts ?? []).join(", ")
   );
   const [difficulty, setDifficulty] = useState<QuestionDifficulty | "">(initial?.meta?.difficulty ?? "");
   const [questionType, setQuestionType] = useState(initial?.meta?.question_type ?? "");
 
-  // Concept Library entries, fetched once so Topic/Subtopic/Primary concept
-  // below can suggest the canonical spelling instead of relying on memory -
-  // a typo here ("Vipoma" vs "VIPoma") silently fragments Master Grid and
-  // Smart Review later, since they group by exact string match. Suggestions
-  // only - typing a new value not yet in the library still works, it just
-  // won't be offered as an existing option until it's added there too.
+  // Concept Library entries, fetched once. Topic/Subtopic still just suggest
+  // the canonical spelling (typing a new value still works there) - but
+  // Primary concept below is now a hard select from this list only, so a
+  // typo like "Vipoma" vs "VIPoma" can no longer silently fragment Master
+  // Grid and Smart Review into near-duplicate concepts.
   const [conceptOptions, setConceptOptions] = useState<
-    { system: string; topic: string; subtopic: string | null; concept: string }[]
+    { id: string; system: string; topic: string; subtopic: string | null; concept: string }[]
   >([]);
 
   useEffect(() => {
     const supabase = createClient();
     supabase
       .from("concept_library")
-      .select("system, topic, subtopic, concept")
+      .select("id, system, topic, subtopic, concept")
       .then(({ data }) => setConceptOptions(data ?? []));
   }, []);
 
@@ -113,10 +117,35 @@ export default function QBankQuestionForm({
       Array.from(new Set(conceptOptions.map((c) => c.subtopic).filter((s): s is string => !!s))).sort(),
     [conceptOptions]
   );
-  const conceptNameOptions = useMemo(
-    () => Array.from(new Set(conceptOptions.map((c) => c.concept))).sort(),
-    [conceptOptions]
-  );
+
+  // Primary concept dropdown's filtered result list - matches against
+  // concept name, topic, and system so it's searchable by any of those.
+  const filteredConceptOptions = useMemo(() => {
+    const q = conceptSearch.trim().toLowerCase();
+    const sorted = [...conceptOptions].sort((a, b) => a.concept.localeCompare(b.concept));
+    if (!q) return sorted.slice(0, 50);
+    return sorted
+      .filter(
+        (c) =>
+          c.concept.toLowerCase().includes(q) ||
+          c.topic.toLowerCase().includes(q) ||
+          c.system.toLowerCase().includes(q)
+      )
+      .slice(0, 50);
+  }, [conceptOptions, conceptSearch]);
+
+  function selectPrimaryConcept(option: { id: string; concept: string }) {
+    setPrimaryConceptId(option.id);
+    setPrimaryConcept(option.concept);
+    setConceptSearch("");
+    setConceptDropdownOpen(false);
+  }
+
+  function clearPrimaryConcept() {
+    setPrimaryConceptId(null);
+    setPrimaryConcept("");
+    setConceptSearch("");
+  }
 
   // Admin publish workflow (section 1 status + section 7 buttons).
   const [status, setStatus] = useState<QuestionAdminStatus>(initial?.meta?.status ?? "draft");
@@ -344,6 +373,7 @@ export default function QBankQuestionForm({
         topic: topic.trim() || undefined,
         subtopic: subtopic.trim() || undefined,
         primary_concept: primaryConcept.trim() || undefined,
+        primary_concept_id: primaryConceptId ?? undefined,
         secondary_concepts: secondaryConcepts.length > 0 ? secondaryConcepts : undefined,
         difficulty: difficulty || undefined,
         question_type: questionType || undefined,
@@ -785,9 +815,10 @@ export default function QBankQuestionForm({
         </div>
         <p className="text-xs text-slate-400 mb-3">
           Finer-grained tags on top of Subjects/Systems above - useful for search and future
-          performance analytics. Topic/Subtopic/Primary concept suggest existing names from the
-          Concept Library as you type - pick a suggestion instead of retyping it to keep Master
-          Grid and Smart Review from splitting one concept into near-duplicates. All optional.
+          performance analytics. Topic/Subtopic suggest existing names from the Concept Library as
+          you type. Primary concept must be picked from the Concept Library (search below) so
+          Master Grid and Smart Review always group by the exact same concept - if it's missing,
+          add it via &ldquo;Manage Concept Library&rdquo; first. All optional.
         </p>
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
           <div>
@@ -822,20 +853,78 @@ export default function QBankQuestionForm({
           </div>
         </div>
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
-          <div>
+          <div className="relative">
             <label className="label">Primary concept</label>
-            <input
-              className="input"
-              list="concept-options"
-              placeholder="e.g. Orlistat"
-              value={primaryConcept}
-              onChange={(e) => setPrimaryConcept(e.target.value)}
-            />
-            <datalist id="concept-options">
-              {conceptNameOptions.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+            {primaryConcept && !conceptDropdownOpen ? (
+              <div className="input flex items-center justify-between gap-2">
+                <span className="truncate">{primaryConcept}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    className="text-xs text-brand-400 hover:text-brand-300"
+                    onClick={() => {
+                      setConceptSearch("");
+                      setConceptDropdownOpen(true);
+                    }}
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500 hover:text-slate-300"
+                    onClick={clearPrimaryConcept}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <input
+                className="input"
+                placeholder="Search Concept Library..."
+                value={conceptSearch}
+                onChange={(e) => setConceptSearch(e.target.value)}
+                onFocus={() => setConceptDropdownOpen(true)}
+                onBlur={() => setConceptDropdownOpen(false)}
+              />
+            )}
+            {!primaryConceptId && (
+              <p className="text-xs text-amber-500 mt-1">
+                No concept selected yet - pick one from the search results below.
+              </p>
+            )}
+            {conceptDropdownOpen && (
+              <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 shadow-lg">
+                {filteredConceptOptions.length === 0 ? (
+                  <p className="text-xs text-slate-500 px-3 py-2">
+                    No matching concepts.{" "}
+                    <Link href="/admin/concepts" className="text-brand-400 hover:text-brand-300">
+                      Add one to the library &rarr;
+                    </Link>
+                  </p>
+                ) : (
+                  filteredConceptOptions.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      // onMouseDown (not onClick) so this fires before the
+                      // input's onBlur closes the dropdown.
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectPrimaryConcept(c);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-800"
+                    >
+                      <span className="text-slate-100">{c.concept}</span>
+                      <span className="block text-xs text-slate-500">
+                        {c.system} &middot; {c.topic}
+                        {c.subtopic ? ` · ${c.subtopic}` : ""}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label className="label">Secondary concepts (comma-separated)</label>
