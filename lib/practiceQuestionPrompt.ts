@@ -36,16 +36,18 @@ once, all testing the same underlying concept. Rules:
 - The 4 incorrect choices per question should be plausible First Aid-level
   distractors (classic confusable diagnoses/mechanisms), not obscure or
   obviously wrong.
-- Keep each vignette focused and exam-length (a short paragraph), not
-  padded with irrelevant detail.
+- Keep each vignette short and exam-length (3-5 sentences), not padded with
+  irrelevant detail - shorter vignettes are faster to write and just as
+  testable.
 - Respond with ONLY valid JSON, no markdown formatting, no code fences, no
   commentary before or after - matching exactly this shape:
 {"questions": [{"question": "...", "choices": [{"text": "...", "correct": true, "explanation": "..."}, {"text": "...", "correct": false, "explanation": "..."}], "keyTakeaway": "..."}]}
 - "questions" must have exactly ${count} entries. Each entry's "choices"
   must have exactly 5 entries, exactly one with "correct": true. Every
-  choice needs a 1-2 sentence "explanation" of why it's right or wrong.
-  "keyTakeaway" is a single sentence summarizing that question's core
-  teaching point.
+  choice needs an "explanation" of why it's right or wrong - ONE short
+  sentence, 15 words or fewer. Do not write long explanations - keep it
+  brief so the set generates quickly. "keyTakeaway" is a single short
+  sentence summarizing that question's core teaching point.
 `.trim();
 }
 
