@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { Assessment, AssessmentAttempt, Profile } from "@/lib/types";
-import NavBar from "@/components/NavBar";
+import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -45,9 +45,8 @@ export default async function AssessmentsListPage() {
   }
 
   return (
-    <div className="min-h-screen flex">
-      <NavBar isAdmin={profile?.is_admin} />
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8">
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
+      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-1">Self assessment</h1>
         <p className="text-sm text-slate-400 mb-6">
           Timed practice tests your coach has put together. Once you start one, the
@@ -86,6 +85,6 @@ export default async function AssessmentsListPage() {
           })}
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }
