@@ -5,10 +5,14 @@ import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
+// Same four-tier semantic scale used across Master Grid, the dashboard, and
+// Smart Review, adapted to the 0-10 day-rating scale: green = strong,
+// yellow = needs review, orange = weak, red = critical.
 function ratingColor(rating: number | null) {
   if (rating === null) return "bg-slate-800 text-slate-400";
   if (rating >= 8) return "bg-green-900/40 text-green-400";
-  if (rating >= 5) return "bg-amber-900/40 text-amber-400";
+  if (rating >= 6) return "bg-yellow-900/40 text-yellow-400";
+  if (rating >= 4) return "bg-orange-900/40 text-orange-400";
   return "bg-red-900/40 text-red-400";
 }
 
