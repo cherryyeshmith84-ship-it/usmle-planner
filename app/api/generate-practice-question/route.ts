@@ -68,11 +68,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing concept or original question." }, { status: 400 });
   }
 
-  // gemini-2.0-flash was shut down by Google on June 1, 2026 - any call to
-  // it now fails outright, which is very likely why generation had gotten
-  // slow/unreliable (fail, retry, fail again). gemini-2.5-flash-lite is
-  // Google's current low-latency model and is the active replacement.
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+  // gemini-3.1-flash-lite is Google's current fastest generally-available
+  // model - built specifically for high-frequency, low-latency requests
+  // like this one (vs. 2.5-flash-lite, which is a generation older/slower).
+  const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
   async function callGemini(): Promise<GeneratedPracticeQuestion[]> {
     const systemPrompt = buildPracticeQuestionSystemPrompt(count);
