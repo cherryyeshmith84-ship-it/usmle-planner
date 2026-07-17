@@ -8,7 +8,8 @@ import { PRACTICE_SET_SIZE } from "@/lib/practiceQuestionPrompt";
 // generation feel slow. Instead, ask for a small first batch (shows up
 // fast) and kick off the rest in the background at the same time - by the
 // time the student finishes the first few, the rest have usually arrived.
-const FIRST_BATCH_SIZE = 3;
+// Kept to just 1 question so that first screen appears as fast as possible.
+const FIRST_BATCH_SIZE = 1;
 
 /**
  * The interactive half of the Error Notes "practice this concept" page: a
