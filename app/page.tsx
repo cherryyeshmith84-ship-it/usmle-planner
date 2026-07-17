@@ -4,15 +4,6 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-const WORKFLOW_STEPS = [
-  "Practice Questions",
-  "Understand Your Mistake",
-  "Error DNA",
-  "Master Grid",
-  "Smart Review",
-  "Improve",
-];
-
 const FEATURES = [
   {
     title: "Question Bank",
@@ -41,11 +32,11 @@ const FEATURES = [
 ];
 
 const HOW_IT_WORKS = [
-  { title: "Answer a question", desc: "Practice with tagged, Step 1-style questions from the Question Bank." },
-  { title: "Get a real explanation", desc: "Every choice - right and wrong - comes with its own explanation, not just the correct answer." },
-  { title: "Wrong answers get an Error Note", desc: "A short note explains exactly what you confused it with and why." },
-  { title: "Your Error DNA and Master Grid update", desc: "That note feeds your concept-level profile automatically - no extra work." },
-  { title: "Smart Review schedules it", desc: "The concept moves into your review queue until you're reliably getting it right." },
+  { title: "Answer questions", desc: "Practice with tagged, Step 1-style questions from the Question Bank." },
+  { title: "Diagnose the mistake", desc: "Every wrong answer gets an Error Note explaining exactly what you confused it with and why." },
+  { title: "Track the weak concept", desc: "That mistake feeds your Error DNA and Master Grid profile automatically - no extra work." },
+  { title: "Review it at the right time", desc: "Smart Review resurfaces the concept until you're reliably getting it right." },
+  { title: "Retest mastery", desc: "Your Master Grid score updates as you prove you've actually got it this time." },
 ];
 
 const FAQS = [
@@ -90,35 +81,84 @@ export default async function Home() {
       {/* Hero */}
       <section className="max-w-3xl mx-auto w-full px-6 py-16 text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-white mb-4">
-          Find the pattern behind your Step 1 mistakes. Fix it. Master it.
+          Stop repeating the same Step 1 mistakes.
         </h1>
         <p className="text-lg text-slate-300 mb-8">
-          Practice with high-quality questions, understand exactly why you missed them, track
-          your weakest concepts, and review what matters most.
+          Master Grid identifies what you get wrong, why you get it wrong, and what you should
+          review next.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-6 py-3">
-            Start Practicing Free
+            Start Free
           </Link>
-          <a href="#features" className="btn-secondary text-base px-6 py-3">
-            Explore Master Grid
+          <a href="#how-it-works" className="btn-secondary text-base px-6 py-3">
+            See How Master Grid Works
           </a>
         </div>
       </section>
 
-      {/* Workflow strip */}
+      {/* Product visual: the core loop at a glance */}
       <section className="max-w-5xl mx-auto w-full px-6 pb-16">
-        <div className="flex items-center justify-center flex-wrap gap-y-3">
-          {WORKFLOW_STEPS.map((step, i) => (
-            <div key={step} className="flex items-center">
-              <span className="text-sm font-semibold text-slate-200 bg-slate-900 border border-slate-700 rounded-full px-4 py-2 whitespace-nowrap">
-                {step}
-              </span>
-              {i < WORKFLOW_STEPS.length - 1 && (
-                <span className="text-slate-600 mx-2 hidden sm:inline">&rarr;</span>
-              )}
+        <div className="grid sm:grid-cols-3 gap-4 items-stretch">
+          <div className="card">
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
+              Master Grid
+            </p>
+            <div className="space-y-2">
+              {[
+                { label: "Cardiovascular", pct: 82 },
+                { label: "Endocrine", pct: 54 },
+                { label: "Renal", pct: 71 },
+              ].map((row) => (
+                <div key={row.label}>
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>{row.label}</span>
+                    <span>{row.pct}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-brand-500"
+                      style={{ width: `${row.pct}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+            <p className="text-xs text-slate-500 mt-3">Mastery by system, down to the concept.</p>
+          </div>
+
+          <div className="card">
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
+              Error DNA
+            </p>
+            <p className="text-xs text-slate-400 mb-2">You picked: Increased PTH</p>
+            <p className="text-xs text-slate-400 mb-3">Actually asked: why the diarrhea?</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="text-xs text-slate-300 bg-slate-800 rounded-full px-2 py-1">
+                Confused with: MEN1
+              </span>
+              <span className="text-xs text-slate-300 bg-slate-800 rounded-full px-2 py-1">
+                Weak concept: VIPoma
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">Tags why you missed it, every time.</p>
+          </div>
+
+          <div className="card">
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
+              Smart Review
+            </p>
+            <div className="border border-purple-900/40 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-200">VIPoma / WDHA syndrome</p>
+                <span className="text-[10px] font-semibold bg-red-900/30 text-red-300 rounded-full px-2 py-0.5">
+                  High
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">Missed 2 of your last 2 related attempts</p>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">Resurfaces what you're still missing.</p>
+          </div>
         </div>
       </section>
 
@@ -139,7 +179,7 @@ export default async function Home() {
       </section>
 
       {/* How it works */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-16">
+      <section id="how-it-works" className="max-w-3xl mx-auto w-full px-6 py-16">
         <h2 className="text-2xl font-bold text-center mb-10">How it works</h2>
         <div className="space-y-4">
           {HOW_IT_WORKS.map((step, i) => (
@@ -226,7 +266,7 @@ export default async function Home() {
         <h2 className="text-2xl font-bold mb-4">Ready to find your pattern?</h2>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-6 py-3">
-            Start Practicing Free
+            Start Free
           </Link>
           <Link href="/login" className="btn-secondary text-base px-6 py-3">
             I already have an account
