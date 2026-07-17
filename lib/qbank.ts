@@ -1,4 +1,15 @@
-import type { QBankQuestion, QBankTestSession, QuestionStatus } from "./qbankTypes";
+import { parsePastedQuestion } from "./assessments";
+import {
+  DIFFICULTY_LEVELS,
+  ERROR_TYPES,
+  QUESTION_TYPES,
+  STEP1_SUBJECTS,
+  STEP1_SYSTEMS,
+  type QBankQuestion,
+  type QBankTestSession,
+  type QuestionDifficulty,
+  type QuestionStatus,
+} from "./qbankTypes";
 
 export function newQBankId() {
   return Math.random().toString(36).slice(2, 10);
@@ -154,4 +165,256 @@ export function choiceStatsToPercents(rows: ChoiceStatRow[]): {
     percents[cid] = total > 0 ? Math.round((counts[cid] / total) * 100) : 0;
   }
   return { percents, counts, total };
+}
+
+// ---------------------------------------------------------------------------
+// Full authored-question template parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Finds each given label's line in `text` (independently, so labels can be
+ * searched in any order - the result is assembled by where each one actually
+ * falls in the source, not the order given here) and returns the text
+ * between each label and whichever other found label comes next by position.
+ * Labels that aren't found are simply absent from the result. Anything
+ * before the first found label comes back under the empty-string key.
+ */
+function splitByLabels(text: string, labels: { key: string; regex: RegExp }[]): Record<string, string> {
+  const found: { key: string; start: number; end: number }[] = [];
+  for (const { key, regex } of labels) {
+    const m = regex.exec(text);
+    if (m) found.push({ key, start: m.index, end: m.index + m[0].length });
+  }
+  found.sort((a, b) => a.start - b.start);
+  const result: Record<string, string> = {};
+  if (found.length === 0) {
+    result[""] = text.trim();
+    return result;
+  }
+  result[""] = text.slice(0, found[0].start).trim();
+  for (let i = 0; i < found.length; i++) {
+    const next = found[i + 1];
+    result[found[i].key] = text.slice(found[i].end, next ? next.start : text.length).trim();
+  }
+  return result;
+}
+
+// Hyphen, en dash, or em dash - admins paste this template from different
+// sources (docs, chat apps) that render the "A — Close distractor" separator
+// differently.
+const DASH = "[-–—]";
+
+export interface ParsedQBankChoice {
+  text: string;
+  distance?: "near" | "far";
+  rationale?: string;
+  error_note?: string;
+  error_type?: string;
+  confused_with?: string;
+  weak_concept?: string;
+  key_concept?: string;
+}
+
+export interface ParsedQBankTemplate {
+  question: string;
+  choices: ParsedQBankChoice[];
+  correctIndex: number; // -1 if it couldn't be determined
+  educationalObjective: string;
+  explanation: string;
+  keyTakeaway: string;
+  examTrap: string;
+  subjects: string[];
+  systems: string[];
+  topic: string;
+  subtopic: string;
+  primaryConcept: string;
+  secondaryConcepts: string[];
+  difficulty: QuestionDifficulty | "";
+  questionType: string;
+}
+
+/**
+ * Parses the full authored-question template (vignette + lettered choices +
+ * correct answer + distractor classification + educational objective + main
+ * explanation + key takeaway + exam trap + per-choice explanations with
+ * Error DNA fields + subjects/systems checklists + classification block)
+ * into every field the Question Editor form has - so an admin can paste one
+ * fully-written question and have the whole form fill itself in, instead of
+ * retyping each piece by hand into its own box.
+ *
+ * Degrades gracefully: any section not present in the paste is just left
+ * blank rather than failing the whole parse, as long as the question stem
+ * and at least 2 lettered choices are found (same minimum bar as the plain
+ * parsePastedQuestion helper this builds on).
+ */
+export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate | null {
+  const top = splitByLabels(raw, [
+    { key: "correctAnswer", regex: /^\s*Correct answer\s*:?\s*$/im },
+    { key: "distractorClassification", regex: /^\s*\d*\.?\s*Distractor Classification\s*$/im },
+    { key: "questionImage", regex: /^\s*\d*\.?\s*Question Image\s*$/im },
+    { key: "educationalObjective", regex: /^\s*\d*\.?\s*Educational Objective\s*$/im },
+    { key: "mainExplanation", regex: /^\s*\d*\.?\s*Main Explanation\s*$/im },
+    { key: "explanationImage", regex: /^\s*\d*\.?\s*Explanation Image\s*$/im },
+    { key: "keyTakeaway", regex: /^\s*\d*\.?\s*Key Takeaway\s*$/im },
+    { key: "examTrap", regex: /^\s*\d*\.?\s*Exam Trap\s*$/im },
+    { key: "perChoiceExplanations", regex: /^\s*\d*\.?\s*Per-Choice Explanations\s*$/im },
+    { key: "subjects", regex: /^\s*\d*\.?\s*Subjects\b.*$/im },
+    { key: "systems", regex: /^\s*\d*\.?\s*Systems\b.*$/im },
+    { key: "classification", regex: /^\s*\d*\.?\s*Classification\s*$/im },
+  ]);
+
+  const stemAndChoices = parsePastedQuestion(top[""] ?? raw);
+  if (!stemAndChoices) return null;
+
+  const letters = stemAndChoices.choices.map((_, i) => String.fromCharCode(65 + i));
+
+  // Correct answer letter - prefer the explicit "Correct answer" block,
+  // fall back to whichever letter the Distractor Classification block
+  // marks as "Correct" if that block is missing or unreadable.
+  let correctLetter: string | null = null;
+  const correctAnswerMatch = (top.correctAnswer ?? "").match(/^\s*\(?([A-Za-z])\)?[.)]/);
+  if (correctAnswerMatch) correctLetter = correctAnswerMatch[1].toUpperCase();
+
+  const distractorMap = new Map<string, string>();
+  const distractorRegex = new RegExp(`^\\s*([A-Za-z])\\s*${DASH}\\s*(.+)$`, "gm");
+  let dm: RegExpExecArray | null;
+  while ((dm = distractorRegex.exec(top.distractorClassification ?? ""))) {
+    distractorMap.set(dm[1].toUpperCase(), dm[2].trim());
+  }
+  if (!correctLetter) {
+    for (const [letter, label] of distractorMap.entries()) {
+      if (/correct/i.test(label) && !/incorrect/i.test(label)) {
+        correctLetter = letter;
+        break;
+      }
+    }
+  }
+
+  // Per-choice explanation blocks, keyed by letter.
+  const perChoiceText = top.perChoiceExplanations ?? "";
+  const choiceHeaderRegex = new RegExp(`^\\s*Choice\\s+([A-Za-z])\\s*${DASH}.*$`, "gim");
+  const headers: { letter: string; start: number; end: number }[] = [];
+  let cm: RegExpExecArray | null;
+  while ((cm = choiceHeaderRegex.exec(perChoiceText))) {
+    headers.push({ letter: cm[1].toUpperCase(), start: cm.index, end: cm.index + cm[0].length });
+  }
+  const choiceBlocks = new Map<string, string>();
+  for (let i = 0; i < headers.length; i++) {
+    const next = headers[i + 1];
+    choiceBlocks.set(headers[i].letter, perChoiceText.slice(headers[i].end, next ? next.start : perChoiceText.length));
+  }
+
+  let correctIndex = correctLetter ? letters.indexOf(correctLetter) : -1;
+  if (correctIndex === -1) {
+    // Last-resort fallback: a per-choice block whose first line explicitly
+    // says "Correct" without "Incorrect".
+    for (const letter of letters) {
+      const firstLine = (choiceBlocks.get(letter) ?? "").trim().split(/\r?\n/)[0] ?? "";
+      if (/correct/i.test(firstLine) && !/incorrect/i.test(firstLine)) {
+        correctIndex = letters.indexOf(letter);
+        break;
+      }
+    }
+  }
+
+  const choiceSubLabels = [
+    { key: "imageForChoice", regex: /^\s*Image for Choice\s+[A-Za-z]\s*$/im },
+    { key: "errorNote", regex: /^\s*Error Note\s*$/im },
+    { key: "errorType", regex: /^\s*Error Type\s*$/im },
+    { key: "confusedWith", regex: /^\s*Confused With\s*$/im },
+    { key: "weakConcept", regex: /^\s*Weak Concept\s*$/im },
+  ];
+
+  const choices: ParsedQBankChoice[] = stemAndChoices.choices.map((text, i) => {
+    const letter = letters[i];
+    const isCorrect = i === correctIndex;
+    const block = choiceBlocks.get(letter) ?? "";
+    const sub = splitByLabels(block, choiceSubLabels);
+    // Strip the leading "❌ Incorrect - ..." / "✅ Correct" marker line off
+    // the rationale, however the emoji happened to survive copy/paste.
+    const rationale = (sub[""] ?? "").replace(/^[^\n]*?\b(Incorrect|Correct)\b[^\n]*\n?/i, "").trim();
+
+    const classification = distractorMap.get(letter) ?? "";
+    const distance: "near" | "far" | undefined = /close/i.test(classification)
+      ? "near"
+      : /far/i.test(classification)
+      ? "far"
+      : undefined;
+
+    const errorNoteText = sub.errorNote ?? "";
+    const errorTypeText = sub.errorType ?? "";
+
+    if (isCorrect) {
+      return {
+        text,
+        rationale: rationale || undefined,
+        // The template puts the correct choice's one-line takeaway under
+        // "Error Note" too (to keep every choice block the same shape) -
+        // the form's field for the correct choice is "Key concept", so
+        // that's where it belongs.
+        key_concept: errorNoteText || undefined,
+      };
+    }
+
+    return {
+      text,
+      distance,
+      rationale: rationale || undefined,
+      error_note: errorNoteText || undefined,
+      error_type: ERROR_TYPES.find((t) => t.toLowerCase() === errorTypeText.toLowerCase()) || undefined,
+      confused_with: sub.confusedWith || undefined,
+      weak_concept: sub.weakConcept || undefined,
+    };
+  });
+
+  const classificationText = top.classification ?? "";
+  function field(label: string): string {
+    const m = classificationText.match(new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, "im"));
+    return m ? m[1].trim() : "";
+  }
+  const topic = field("Topic");
+  const subtopic = field("Subtopic");
+  const primaryConcept = field("Primary Concept");
+  const secondaryConceptsRaw = field("Secondary Concepts");
+  const secondaryConcepts = secondaryConceptsRaw
+    ? secondaryConceptsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+  const difficultyRaw = field("Difficulty").toLowerCase();
+  const difficulty = (DIFFICULTY_LEVELS as readonly string[]).includes(difficultyRaw)
+    ? (difficultyRaw as QuestionDifficulty)
+    : "";
+  const questionTypeRaw = field("Question Type");
+  const questionType = QUESTION_TYPES.find((t) => t.toLowerCase() === questionTypeRaw.toLowerCase()) || questionTypeRaw;
+
+  function checkedTags(text: string, known: readonly string[]): string[] {
+    const out: string[] = [];
+    const regex = /^\s*[☑✅✔][ \t]*(.+)$/gm; // checked box / checkmark glyphs
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text))) {
+      const rawTag = m[1].trim();
+      const match = known.find((k) => k.toLowerCase() === rawTag.toLowerCase());
+      if (match && !out.includes(match)) out.push(match);
+    }
+    return out;
+  }
+  const subjects = checkedTags(top.subjects ?? "", STEP1_SUBJECTS);
+  const systems = checkedTags(top.systems ?? "", STEP1_SYSTEMS);
+
+  return {
+    question: stemAndChoices.question,
+    choices,
+    correctIndex,
+    educationalObjective: top.educationalObjective ?? "",
+    explanation: top.mainExplanation ?? "",
+    keyTakeaway: top.keyTakeaway ?? "",
+    examTrap: top.examTrap ?? "",
+    subjects,
+    systems,
+    topic,
+    subtopic,
+    primaryConcept,
+    secondaryConcepts,
+    difficulty,
+    questionType,
+  };
 }
