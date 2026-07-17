@@ -4,8 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { parsePastedQuestion } from "@/lib/assessments";
-import { blankQBankChoice, blankQBankQuestion, choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
+import {
+  blankQBankChoice,
+  blankQBankQuestion,
+  choiceStatsToPercents,
+  parseFullQBankQuestionTemplate,
+  type ChoiceStatRow,
+} from "@/lib/qbank";
 import {
   DIFFICULTY_LEVELS,
   ERROR_TYPES,
@@ -171,7 +176,7 @@ export default function QBankQuestionForm({
   }
 
   function handleBulkParse() {
-    const parsed = parsePastedQuestion(bulkText);
+    const parsed = parseFullQBankQuestionTemplate(bulkText);
     if (!parsed) {
       setBulkError(
         'Couldn\'t find at least 2 lettered/numbered options (like "A. ..." or "1. ...") in that paste. Make sure the answer choices are included, each on its own line.'
@@ -180,8 +185,31 @@ export default function QBankQuestionForm({
     }
     setBulkError(null);
     setQuestion(parsed.question);
-    setChoices(parsed.choices.map((text) => ({ ...blankQBankChoice(), text })));
-    setCorrectChoiceId("");
+    const newChoices = parsed.choices.map((c) => ({
+      ...blankQBankChoice(),
+      text: c.text,
+      distance: c.distance,
+      rationale: c.rationale,
+      error_note: c.error_note,
+      error_type: c.error_type,
+      confused_with: c.confused_with,
+      weak_concept: c.weak_concept,
+      key_concept: c.key_concept,
+    }));
+    setChoices(newChoices);
+    setCorrectChoiceId(parsed.correctIndex >= 0 ? newChoices[parsed.correctIndex].id : "");
+    setEducationalObjective(parsed.educationalObjective);
+    setExplanation(parsed.explanation);
+    setKeyTakeaway(parsed.keyTakeaway);
+    setExamTrap(parsed.examTrap);
+    setSubjects(parsed.subjects);
+    setSystems(parsed.systems);
+    setTopic(parsed.topic);
+    setSubtopic(parsed.subtopic);
+    setPrimaryConcept(parsed.primaryConcept);
+    setSecondaryConceptsText(parsed.secondaryConcepts.join(", "));
+    setDifficulty(parsed.difficulty);
+    setQuestionType(parsed.questionType);
     setBulkText("");
   }
 
@@ -371,14 +399,17 @@ export default function QBankQuestionForm({
       <div className="card">
         <h2 className="font-semibold mb-2">Paste a question</h2>
         <p className="text-xs text-slate-400 mb-3">
-          Paste a full question with its lettered/numbered answer choices - it&apos;ll split the
-          stem and options into the fields below automatically.
+          Paste a fully written question - stem, lettered choices, correct answer, distractor
+          classification, educational objective, main explanation, key takeaway, exam trap,
+          per-choice explanations (with error notes), subjects/systems checkboxes, and the
+          classification block - and every field below fills itself in. You can also paste just
+          the stem and choices if that&apos;s all you have; everything else is optional.
         </p>
         <textarea
           className="input mb-2"
-          rows={6}
+          rows={10}
           placeholder={
-            "A 35-year-old woman presents with...\n\nA. Choice one\nB. Choice two\nC. Choice three"
+            "A 35-year-old woman presents with...\n\nA. Choice one\nB. Choice two\nC. Choice three\n\nCorrect answer\nB. Choice two\n\n(the rest of the template - Distractor Classification, Educational Objective, Main Explanation, Per-Choice Explanations, Subjects, Systems, Classification - is optional but will all be picked up if it's there)"
           }
           value={bulkText}
           onChange={(e) => setBulkText(e.target.value)}
