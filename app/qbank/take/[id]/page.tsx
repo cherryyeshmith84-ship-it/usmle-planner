@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { QBankQuestion, QBankTestSession } from "@/lib/qbankTypes";
-import NavBar from "@/components/NavBar";
+import AppShell from "@/components/AppShell";
 import QBankTake from "@/components/QBankTake";
 
 export const dynamic = "force-dynamic";
@@ -46,9 +46,8 @@ export default async function TakeQBankSessionPage({ params }: { params: { id: s
   }
 
   return (
-    <div className="min-h-screen flex">
-      <NavBar isAdmin={profile?.is_admin} />
-      <main className="flex-1 px-6 py-8">
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
+      <main className="flex-1 px-6 py-8 w-full">
         <QBankTake
           userId={user.id}
           session={session}
@@ -56,6 +55,6 @@ export default async function TakeQBankSessionPage({ params }: { params: { id: s
           initialMarked={initialMarked}
         />
       </main>
-    </div>
+    </AppShell>
   );
 }
