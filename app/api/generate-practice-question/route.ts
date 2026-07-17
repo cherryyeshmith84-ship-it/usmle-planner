@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { buildPracticeQuestionSystemPrompt, buildPracticeQuestionUserPrompt } from "@/lib/practiceQuestionPrompt";
+import {
+  buildPracticeQuestionSystemPrompt,
+  buildPracticeQuestionUserPrompt,
+  PRACTICE_SET_SIZE,
+} from "@/lib/practiceQuestionPrompt";
 
 export interface GeneratedPracticeChoice {
   text: string;
@@ -13,6 +17,14 @@ export interface GeneratedPracticeQuestion {
   choices: GeneratedPracticeChoice[];
   keyTakeaway: string;
 }
+
+// Asking Gemini for the whole set in one response reliably got cut off
+// mid-JSON before it finished (a full vignette + 5 choices + explanations,
+// times 10-15, is a lot of output) - losing every question in the batch
+// even if most of them were actually complete. Splitting into several
+// smaller parallel calls keeps each individual response well within the
+// token budget, so one truncated chunk doesn't take down the whole set.
+const CHUNK_SIZE = 5;
 
 // Gemini is told not to wrap its answer in a code fence, but sometimes does
 // anyway - strip ```json ... ``` (or a bare ```) if present before parsing.
@@ -58,13 +70,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing concept or original question." }, { status: 400 });
   }
 
-  const systemPrompt = buildPracticeQuestionSystemPrompt();
-  const userPrompt = buildPracticeQuestionUserPrompt({ concept, weakConcept, errorNote, originalQuestion, harder });
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
-  // A set of 10 full vignette questions is a lot of JSON - give the model
-  // plenty of room so it isn't cut off mid-object.
-  async function callGemini(): Promise<GeneratedPracticeQuestion[] | { error: string }> {
+  async function callGemini(count: number): Promise<GeneratedPracticeQuestion[]> {
+    const systemPrompt = buildPracticeQuestionSystemPrompt(count);
+    const userPrompt = buildPracticeQuestionUserPrompt({
+      concept,
+      weakConcept,
+      errorNote,
+      originalQuestion,
+      harder,
+      count,
+    });
+
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
@@ -82,13 +100,9 @@ export async function POST(request: Request) {
       }
     );
 
-    if (!res.ok) {
-      const errText = await res.text();
-      return { error: `AI request failed: ${errText.slice(0, 300)}` };
-    }
+    if (!res.ok) return [];
 
     const json = await res.json();
-    const finishReason = json?.candidates?.[0]?.finishReason;
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
     let parsed: { questions?: unknown[] } | null = null;
@@ -99,29 +113,37 @@ export async function POST(request: Request) {
     }
 
     const candidates = Array.isArray(parsed?.questions) ? (parsed!.questions as unknown[]) : [];
-    const valid = candidates.filter(isValidQuestion) as GeneratedPracticeQuestion[];
+    return candidates.filter(isValidQuestion) as GeneratedPracticeQuestion[];
+  }
 
-    if (valid.length === 0) {
-      const reasonNote = finishReason === "MAX_TOKENS" ? " (response got cut off - try again)" : "";
-      return { error: `AI returned an unusable set of questions${reasonNote}. Try again.` };
-    }
-
-    return valid;
+  // One retry per chunk if it comes back with nothing usable - a malformed
+  // or truncated response is usually a one-off, not persistent.
+  async function callChunkWithRetry(count: number): Promise<GeneratedPracticeQuestion[]> {
+    const first = await callGemini(count);
+    if (first.length > 0) return first;
+    return callGemini(count);
   }
 
   try {
-    let result = await callGemini();
-    // One retry if the first attempt came back completely unusable - a
-    // malformed JSON response is usually a one-off, not persistent.
-    if (!Array.isArray(result)) {
-      result = await callGemini();
+    const chunkSizes: number[] = [];
+    let remaining = PRACTICE_SET_SIZE;
+    while (remaining > 0) {
+      const size = Math.min(CHUNK_SIZE, remaining);
+      chunkSizes.push(size);
+      remaining -= size;
     }
 
-    if (!Array.isArray(result)) {
-      return NextResponse.json({ error: result.error }, { status: 502 });
+    const results = await Promise.all(chunkSizes.map((size) => callChunkWithRetry(size)));
+    const questions = results.flat();
+
+    if (questions.length === 0) {
+      return NextResponse.json(
+        { error: "AI couldn't write any usable questions right now. Try again." },
+        { status: 502 }
+      );
     }
 
-    return NextResponse.json({ questions: result });
+    return NextResponse.json({ questions });
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message || "Unexpected error calling the AI." },
