@@ -103,24 +103,40 @@ export default async function SmartReviewPage() {
         ) : (
           <div className="space-y-3">
             {queue.map((item) => (
-              <div key={item.concept} className="card border-purple-900/40">
+              <div key={`${item.kind}:${item.key}`} className="card border-purple-900/40">
                 <div className="flex items-start justify-between gap-3 mb-2">
-                  <p className="text-sm font-semibold">{item.concept}</p>
+                  <p className="text-sm font-semibold">{item.label}</p>
                   {priorityBadge(item.priority)}
                 </div>
                 <p className="text-xs text-slate-500 mb-1">
-                  Missed {item.missed} of your last {item.total} attempt{item.total === 1 ? "" : "s"}
+                  {item.kind === "concept"
+                    ? `Missed ${item.missed} of your last ${item.total} related attempt${item.total === 1 ? "" : "s"}`
+                    : `This exact mix-up has come up ${item.missed} time${item.missed === 1 ? "" : "s"} recently`}
                 </p>
+                {item.relatedConcepts.length > 0 && (
+                  <p className="text-xs text-slate-500 mb-2">
+                    Related concepts: {item.relatedConcepts.join(" · ")}
+                  </p>
+                )}
                 {item.primaryProblem && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     <span className="text-xs text-slate-400 bg-slate-800 rounded-full px-2 py-1">
-                      {item.primaryProblem}
+                      Error pattern: {item.primaryProblem}
                     </span>
                   </div>
                 )}
-                <Link href="/qbank" className="btn-secondary inline-block text-sm mt-1">
-                  Practice this concept &rarr;
-                </Link>
+                {item.sampleQuestionId && item.sampleChoiceId ? (
+                  <Link
+                    href={`/error-notes/practice/${item.sampleQuestionId}/${item.sampleChoiceId}`}
+                    className="btn-secondary inline-block text-sm mt-1"
+                  >
+                    Start Review &rarr;
+                  </Link>
+                ) : (
+                  <Link href="/qbank" className="btn-secondary inline-block text-sm mt-1">
+                    Start Review &rarr;
+                  </Link>
+                )}
               </div>
             ))}
           </div>
