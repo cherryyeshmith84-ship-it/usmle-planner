@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  buildPracticeQuestionSystemPrompt,
-  buildPracticeQuestionUserPrompt,
-  PRACTICE_SET_SIZE,
-} from "@/lib/practiceQuestionPrompt";
+import { buildPracticeQuestionSystemPrompt, buildPracticeQuestionUserPrompt } from "@/lib/practiceQuestionPrompt";
 
 export interface GeneratedPracticeChoice {
   text: string;
@@ -17,14 +13,6 @@ export interface GeneratedPracticeQuestion {
   choices: GeneratedPracticeChoice[];
   keyTakeaway: string;
 }
-
-// Asking Gemini for the whole set in one response reliably got cut off
-// mid-JSON before it finished (a full vignette + 5 choices + explanations,
-// times 10-15, is a lot of output) - losing every question in the batch
-// even if most of them were actually complete. Splitting into several
-// smaller parallel calls keeps each individual response well within the
-// token budget, so one truncated chunk doesn't take down the whole set.
-const CHUNK_SIZE = 5;
 
 // Gemini is told not to wrap its answer in a code fence, but sometimes does
 // anyway - strip ```json ... ``` (or a bare ```) if present before parsing.
@@ -41,6 +29,14 @@ function isValidQuestion(q: any): q is GeneratedPracticeQuestion {
   return q.choices.every((c: any) => typeof c?.text === "string" && c.text.trim().length > 0);
 }
 
+/**
+ * Writes `count` new practice questions in one call - the client decides
+ * how many to ask for per request. Asking for the full set at once was
+ * both slow (waiting on one big generation before showing anything) and
+ * fragile (a long response is more likely to get cut off mid-JSON), so the
+ * client instead asks for a small first batch, then a second batch in the
+ * background - see components/ErrorNotePracticeClient.tsx.
+ */
 export async function POST(request: Request) {
   const supabase = createClient();
   const {
@@ -65,14 +61,20 @@ export async function POST(request: Request) {
   const errorNote: string | null = body?.errorNote || null;
   const originalQuestion: string = (body?.originalQuestion || "").trim();
   const harder: boolean = !!body?.harder;
+  const rawCount = Number(body?.count);
+  const count = Number.isFinite(rawCount) ? Math.min(Math.max(Math.round(rawCount), 1), 10) : 5;
 
   if (!concept || !originalQuestion) {
     return NextResponse.json({ error: "Missing concept or original question." }, { status: 400 });
   }
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  // gemini-2.0-flash was shut down by Google on June 1, 2026 - any call to
+  // it now fails outright, which is very likely why generation had gotten
+  // slow/unreliable (fail, retry, fail again). gemini-2.5-flash-lite is
+  // Google's current low-latency model and is the active replacement.
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 
-  async function callGemini(count: number): Promise<GeneratedPracticeQuestion[]> {
+  async function callGemini(): Promise<GeneratedPracticeQuestion[]> {
     const systemPrompt = buildPracticeQuestionSystemPrompt(count);
     const userPrompt = buildPracticeQuestionUserPrompt({
       concept,
@@ -116,25 +118,13 @@ export async function POST(request: Request) {
     return candidates.filter(isValidQuestion) as GeneratedPracticeQuestion[];
   }
 
-  // One retry per chunk if it comes back with nothing usable - a malformed
-  // or truncated response is usually a one-off, not persistent.
-  async function callChunkWithRetry(count: number): Promise<GeneratedPracticeQuestion[]> {
-    const first = await callGemini(count);
-    if (first.length > 0) return first;
-    return callGemini(count);
-  }
-
   try {
-    const chunkSizes: number[] = [];
-    let remaining = PRACTICE_SET_SIZE;
-    while (remaining > 0) {
-      const size = Math.min(CHUNK_SIZE, remaining);
-      chunkSizes.push(size);
-      remaining -= size;
+    let questions = await callGemini();
+    // One retry if this came back with nothing usable - a malformed or
+    // truncated response is usually a one-off, not persistent.
+    if (questions.length === 0) {
+      questions = await callGemini();
     }
-
-    const results = await Promise.all(chunkSizes.map((size) => callChunkWithRetry(size)));
-    const questions = results.flat();
 
     if (questions.length === 0) {
       return NextResponse.json(
