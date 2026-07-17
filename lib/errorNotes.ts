@@ -15,8 +15,20 @@ export function extractQuestionAsk(questionText: string): string {
   const qIdx = trimmed.lastIndexOf("?");
   if (qIdx === -1) return trimmed.length > 200 ? `...${trimmed.slice(-200)}` : trimmed;
   const before = trimmed.slice(0, qIdx);
-  const sentenceStart = Math.max(before.lastIndexOf(". "), before.lastIndexOf("\n"));
-  const start = sentenceStart === -1 ? 0 : sentenceStart + 2;
+  // Whichever delimiter is closer to the "?" wins - but a newline is 1
+  // character and ". " is 2, so each needs its own offset or this clips a
+  // real letter off the start of the sentence (e.g. "hich of the following"
+  // instead of "Which of the following").
+  const periodIdx = before.lastIndexOf(". ");
+  const newlineIdx = before.lastIndexOf("\n");
+  let start = 0;
+  if (periodIdx === -1 && newlineIdx === -1) {
+    start = 0;
+  } else if (periodIdx >= newlineIdx) {
+    start = periodIdx + 2;
+  } else {
+    start = newlineIdx + 1;
+  }
   return trimmed.slice(start, qIdx + 1).trim();
 }
 
