@@ -204,6 +204,31 @@ function splitByLabels(text: string, labels: { key: string; regex: RegExp }[]): 
 // differently.
 const DASH = "[-–—]";
 
+/**
+ * Splits a stem from its answer choices two ways: first the classic
+ * lettered/numbered format ("A. text" / "1) text"), and if that finds
+ * nothing, a fallback for a bare list of choices with no marker at all -
+ * one option per line, straight under the vignette (e.g. a plain list of
+ * drug names). The fallback finds the boundary at the LAST "?" in the text,
+ * since the vignette's closing question is a reliable divider between the
+ * stem and the option list regardless of how the rest is formatted.
+ */
+function parseStemAndChoicesFlexible(preamble: string): { question: string; choices: string[] } | null {
+  const lettered = parsePastedQuestion(preamble);
+  if (lettered) return lettered;
+
+  const qIdx = preamble.lastIndexOf("?");
+  if (qIdx === -1) return null;
+  const question = preamble.slice(0, qIdx + 1).trim();
+  const choices = preamble
+    .slice(qIdx + 1)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!question || choices.length < 2) return null;
+  return { question, choices };
+}
+
 export interface ParsedQBankChoice {
   text: string;
   distance?: "near" | "far";
@@ -263,7 +288,7 @@ export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate
     { key: "classification", regex: /^\s*\d*\.?\s*Classification\s*$/im },
   ]);
 
-  const stemAndChoices = parsePastedQuestion(top[""] ?? raw);
+  const stemAndChoices = parseStemAndChoicesFlexible(top[""] ?? raw);
   if (!stemAndChoices) return null;
 
   const letters = stemAndChoices.choices.map((_, i) => String.fromCharCode(65 + i));
@@ -275,8 +300,11 @@ export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate
   const correctAnswerMatch = (top.correctAnswer ?? "").match(/^\s*\(?([A-Za-z])\)?[.)]/);
   if (correctAnswerMatch) correctLetter = correctAnswerMatch[1].toUpperCase();
 
+  // Handles both "A — Close distractor" and a bulleted "* A. Cabergoline —
+  // Close distractor" (repeating the choice text before the dash) - the
+  // classification is always whatever comes after the LAST dash on the line.
   const distractorMap = new Map<string, string>();
-  const distractorRegex = new RegExp(`^\\s*([A-Za-z])\\s*${DASH}\\s*(.+)$`, "gm");
+  const distractorRegex = new RegExp(`^\\s*[*•]?\\s*\\(?([A-Za-z])\\)?[.)]?[^\\n]*${DASH}\\s*([^\\n]+)$`, "gm");
   let dm: RegExpExecArray | null;
   while ((dm = distractorRegex.exec(top.distractorClassification ?? ""))) {
     distractorMap.set(dm[1].toUpperCase(), dm[2].trim());
@@ -290,13 +318,21 @@ export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate
     }
   }
 
-  // Per-choice explanation blocks, keyed by letter.
+  // Per-choice explanation blocks, keyed by letter. Tries "Choice A — text"
+  // headers first; if none are found, falls back to a bare "A. text" header
+  // (no "Choice" word, no dash) - the other format seen in these pastes.
   const perChoiceText = top.perChoiceExplanations ?? "";
-  const choiceHeaderRegex = new RegExp(`^\\s*Choice\\s+([A-Za-z])\\s*${DASH}.*$`, "gim");
   const headers: { letter: string; start: number; end: number }[] = [];
   let cm: RegExpExecArray | null;
+  const choiceHeaderRegex = new RegExp(`^\\s*Choice\\s+([A-Za-z])\\s*${DASH}.*$`, "gim");
   while ((cm = choiceHeaderRegex.exec(perChoiceText))) {
     headers.push({ letter: cm[1].toUpperCase(), start: cm.index, end: cm.index + cm[0].length });
+  }
+  if (headers.length === 0) {
+    const bareHeaderRegex = /^\s*\(?([A-Za-z])\)?[.)]\s+\S.*$/gm;
+    while ((cm = bareHeaderRegex.exec(perChoiceText))) {
+      headers.push({ letter: cm[1].toUpperCase(), start: cm.index, end: cm.index + cm[0].length });
+    }
   }
   const choiceBlocks = new Map<string, string>();
   for (let i = 0; i < headers.length; i++) {
@@ -317,12 +353,17 @@ export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate
     }
   }
 
+  // Each label can appear either alone on its own line with the value below
+  // ("Error Note\n<value>") or inline with a colon ("Error note: <value>") -
+  // no trailing "$" anchor here so the match only consumes the label itself
+  // (plus an optional colon and the whitespace/newline after it), leaving
+  // the value - wherever it starts - as everything up to the next label.
   const choiceSubLabels = [
-    { key: "imageForChoice", regex: /^\s*Image for Choice\s+[A-Za-z]\s*$/im },
-    { key: "errorNote", regex: /^\s*Error Note\s*$/im },
-    { key: "errorType", regex: /^\s*Error Type\s*$/im },
-    { key: "confusedWith", regex: /^\s*Confused With\s*$/im },
-    { key: "weakConcept", regex: /^\s*Weak Concept\s*$/im },
+    { key: "imageForChoice", regex: /^\s*Image for choice\b[^\n:]*:?\s*/im },
+    { key: "errorNote", regex: /^\s*Error note\s*:?\s*/im },
+    { key: "errorType", regex: /^\s*Error type\s*:?\s*/im },
+    { key: "confusedWith", regex: /^\s*Confused with\s*:?\s*/im },
+    { key: "weakConcept", regex: /^\s*Weak concept\s*:?\s*/im },
   ];
 
   const choices: ParsedQBankChoice[] = stemAndChoices.choices.map((text, i) => {
