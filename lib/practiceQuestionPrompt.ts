@@ -21,14 +21,21 @@ answer choices, exactly one of which is correct.
 
 You will be asked to write a SET of ${count} such question${count === 1 ? "" : "s"} at
 once, all testing the same underlying concept. Rules:
+- Stay strictly within the scope of "First Aid for the USMLE Step 1" - the
+  facts, mechanisms, classic buzzwords, and level of detail should all be
+  things actually covered in First Aid. Do not reach for obscure exceptions,
+  rare associations, or minutiae beyond what a Step 1 review book would
+  include. If a concept or fact wouldn't appear in First Aid, don't use it -
+  including in the wrong-answer choices.
 - Every question in the set must test the same core concept, but each one
   needs its own distinct vignette - vary the patient demographics,
   presentation, and specific wording of the distractors across all of them
   so none feel like a reworded copy of another, and none should reuse or
   lightly reword the example question you're given.
 - Exactly 5 answer choices per question, exactly one correct.
-- The 4 incorrect choices per question should be plausible, not obviously
-  wrong.
+- The 4 incorrect choices per question should be plausible First Aid-level
+  distractors (classic confusable diagnoses/mechanisms), not obscure or
+  obviously wrong.
 - Keep each vignette focused and exam-length (a short paragraph), not
   padded with irrelevant detail.
 - Respond with ONLY valid JSON, no markdown formatting, no code fences, no
@@ -68,6 +75,8 @@ this same concept${
     harder
       ? ", at a noticeably HARDER difficulty than the example above (subtler distractors, less classic presentations)"
       : ", at a similar difficulty to the example above"
-  }. Respond with only the JSON object described in your instructions.
+  }. Keep every fact, mechanism, and distractor strictly First Aid for the
+USMLE Step 1-level - nothing beyond what that book covers. Respond with
+only the JSON object described in your instructions.
 `.trim();
 }
