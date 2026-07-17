@@ -3,9 +3,16 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { QBankQuestion } from "@/lib/qbankTypes";
 import { computeSmartReviewQueue, type QBankAnswerEvent } from "@/lib/masteryDashboard";
+import { computeAllConceptMasteryStates, MASTERY_LABELS, type MasteryState } from "@/lib/conceptMastery";
 import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
+
+const MASTERY_BADGE_CLASS: Record<MasteryState, string> = {
+  learning: "bg-red-900/30 text-red-300",
+  improving: "bg-amber-900/30 text-amber-300",
+  strong: "bg-green-900/30 text-green-300",
+};
 
 function priorityBadge(priority: "high" | "medium" | "low") {
   if (priority === "high") {
@@ -38,13 +45,17 @@ export default async function SmartReviewPage() {
     .eq("id", user.id)
     .single();
 
-  const [qbankSessionsRes, qbankQuestionsRes] = await Promise.all([
+  const [qbankSessionsRes, qbankQuestionsRes, practiceRes] = await Promise.all([
     supabase
       .from("qbank_test_sessions")
       .select("answers, submitted_at")
       .eq("user_id", user.id)
       .not("submitted_at", "is", null),
     supabase.from("qbank_questions").select("*"),
+    supabase
+      .from("concept_practice_attempts")
+      .select("concept, correct, created_at")
+      .eq("user_id", user.id),
   ]);
 
   const qbankSessions = (qbankSessionsRes.data ?? []) as {
@@ -53,6 +64,11 @@ export default async function SmartReviewPage() {
   }[];
   const qbankQuestions = (qbankQuestionsRes.data ?? []) as QBankQuestion[];
   const questionById = new Map(qbankQuestions.map((q) => [q.id, q]));
+  const practiceAttempts = (practiceRes.data ?? []) as {
+    concept: string;
+    correct: boolean;
+    created_at: string;
+  }[];
 
   const qbankEvents: QBankAnswerEvent[] = [];
   for (const session of qbankSessions) {
@@ -64,6 +80,11 @@ export default async function SmartReviewPage() {
   }
 
   const queue = computeSmartReviewQueue(qbankEvents, questionById);
+  const masteryByConcept = computeAllConceptMasteryStates(
+    qbankEvents,
+    questionById,
+    practiceAttempts.map((p) => ({ concept: p.concept, correct: p.correct, createdAt: p.created_at }))
+  );
   const highCount = queue.filter((q) => q.priority === "high").length;
   const mediumCount = queue.filter((q) => q.priority === "medium").length;
   const lowCount = queue.filter((q) => q.priority === "low").length;
@@ -102,11 +123,20 @@ export default async function SmartReviewPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {queue.map((item) => (
+            {queue.map((item) => {
+              const mastery = item.kind === "concept" ? masteryByConcept.get(item.key) ?? null : null;
+              return (
               <div key={`${item.kind}:${item.key}`} className="card border-purple-900/40">
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <p className="text-sm font-semibold">{item.label}</p>
-                  {priorityBadge(item.priority)}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {mastery && (
+                      <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${MASTERY_BADGE_CLASS[mastery]}`}>
+                        {MASTERY_LABELS[mastery]}
+                      </span>
+                    )}
+                    {priorityBadge(item.priority)}
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500 mb-1">
                   {item.kind === "concept"
@@ -138,7 +168,8 @@ export default async function SmartReviewPage() {
                   </Link>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
