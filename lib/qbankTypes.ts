@@ -178,5 +178,5 @@ export type QuestionStatus = "unused" | "correct" | "incorrect" | "omitted";
 
 export interface QuestionStatusInfo {
   status: QuestionStatus;
-  marked: boolean;
+  marked: boolean; 
 }
