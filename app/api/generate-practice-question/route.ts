@@ -14,6 +14,21 @@ export interface GeneratedPracticeQuestion {
   keyTakeaway: string;
 }
 
+// Gemini is told not to wrap its answer in a code fence, but sometimes does
+// anyway - strip ```json ... ``` (or a bare ```) if present before parsing.
+function stripCodeFence(text: string): string {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  return (match ? match[1] : text).trim();
+}
+
+function isValidQuestion(q: any): q is GeneratedPracticeQuestion {
+  if (!q || typeof q.question !== "string" || !q.question.trim()) return false;
+  if (!Array.isArray(q.choices) || q.choices.length !== 5) return false;
+  const correctCount = q.choices.filter((c: any) => c?.correct === true).length;
+  if (correctCount !== 1) return false;
+  return q.choices.every((c: any) => typeof c?.text === "string" && c.text.trim().length > 0);
+}
+
 export async function POST(request: Request) {
   const supabase = createClient();
   const {
@@ -47,7 +62,9 @@ export async function POST(request: Request) {
   const userPrompt = buildPracticeQuestionUserPrompt({ concept, weakConcept, errorNote, originalQuestion, harder });
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
-  try {
+  // A set of 10 full vignette questions is a lot of JSON - give the model
+  // plenty of room so it isn't cut off mid-object.
+  async function callGemini(): Promise<GeneratedPracticeQuestion[] | { error: string }> {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
@@ -57,8 +74,9 @@ export async function POST(request: Request) {
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: "user", parts: [{ text: userPrompt }] }],
           generationConfig: {
-            temperature: 0.7,
+            temperature: 0.8,
             responseMimeType: "application/json",
+            maxOutputTokens: 8192,
           },
         }),
       }
@@ -66,32 +84,44 @@ export async function POST(request: Request) {
 
     if (!res.ok) {
       const errText = await res.text();
-      return NextResponse.json(
-        { error: `AI request failed: ${errText.slice(0, 300)}` },
-        { status: 502 }
-      );
+      return { error: `AI request failed: ${errText.slice(0, 300)}` };
     }
 
     const json = await res.json();
+    const finishReason = json?.candidates?.[0]?.finishReason;
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
-    let parsed: GeneratedPracticeQuestion | null = null;
+    let parsed: { questions?: unknown[] } | null = null;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(stripCodeFence(text));
     } catch {
       parsed = null;
     }
 
-    const choices = parsed?.choices ?? [];
-    const correctCount = choices.filter((c) => c?.correct).length;
-    if (!parsed || !parsed.question || choices.length < 2 || correctCount !== 1) {
-      return NextResponse.json(
-        { error: "AI returned an unusable question. Try again." },
-        { status: 502 }
-      );
+    const candidates = Array.isArray(parsed?.questions) ? (parsed!.questions as unknown[]) : [];
+    const valid = candidates.filter(isValidQuestion) as GeneratedPracticeQuestion[];
+
+    if (valid.length === 0) {
+      const reasonNote = finishReason === "MAX_TOKENS" ? " (response got cut off - try again)" : "";
+      return { error: `AI returned an unusable set of questions${reasonNote}. Try again.` };
     }
 
-    return NextResponse.json({ practiceQuestion: parsed });
+    return valid;
+  }
+
+  try {
+    let result = await callGemini();
+    // One retry if the first attempt came back completely unusable - a
+    // malformed JSON response is usually a one-off, not persistent.
+    if (!Array.isArray(result)) {
+      result = await callGemini();
+    }
+
+    if (!Array.isArray(result)) {
+      return NextResponse.json({ error: result.error }, { status: 502 });
+    }
+
+    return NextResponse.json({ questions: result });
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message || "Unexpected error calling the AI." },
