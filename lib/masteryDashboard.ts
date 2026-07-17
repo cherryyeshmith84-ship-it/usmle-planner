@@ -276,31 +276,37 @@ export function computeMasteryGrid(
 }
 
 export interface ReviewQueueItem {
-  concept: string;
+  key: string;
+  kind: "concept" | "weak_concept";
+  label: string;
   priority: "high" | "medium" | "low";
   missed: number;
   total: number;
   missRate: number;
   primaryProblem: string | null;
+  relatedConcepts: string[];
   lastMissedAt: string;
+  // A representative missed question/choice for this card, used to route
+  // "Start Review" into that exact mistake's Error Note + AI practice flow
+  // (see app/error-notes/practice/[questionId]/[choiceId]).
+  sampleQuestionId: string | null;
+  sampleChoiceId: string | null;
 }
 
-// Every tag level a question's meta can carry, all treated as their own
-// review-queue entry - not just primary concept/topic. So missing one
-// question can flag its primary concept, its topic, its subtopic, and each
-// of its secondary concepts independently, since a single question can be
-// the "example" of several different things worth reviewing at once.
-function conceptKeysFor(q: QBankQuestion): string[] {
-  const keys: string[] = [];
-  const add = (v?: string | null) => {
-    const t = v?.trim();
-    if (t && !keys.includes(t)) keys.push(t);
-  };
-  add(q.meta?.primary_concept);
-  add(q.meta?.topic);
-  add(q.meta?.subtopic);
-  for (const sc of q.meta?.secondary_concepts ?? []) add(sc);
-  return keys;
+// One canonical grouping key per question - primary_concept, falling back
+// to topic, then subtopic, if not set. This used to fan a single missed
+// question out into a separate review-queue entry for every tag it carried
+// (primary concept, topic, subtopic, and every secondary concept
+// independently), which meant one missed question could spawn 5-10 "due"
+// cards, each showing a misleading "missed 2 of your last 2" even though
+// the student had only ever answered ONE question touching most of those
+// tags. Now each question maps to exactly one primary card; everything
+// else it's tagged with becomes supporting "related concepts" context under
+// that one card instead of a card of its own.
+function canonicalConceptFor(q: QBankQuestion): string | null {
+  return (
+    q.meta?.primary_concept?.trim() || q.meta?.topic?.trim() || q.meta?.subtopic?.trim() || null
+  );
 }
 
 /**
@@ -312,11 +318,23 @@ function conceptKeysFor(q: QBankQuestion): string[] {
  * the queue entirely - this is deliberately simple (no literal per-day
  * scheduling) rather than a full spaced-repetition date engine.
  *
- * Each answered question can feed more than one queue entry - see
- * conceptKeysFor above - and only 2 recorded attempts on a given tag are
- * needed before it's eligible to show up (lowered from 3 so a review gap
- * surfaces sooner, at the cost of being a bit more sensitive to a single
- * unlucky pair of misses on a brand-new tag).
+ * Two kinds of cards:
+ * - "concept" cards are keyed by canonicalConceptFor (one per question, not
+ *   fanned out) - attempt/miss counts only ever come from questions that
+ *   actually share that same primary concept. Every other tag on those
+ *   questions (topic, subtopic, secondary concepts, and any Error DNA
+ *   "weak concept" from a wrong pick) is collected as deduped
+ *   `relatedConcepts` context on the card, not a card of its own.
+ * - "weak_concept" cards are a second, independent check: if the exact same
+ *   Error DNA "weak concept" tag (the specific mix-up a wrong choice is
+ *   tagged with) recurs on its own at least twice, that's real evidence of
+ *   a standing weakness even if it hasn't happened twice under the same
+ *   primary concept - so it earns its own card. But a weak concept that's
+ *   only ever shown up as a secondary association (e.g. mentioned once)
+ *   does NOT automatically become a card - it needs its own track record.
+ *   If a weak concept happens to already be some question's primary
+ *   concept (i.e. it already has a "concept" card), it's skipped here to
+ *   avoid a duplicate.
  */
 export function computeSmartReviewQueue(
   qbankEvents: QBankAnswerEvent[],
@@ -326,29 +344,64 @@ export function computeSmartReviewQueue(
     (a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
   );
 
-  type ConceptAnswer = { correct: boolean; submittedAt: string; errorType: string | null };
-  const conceptBuckets: Record<string, { answers: ConceptAnswer[] }> = {};
+  type Answer = {
+    correct: boolean;
+    submittedAt: string;
+    errorType: string | null;
+    questionId: string;
+    choiceId: string;
+  };
+  const primaryBuckets: Record<string, { answers: Answer[]; related: Set<string> }> = {};
+  const weakBuckets: Record<string, { answers: Answer[] }> = {};
 
   for (const ev of sorted) {
     const q = questionById.get(ev.questionId);
     if (!q || !ev.choiceId) continue;
     const isCorrect = ev.choiceId === q.correct_choice_id;
-    const keys = conceptKeysFor(q);
-    if (keys.length === 0) continue;
+    const key = canonicalConceptFor(q);
 
     let errorType: string | null = null;
+    let weakConcept: string | null = null;
     if (!isCorrect) {
       const choice = q.choices.find((c) => c.id === ev.choiceId);
       errorType = choice?.error_type ?? null;
+      weakConcept = choice?.weak_concept?.trim() || null;
     }
-    for (const concept of keys) {
-      if (!conceptBuckets[concept]) conceptBuckets[concept] = { answers: [] };
-      conceptBuckets[concept].answers.push({ correct: isCorrect, submittedAt: ev.submittedAt, errorType });
+
+    if (key) {
+      if (!primaryBuckets[key]) primaryBuckets[key] = { answers: [], related: new Set() };
+      primaryBuckets[key].answers.push({
+        correct: isCorrect,
+        submittedAt: ev.submittedAt,
+        errorType,
+        questionId: ev.questionId,
+        choiceId: ev.choiceId,
+      });
+      const addRelated = (v?: string | null) => {
+        const t = v?.trim();
+        if (t && t !== key) primaryBuckets[key].related.add(t);
+      };
+      addRelated(q.meta?.topic);
+      addRelated(q.meta?.subtopic);
+      for (const sc of q.meta?.secondary_concepts ?? []) addRelated(sc);
+      if (!isCorrect) addRelated(weakConcept);
+    }
+
+    if (!isCorrect && weakConcept) {
+      if (!weakBuckets[weakConcept]) weakBuckets[weakConcept] = { answers: [] };
+      weakBuckets[weakConcept].answers.push({
+        correct: false,
+        submittedAt: ev.submittedAt,
+        errorType,
+        questionId: ev.questionId,
+        choiceId: ev.choiceId,
+      });
     }
   }
 
   const queue: ReviewQueueItem[] = [];
-  for (const [concept, bucket] of Object.entries(conceptBuckets)) {
+
+  for (const [key, bucket] of Object.entries(primaryBuckets)) {
     if (bucket.answers.length < 2) continue;
     const recent = [...bucket.answers]
       .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
@@ -365,9 +418,52 @@ export function computeSmartReviewQueue(
       if (!a.correct && a.errorType) errorTypeCounts[a.errorType] = (errorTypeCounts[a.errorType] ?? 0) + 1;
     }
     const primaryProblem = Object.entries(errorTypeCounts).sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
-    const lastMissedAt = recent.find((a) => !a.correct)?.submittedAt ?? recent[0].submittedAt;
+    const lastMissed = recent.find((a) => !a.correct) ?? recent[0];
 
-    queue.push({ concept, priority, missed, total: recent.length, missRate, primaryProblem, lastMissedAt });
+    queue.push({
+      key,
+      kind: "concept",
+      label: key,
+      priority,
+      missed,
+      total: recent.length,
+      missRate,
+      primaryProblem,
+      relatedConcepts: Array.from(bucket.related).slice(0, 6),
+      lastMissedAt: lastMissed.submittedAt,
+      sampleQuestionId: lastMissed.questionId,
+      sampleChoiceId: lastMissed.choiceId,
+    });
+  }
+
+  const primaryKeys = new Set(Object.keys(primaryBuckets));
+  for (const [weakConcept, bucket] of Object.entries(weakBuckets)) {
+    if (bucket.answers.length < 2) continue;
+    if (primaryKeys.has(weakConcept)) continue;
+    const recent = [...bucket.answers]
+      .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+      .slice(0, 7);
+
+    const errorTypeCounts: Record<string, number> = {};
+    for (const a of recent) {
+      if (a.errorType) errorTypeCounts[a.errorType] = (errorTypeCounts[a.errorType] ?? 0) + 1;
+    }
+    const primaryProblem = Object.entries(errorTypeCounts).sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+
+    queue.push({
+      key: weakConcept,
+      kind: "weak_concept",
+      label: weakConcept,
+      priority: recent.length >= 3 ? "high" : "medium",
+      missed: recent.length,
+      total: recent.length,
+      missRate: 1,
+      primaryProblem,
+      relatedConcepts: [],
+      lastMissedAt: recent[0].submittedAt,
+      sampleQuestionId: recent[0].questionId,
+      sampleChoiceId: recent[0].choiceId,
+    });
   }
 
   const priorityRank: Record<ReviewQueueItem["priority"], number> = { high: 0, medium: 1, low: 2 };
