@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Assessment, AssessmentAttempt, Profile } from "@/lib/types";
-import NavBar from "@/components/NavBar";
+import AppShell from "@/components/AppShell";
 import AssessmentTake from "@/components/AssessmentTake";
 
 export const dynamic = "force-dynamic";
@@ -34,11 +34,10 @@ export default async function TakeAssessmentPage({ params }: { params: { id: str
   const existingAttempt = (attemptRes.data as AssessmentAttempt) ?? null;
 
   return (
-    <div className="min-h-screen flex">
-      <NavBar isAdmin={profile?.is_admin} />
-      <main className="flex-1 px-6 py-8">
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
+      <main className="flex-1 px-6 py-8 w-full">
         <AssessmentTake userId={user.id} assessment={assessment} existingAttempt={existingAttempt} />
       </main>
-    </div>
+    </AppShell>
   );
 }
