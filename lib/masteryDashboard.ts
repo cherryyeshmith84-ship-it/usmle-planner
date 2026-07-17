@@ -303,7 +303,7 @@ export interface ReviewQueueItem {
 // tags. Now each question maps to exactly one primary card; everything
 // else it's tagged with becomes supporting "related concepts" context under
 // that one card instead of a card of its own.
-function canonicalConceptFor(q: QBankQuestion): string | null {
+export function canonicalConceptFor(q: QBankQuestion): string | null {
   return (
     q.meta?.primary_concept?.trim() || q.meta?.topic?.trim() || q.meta?.subtopic?.trim() || null
   );
