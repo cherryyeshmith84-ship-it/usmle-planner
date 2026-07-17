@@ -2,12 +2,19 @@
 
 import { useState } from "react";
 import type { GeneratedPracticeQuestion } from "@/app/api/generate-practice-question/route";
+import { PRACTICE_SET_SIZE } from "@/lib/practiceQuestionPrompt";
+
+// Asking the AI to write all 10 questions before showing anything made
+// generation feel slow. Instead, ask for a small first batch (shows up
+// fast) and kick off the rest in the background at the same time - by the
+// time the student finishes the first few, the rest have usually arrived.
+const FIRST_BATCH_SIZE = 3;
 
 /**
  * The interactive half of the Error Notes "practice this concept" page: a
- * button that asks the AI to write a set of 10 brand-new questions on the
- * exact concept the student just missed (same or harder difficulty, their
- * choice), then walks them through all 10 one at a time with immediate
+ * button that asks the AI to write a set of new questions on the exact
+ * concept the student just missed (same or harder difficulty, their
+ * choice), then walks them through them one at a time with immediate
  * per-choice feedback and a score at the end - all generated fresh each
  * time, not pulled from the existing question pool, so it's a genuinely new
  * attempt rather than a repeat of one they might have half-memorized.
@@ -25,6 +32,7 @@ export default function ErrorNotePracticeClient({
 }) {
   const [harder, setHarder] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<GeneratedPracticeQuestion[] | null>(null);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -32,30 +40,53 @@ export default function ErrorNotePracticeClient({
   const [revealed, setRevealed] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
 
-  async function generate() {
-    setLoading(true);
-    setError(null);
+  async function fetchBatch(count: number): Promise<GeneratedPracticeQuestion[]> {
     try {
       const res = await fetch("/api/generate-practice-question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ concept, weakConcept, errorNote, originalQuestion, harder }),
+        body: JSON.stringify({ concept, weakConcept, errorNote, originalQuestion, harder, count }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Something went wrong generating questions.");
-        setQuestions(null);
-      } else {
-        setQuestions(data.questions);
-        setCurrentIdx(0);
-        setSelectedIdx(null);
-        setRevealed(false);
-        setCorrectCount(0);
-      }
+      if (!res.ok) return [];
+      return data.questions ?? [];
     } catch {
-      setError("Couldn't reach the AI. Try again.");
-    } finally {
-      setLoading(false);
+      return [];
+    }
+  }
+
+  async function generate() {
+    setLoading(true);
+    setError(null);
+    setQuestions(null);
+    setCurrentIdx(0);
+    setSelectedIdx(null);
+    setRevealed(false);
+    setCorrectCount(0);
+
+    const firstCount = Math.min(FIRST_BATCH_SIZE, PRACTICE_SET_SIZE);
+    const restCount = PRACTICE_SET_SIZE - firstCount;
+
+    // Fire both requests together - the second doesn't wait on the first,
+    // it just isn't shown until the student reaches it.
+    const firstPromise = fetchBatch(firstCount);
+    const restPromise = restCount > 0 ? fetchBatch(restCount) : Promise.resolve<GeneratedPracticeQuestion[]>([]);
+    if (restCount > 0) setLoadingMore(true);
+
+    const first = await firstPromise;
+    setLoading(false);
+
+    if (first.length === 0) {
+      setError("AI couldn't write any usable questions right now. Try again.");
+      setLoadingMore(false);
+      return;
+    }
+    setQuestions(first);
+
+    if (restCount > 0) {
+      const rest = await restPromise;
+      setQuestions((prev) => (prev ? [...prev, ...rest] : rest));
+      setLoadingMore(false);
     }
   }
 
@@ -76,19 +107,24 @@ export default function ErrorNotePracticeClient({
   function startOver() {
     setQuestions(null);
     setError(null);
+    setLoadingMore(false);
   }
 
-  const finished = !!questions && currentIdx >= questions.length;
-  const currentQuestion = questions && !finished ? questions[currentIdx] : null;
+  const atEnd = !!questions && currentIdx >= questions.length;
+  const finished = atEnd && !loadingMore;
+  const waitingForMore = atEnd && loadingMore;
+  const currentQuestion = questions && !atEnd ? questions[currentIdx] : null;
 
   return (
     <div className="space-y-4">
       {!questions && (
         <div className="card">
-          <p className="text-sm font-semibold mb-2">Practice this concept with 10 new AI-written questions</p>
+          <p className="text-sm font-semibold mb-2">
+            Practice this concept with {PRACTICE_SET_SIZE} new AI-written questions
+          </p>
           <p className="text-xs text-slate-400 mb-3">
-            Generates a set of 10 brand-new questions on the same concept - different scenarios,
-            not the one you just saw - so you can check whether it's actually stuck.
+            The first {FIRST_BATCH_SIZE} show up quickly so you can start right away - the rest
+            write themselves in the background while you're answering.
           </p>
           <label className="flex items-center gap-2 text-sm text-slate-300 mb-3">
             <input
@@ -101,7 +137,7 @@ export default function ErrorNotePracticeClient({
           </label>
           {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
           <button type="button" onClick={generate} className="btn-primary" disabled={loading}>
-            {loading ? "Writing 10 questions..." : "Generate 10 practice questions"}
+            {loading ? "Writing questions..." : "Generate practice questions"}
           </button>
         </div>
       )}
@@ -109,7 +145,8 @@ export default function ErrorNotePracticeClient({
       {currentQuestion && (
         <div className="card">
           <p className="text-xs text-slate-500 mb-3">
-            Question {currentIdx + 1} of {questions!.length}
+            Question {currentIdx + 1} of {PRACTICE_SET_SIZE}
+            {loadingMore ? " (more loading...)" : ""}
           </p>
           <p className="text-sm font-semibold mb-3">{currentQuestion.question}</p>
           <div className="space-y-2 mb-4">
@@ -167,10 +204,16 @@ export default function ErrorNotePracticeClient({
                 ))}
               </div>
               <button type="button" onClick={nextQuestion} className="btn-primary mt-2">
-                {currentIdx + 1 >= questions!.length ? "See results" : "Next question"}
+                {currentIdx + 1 >= (questions?.length ?? 0) && !loadingMore ? "See results" : "Next question"}
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {waitingForMore && (
+        <div className="card text-center">
+          <p className="text-sm text-slate-400">Writing the next questions...</p>
         </div>
       )}
 
@@ -183,7 +226,7 @@ export default function ErrorNotePracticeClient({
           <p className="text-sm text-slate-400 mb-4">correct on this concept</p>
           <div className="flex flex-wrap gap-3 justify-center">
             <button type="button" onClick={generate} className="btn-primary" disabled={loading}>
-              {loading ? "Writing 10 questions..." : "Generate another set of 10"}
+              {loading ? "Writing questions..." : "Generate another set"}
             </button>
             <button type="button" onClick={startOver} className="btn-secondary">
               Change difficulty
