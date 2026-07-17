@@ -1,4 +1,3 @@
-
 import type { QBankQuestion } from "./qbankTypes";
 
 export interface QBankAnswerEvent {
@@ -286,6 +285,24 @@ export interface ReviewQueueItem {
   lastMissedAt: string;
 }
 
+// Every tag level a question's meta can carry, all treated as their own
+// review-queue entry - not just primary concept/topic. So missing one
+// question can flag its primary concept, its topic, its subtopic, and each
+// of its secondary concepts independently, since a single question can be
+// the "example" of several different things worth reviewing at once.
+function conceptKeysFor(q: QBankQuestion): string[] {
+  const keys: string[] = [];
+  const add = (v?: string | null) => {
+    const t = v?.trim();
+    if (t && !keys.includes(t)) keys.push(t);
+  };
+  add(q.meta?.primary_concept);
+  add(q.meta?.topic);
+  add(q.meta?.subtopic);
+  for (const sc of q.meta?.secondary_concepts ?? []) add(sc);
+  return keys;
+}
+
 /**
  * Smart Review's priority queue - every concept the student hasn't yet
  * "earned back" after missing it. A concept is due if it's had at least one
@@ -294,6 +311,12 @@ export interface ReviewQueueItem {
  * zero misses in the recent window are treated as mastered and drop out of
  * the queue entirely - this is deliberately simple (no literal per-day
  * scheduling) rather than a full spaced-repetition date engine.
+ *
+ * Each answered question can feed more than one queue entry - see
+ * conceptKeysFor above - and only 2 recorded attempts on a given tag are
+ * needed before it's eligible to show up (lowered from 3 so a review gap
+ * surfaces sooner, at the cost of being a bit more sensitive to a single
+ * unlucky pair of misses on a brand-new tag).
  */
 export function computeSmartReviewQueue(
   qbankEvents: QBankAnswerEvent[],
@@ -310,21 +333,23 @@ export function computeSmartReviewQueue(
     const q = questionById.get(ev.questionId);
     if (!q || !ev.choiceId) continue;
     const isCorrect = ev.choiceId === q.correct_choice_id;
-    const concept = q.meta?.primary_concept?.trim() || q.meta?.topic?.trim() || null;
-    if (!concept) continue;
+    const keys = conceptKeysFor(q);
+    if (keys.length === 0) continue;
 
-    if (!conceptBuckets[concept]) conceptBuckets[concept] = { answers: [] };
     let errorType: string | null = null;
     if (!isCorrect) {
       const choice = q.choices.find((c) => c.id === ev.choiceId);
       errorType = choice?.error_type ?? null;
     }
-    conceptBuckets[concept].answers.push({ correct: isCorrect, submittedAt: ev.submittedAt, errorType });
+    for (const concept of keys) {
+      if (!conceptBuckets[concept]) conceptBuckets[concept] = { answers: [] };
+      conceptBuckets[concept].answers.push({ correct: isCorrect, submittedAt: ev.submittedAt, errorType });
+    }
   }
 
   const queue: ReviewQueueItem[] = [];
   for (const [concept, bucket] of Object.entries(conceptBuckets)) {
-    if (bucket.answers.length < 3) continue;
+    if (bucket.answers.length < 2) continue;
     const recent = [...bucket.answers]
       .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
       .slice(0, 7);
