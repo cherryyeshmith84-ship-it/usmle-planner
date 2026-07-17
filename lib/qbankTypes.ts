@@ -114,6 +114,14 @@ export interface QBankQuestionMeta {
   topic?: string;
   subtopic?: string;
   primary_concept?: string;
+  // References concept_library.id. Set whenever Primary concept is chosen
+  // via the Question Editor's Concept Library dropdown (added so Primary
+  // concept can only ever be one of a fixed, deduped set of concepts -
+  // free-typed values can no longer create near-duplicates). Older
+  // questions tagged before this existed may have primary_concept set with
+  // no matching id - that's expected and still works everywhere that reads
+  // primary_concept as a string.
+  primary_concept_id?: string;
   secondary_concepts?: string[];
   difficulty?: QuestionDifficulty;
   question_type?: QBankQuestionType | string;
