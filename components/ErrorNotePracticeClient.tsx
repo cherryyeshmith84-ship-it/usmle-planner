@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import type { GeneratedPracticeQuestion } from "@/app/api/generate-practice-question/route";
 import { PRACTICE_SET_SIZE } from "@/lib/practiceQuestionPrompt";
 
@@ -12,24 +14,29 @@ import { PRACTICE_SET_SIZE } from "@/lib/practiceQuestionPrompt";
 const FIRST_BATCH_SIZE = 1;
 
 /**
- * The interactive half of the Error Notes "practice this concept" page: a
- * button that asks the AI to write a set of new questions on the exact
- * concept the student just missed (same or harder difficulty, their
- * choice), then walks them through them one at a time with immediate
- * per-choice feedback and a score at the end - all generated fresh each
- * time, not pulled from the existing question pool, so it's a genuinely new
- * attempt rather than a repeat of one they might have half-memorized.
+ * Steps 2 and 3 of the Error Notes "Master This Weakness" flow (step 1,
+ * "Quick Fix", is the plain-language mistake recap rendered by the parent
+ * page above this component). Step 2, "Targeted Practice", asks the AI to
+ * write a fresh set of questions on the exact concept the student just
+ * missed - generated new each time, not pulled from the pool, so it's a
+ * genuine re-test rather than a repeat of one they might have
+ * half-memorized. Step 3, "Retest Later", logs every answer to
+ * concept_practice_attempts so Smart Review can factor real practice
+ * performance into this concept's mastery state later, instead of ending
+ * the session with nothing to show for it beyond an in-the-moment score.
  */
 export default function ErrorNotePracticeClient({
   concept,
   weakConcept,
   errorNote,
   originalQuestion,
+  userId,
 }: {
   concept: string;
   weakConcept: string | null;
   errorNote: string | null;
   originalQuestion: string;
+  userId: string;
 }) {
   const [harder, setHarder] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -94,9 +101,18 @@ export default function ErrorNotePracticeClient({
   function submitAnswer() {
     if (selectedIdx === null || !questions) return;
     setRevealed(true);
-    if (questions[currentIdx].choices[selectedIdx]?.correct) {
-      setCorrectCount((c) => c + 1);
-    }
+    const isCorrect = !!questions[currentIdx].choices[selectedIdx]?.correct;
+    if (isCorrect) setCorrectCount((c) => c + 1);
+
+    // Log this attempt so Smart Review can eventually confirm retention
+    // from real practice results, not just the in-session score. Best
+    // effort - a logging failure shouldn't block the student from
+    // continuing their practice set.
+    const supabase = createClient();
+    supabase
+      .from("concept_practice_attempts")
+      .insert({ user_id: userId, concept, correct: isCorrect, harder })
+      .then(() => {});
   }
 
   function nextQuestion() {
@@ -118,6 +134,12 @@ export default function ErrorNotePracticeClient({
 
   return (
     <div className="space-y-4">
+      {!finished && (
+        <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide">
+          Step 2 of 3 &middot; Targeted Practice
+        </p>
+      )}
+
       {!questions && (
         <div className="card">
           <p className="text-sm font-semibold mb-2">
@@ -219,19 +241,42 @@ export default function ErrorNotePracticeClient({
       )}
 
       {finished && (
-        <div className="card text-center">
-          <p className="text-xs text-slate-500 mb-1">Set complete</p>
-          <p className="text-3xl font-bold mb-1">
-            {correctCount}/{questions!.length}
-          </p>
-          <p className="text-sm text-slate-400 mb-4">correct on this concept</p>
-          <div className="flex flex-wrap gap-3 justify-center">
-            <button type="button" onClick={generate} className="btn-primary" disabled={loading}>
-              {loading ? "Writing questions..." : "Generate another set"}
-            </button>
-            <button type="button" onClick={startOver} className="btn-secondary">
-              Change difficulty
-            </button>
+        <div className="space-y-4">
+          <div className="card text-center">
+            <p className="text-xs text-slate-500 mb-1">Targeted Practice complete</p>
+            <p className="text-3xl font-bold mb-1">
+              {correctCount}/{questions!.length}
+            </p>
+            <p className="text-sm text-slate-400 mb-4">correct on this concept</p>
+            <div className="flex flex-wrap gap-3 justify-center">
+              <button type="button" onClick={generate} className="btn-primary" disabled={loading}>
+                {loading ? "Writing questions..." : "Generate another set"}
+              </button>
+              <button type="button" onClick={startOver} className="btn-secondary">
+                Change difficulty
+              </button>
+            </div>
+          </div>
+
+          <div className="card border-purple-900/40">
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-2">
+              Step 3 of 3 &middot; Retest Later
+            </p>
+            <p className="text-sm text-slate-300 mb-3">
+              Every answer from this set has been logged against{" "}
+              <span className="font-semibold text-slate-200">{concept}</span>. Getting it right
+              once here isn&apos;t the same as retention - Smart Review will bring this concept
+              back on its own after some time to confirm you&apos;ve actually got it, instead of
+              taking today&apos;s score as the final word.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/smart-review" className="btn-secondary text-sm">
+                Go to Smart Review
+              </Link>
+              <Link href="/error-notes" className="btn-secondary text-sm">
+                Back to Error Notes
+              </Link>
+            </div>
           </div>
         </div>
       )}
