@@ -24,8 +24,17 @@ export default async function QuestionBankCreateTestPage() {
   const profile = profileData as Profile | null;
   if (!profile?.onboarding_completed) redirect("/onboarding");
 
+  // Only questions an admin has actually published belong in the student
+  // pool - without this filter, draft and legacy untagged stub questions
+  // (created while building out the editor) were just as selectable as
+  // finished ones, which is confusing for students and silently defeats
+  // the whole point of the draft/under_review/published workflow.
   const [questionsRes, sessionsRes, marksRes] = await Promise.all([
-    supabase.from("qbank_questions").select("*").order("created_at", { ascending: true }),
+    supabase
+      .from("qbank_questions")
+      .select("*")
+      .filter("meta->>status", "eq", "published")
+      .order("created_at", { ascending: true }),
     supabase.from("qbank_test_sessions").select("*").eq("user_id", user.id),
     supabase.from("qbank_marks").select("question_id").eq("user_id", user.id).eq("marked", true),
   ]);
