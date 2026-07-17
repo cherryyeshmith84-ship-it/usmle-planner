@@ -51,11 +51,14 @@ export default async function ErrorNotePracticePage({
           <Link href="/error-notes" className="text-xs text-slate-400 hover:text-slate-200">
             &larr; Back to Error Notes
           </Link>
-          <h1 className="text-2xl font-bold mt-2">{concept}</h1>
+          <h1 className="text-2xl font-bold mt-2">Master This Weakness</h1>
+          <p className="text-sm text-slate-400 mt-1">{concept}</p>
         </div>
 
         <div className="card border-red-900/30">
-          <p className="text-xs font-semibold text-slate-500 mb-2">What went wrong</p>
+          <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-2">
+            Step 1 of 3 &middot; Quick Fix
+          </p>
           <p className="text-sm text-slate-200 mb-3">{reframed}</p>
           {chosen.error_note && (
             <p className="text-xs text-amber-400 mb-3">The mix-up: {chosen.error_note}</p>
@@ -85,6 +88,7 @@ export default async function ErrorNotePracticePage({
           weakConcept={chosen.weak_concept ?? null}
           errorNote={chosen.error_note ?? null}
           originalQuestion={q.question}
+          userId={user.id}
         />
       </main>
     </AppShell>
