@@ -3,7 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { QBankTestSession } from "@/lib/qbankTypes";
-import NavBar from "@/components/NavBar";
+import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +27,8 @@ export default async function PreviousQBankTestsPage() {
   const sessions = (data ?? []) as QBankTestSession[];
 
   return (
-    <div className="min-h-screen flex">
-      <NavBar isAdmin={profile?.is_admin} />
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold">Previous tests</h1>
           <Link href="/qbank" className="btn-primary">
@@ -75,6 +74,6 @@ export default async function PreviousQBankTestsPage() {
           })}
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }
