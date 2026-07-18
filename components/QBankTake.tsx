@@ -1,64 +1,944 @@
-async function finalizeTest() {
-  if (finalizedRef.current) return;
-  finalizedRef.current = true;
-  setSubmitting(true);
+"use client";
 
-  const total = questions.length;
-  const correct = questions.filter(
-    (q) => answers[q.id] === q.correct_choice_id
-  ).length;
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { chunkIntoBlocks, formatSeconds } from "@/lib/assessments";
+import { choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
+import type { QBankQuestion, QBankTestSession, ExamModeOption } from "@/lib/qbankTypes";
+import LabValuesSearch from "./LabValuesSearch";
+import AiHelper from "./AiHelper";
+import ExamCalculator from "./ExamCalculator";
+import ExamSettings, { type ExamTheme, type FontSize } from "./ExamSettings";
+import QuestionNavigator from "./QuestionNavigator";
 
-  const times = deriveTimes();
-  const supabase = createClient();
-  const submittedAt = new Date().toISOString();
+type Phase = "start" | "taking" | "blockDone" | "results";
 
-  const { error: sessionError } = await supabase
-    .from("qbank_test_sessions")
-    .update({
-      mode: examMode,
-      answers,
-      question_seconds: times,
-      score_correct: correct,
-      score_total: total,
-      submitted_at: submittedAt,
-      in_progress: false,
-    })
-    .eq("id", session.id);
+const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
+const SECONDS_PER_QUESTION = 75; // seconds per question
 
-  if (sessionError) {
-    console.error("Failed to save test session:", sessionError);
-    finalizedRef.current = false;
-    setSubmitting(false);
-    return;
+/**
+ * Small text link (UWorld-style "Exhibit" link) that opens an image full-size
+ * in a lightbox overlay when clicked, instead of the image sitting inline and
+ * taking up space in the question/choice list.
+ */
+function ImageLink({ url, label, onOpen }: { url: string; label: string; onOpen: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="text-xs font-medium text-brand-400 hover:text-brand-300 underline underline-offset-2"
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Renders each choice's own short explanation (typed by the admin directly
+ * under that choice in the editor) plus its image link, one line per choice,
+ * right inside the explanation section - so "why B is wrong" and B's image
+ * sit together, instead of the admin having to place manual markers.
+ * Choices with neither a rationale nor an image are skipped entirely.
+ */
+function ChoiceExplanations({
+  choices,
+  correctChoiceId,
+  onOpen,
+}: {
+  choices: {
+    id: string;
+    rationale?: string | null;
+    image_url?: string | null;
+    error_note?: string | null;
+    key_concept?: string | null;
+  }[];
+  correctChoiceId: string;
+  onOpen: (url: string) => void;
+}) {
+  const relevant = choices.filter((c) => c.rationale || c.image_url || c.error_note || c.key_concept);
+  if (relevant.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {choices.map((c, i) => {
+        if (!c.rationale && !c.image_url && !c.error_note && !c.key_concept) return null;
+        const isCorrect = c.id === correctChoiceId;
+        return (
+          <div key={c.id} className="text-sm text-slate-300">
+            <p>
+              <span className={`font-semibold ${isCorrect ? "text-green-400" : "text-slate-400"}`}>
+                Choice {String.fromCharCode(65 + i)}
+                {isCorrect ? " (correct)" : ""}:{" "}
+              </span>
+              {c.rationale}
+              {c.image_url && (
+                <span className="ml-2 align-middle">
+                  <ImageLink url={c.image_url} label="View image" onOpen={onOpen} />
+                </span>
+              )}
+            </p>
+            {c.error_note && <p className="text-xs text-amber-400 mt-1">Error note: {c.error_note}</p>}
+            {isCorrect && c.key_concept && (
+              <p className="text-xs text-brand-300 mt-1">Key concept: {c.key_concept}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function QBankTake({
+  userId,
+  session,
+  questions,
+  initialMarked,
+}: {
+  userId: string;
+  session: QBankTestSession;
+  questions: QBankQuestion[];
+  initialMarked: Record<string, boolean>;
+}) {
+  const blocks = useMemo(
+    () => chunkIntoBlocks(questions as any, session.questions_per_block) as unknown as QBankQuestion[][],
+    [questions, session.questions_per_block]
+  );
+
+  const alreadyDone = !!session.submitted_at;
+  // A session that was left mid-test (started, not yet submitted) resumes
+  // straight into "taking" at its saved position, instead of showing the
+  // "Start test" screen again and losing the student's place.
+  const resuming = !alreadyDone && !!session.in_progress;
+
+  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : resuming ? "taking" : "start");
+  const [currentBlock, setCurrentBlock] = useState(session.current_block ?? 0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(session.current_question_index ?? 0);
+  const [answers, setAnswers] = useState<Record<string, string>>(session.answers ?? {});
+  const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(session.question_seconds ?? {});
+  const [submitting, setSubmitting] = useState(false);
+
+  const [showNormalValues, setShowNormalValues] = useState(false);
+  const [showAiHelper, setShowAiHelper] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  // Whichever image (question/choice/explanation) is currently open in the
+  // full-size lightbox overlay - null means the lightbox is closed.
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [fontSize, setFontSize] = useState<FontSize>("md");
+  const [examTheme, setExamTheme] = useState<ExamTheme>("dark");
+  const [splitScreen, setSplitScreen] = useState(false);
+
+  const [flagged, setFlagged] = useState<Record<string, boolean>>(initialMarked);
+  const [struckChoices, setStruckChoices] = useState<Record<string, Set<string>>>({});
+
+  const [examMode, setExamMode] = useState<ExamModeOption>(session.mode ?? "test");
+  const [revealed, setRevealed] = useState<Record<string, boolean>>(session.revealed ?? {});
+
+  // Percent of students who picked each choice, keyed by question id, then
+  // choice id -> percent. Loaded lazily (on tutor reveal / entering results)
+  // via the qbank_choice_stats Supabase function - shown as a UWorld-style
+  // "42%" next to each answer choice.
+  const [choiceStats, setChoiceStats] = useState<Record<string, Record<string, number>>>({});
+  const loadedStatsRef = useRef<Set<string>>(new Set());
+
+  const currentQuestions = blocks[currentBlock] ?? [];
+  const blockSeconds = currentQuestions.length * SECONDS_PER_QUESTION;
+  const [blockSecondsLeft, setBlockSecondsLeft] = useState(blockSeconds);
+
+  const startedAtRef = useRef<string>(session.started_at || new Date().toISOString());
+  const finalizedRef = useRef(false);
+  const advancingRef = useRef(false);
+  const rawElapsedRef = useRef<Record<string, number>>({});
+
+  // Tutor-mode-only stopwatch for the current block: counts UP continuously
+  // from wherever it was left off (0 for a fresh block, or a resumed value
+  // after a refresh), only pausing while the current question is revealed.
+  // It does NOT reset between questions - question 2 picks up right where
+  // question 1 left off, same as a real exam clock.
+  const tutorLiveRef = useRef(session.tutor_elapsed_seconds ?? 0);
+  const [tutorLiveDisplay, setTutorLiveDisplay] = useState(session.tutor_elapsed_seconds ?? 0);
+
+  // Refs mirroring the latest state, read by the autosave interval below so
+  // it always persists fresh values without needing to be torn down and
+  // recreated on every keystroke/click.
+  const answersRef = useRef(answers);
+  const revealedRef = useRef(revealed);
+  const currentBlockRef = useRef(currentBlock);
+  const currentQuestionIndexRef = useRef(currentQuestionIndex);
+  const examModeRef = useRef(examMode);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+  useEffect(() => {
+    revealedRef.current = revealed;
+  }, [revealed]);
+  useEffect(() => {
+    currentBlockRef.current = currentBlock;
+  }, [currentBlock]);
+  useEffect(() => {
+    currentQuestionIndexRef.current = currentQuestionIndex;
+  }, [currentQuestionIndex]);
+  useEffect(() => {
+    examModeRef.current = examMode;
+  }, [examMode]);
+
+  // Saves current progress (answers, revealed questions, tutor stopwatch,
+  // and position) so a page refresh or closed tab can resume exactly here.
+  // Pass overrides for any value that was just changed in the same tick as
+  // the call (e.g. right after setRevealed) so it doesn't read a stale ref.
+  async function saveProgress(overrides?: {
+    answers?: Record<string, string>;
+    revealed?: Record<string, boolean>;
+    currentBlock?: number;
+    currentQuestionIndex?: number;
+    tutorElapsedSeconds?: number;
+    mode?: ExamModeOption;
+  }) {
+    const supabase = createClient();
+    await supabase
+      .from("qbank_test_sessions")
+      .update({
+        mode: overrides?.mode ?? examModeRef.current,
+        answers: overrides?.answers ?? answersRef.current,
+        revealed: overrides?.revealed ?? revealedRef.current,
+        tutor_elapsed_seconds: overrides?.tutorElapsedSeconds ?? tutorLiveRef.current,
+        current_block: overrides?.currentBlock ?? currentBlockRef.current,
+        current_question_index: overrides?.currentQuestionIndex ?? currentQuestionIndexRef.current,
+        in_progress: true,
+      })
+      .eq("id", session.id);
   }
 
-  const attemptRows = questions
-    .filter((q) => !!answers[q.id])
-    .map((q) => ({
-      user_id: userId,
-      question_id: q.id,
-      session_id: session.id,
-      selected_choice_id: answers[q.id],
-      is_correct: answers[q.id] === q.correct_choice_id,
-      time_spent_seconds: times[q.id] ?? null,
-      confidence_level: null,
-      created_at: submittedAt,
-    }));
+  const answeredInBlock = currentQuestions.filter((q) => answers[q.id]).length;
+  const isLastBlock = currentBlock >= blocks.length - 1;
+  const currentQuestion = currentQuestions[currentQuestionIndex];
+  const isFirstQuestion = currentQuestionIndex === 0;
+  const isLastQuestion = currentQuestionIndex >= currentQuestions.length - 1;
+  const isRevealedNow = examMode === "tutor" && !!revealed[currentQuestion?.id ?? ""];
 
-  if (attemptRows.length > 0) {
-    const { error: attemptsError } = await supabase
-      .from("qbank_question_attempts")
-      .insert(attemptRows);
+  useEffect(() => {
+    if (phase !== "taking" || isRevealedNow || examMode === "tutor") return;
+    const interval = setInterval(() => {
+      setBlockSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase, isRevealedNow, examMode]);
 
-    if (attemptsError) {
-      console.error(
-        "Failed to save question attempts:",
-        attemptsError
-      );
+  useEffect(() => {
+    if (phase === "taking" && blockSecondsLeft === 0) {
+      endBlock();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockSecondsLeft]);
+
+  // Ticks the tutor-mode stopwatch up by 1 every second, continuously
+  // across the whole block - only while taking the test, in tutor mode,
+  // and the current question isn't revealed yet.
+  useEffect(() => {
+    if (phase !== "taking" || examMode !== "tutor" || isRevealedNow) return;
+    const interval = setInterval(() => {
+      tutorLiveRef.current += 1;
+      setTutorLiveDisplay(tutorLiveRef.current);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase, examMode, isRevealedNow]);
+
+  // Autosaves progress every few seconds while taking the test, so a
+  // refresh (or an accidentally closed tab) resumes at the same question,
+  // with the same answers/reveals and the same elapsed tutor time, instead
+  // of starting over.
+  useEffect(() => {
+    if (phase !== "taking") return;
+    const interval = setInterval(saveProgress, 4000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "taking") return;
+
+    function applyHighlight(e: MouseEvent) {
+      if (e.detail > 1) return;
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      const anchorEl =
+        range.commonAncestorContainer.nodeType === 3
+          ? range.commonAncestorContainer.parentElement
+          : (range.commonAncestorContainer as HTMLElement);
+      if (!anchorEl || !anchorEl.closest("[data-highlight-zone]")) return;
+      if (range.toString().trim().length === 0) return;
+
+      const mark = document.createElement("mark");
+      mark.className = "bg-yellow-300/70 text-black rounded px-0.5 cursor-pointer";
+      mark.title = "Click to remove highlight";
+      try {
+        range.surroundContents(mark);
+      } catch {
+        try {
+          const content = range.extractContents();
+          mark.appendChild(content);
+          range.insertNode(mark);
+        } catch {
+          return;
+        }
+      }
+      selection.removeAllRanges();
+    }
+
+    function removeHighlightOnClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "MARK" && target.closest("[data-highlight-zone]")) {
+        const parent = target.parentNode;
+        if (!parent) return;
+        while (target.firstChild) parent.insertBefore(target.firstChild, target);
+        parent.removeChild(target);
+        parent.normalize();
+      }
+    }
+
+    document.addEventListener("mouseup", applyHighlight);
+    document.addEventListener("click", removeHighlightOnClick);
+    return () => {
+      document.removeEventListener("mouseup", applyHighlight);
+      document.removeEventListener("click", removeHighlightOnClick);
+    };
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "results") return;
+    for (const q of questions) {
+      loadChoiceStats(q.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  function startTest() {
+    setCurrentBlock(0);
+    setCurrentQuestionIndex(0);
+    setBlockSecondsLeft((blocks[0] ?? []).length * SECONDS_PER_QUESTION);
+    setRevealed({});
+    rawElapsedRef.current = {};
+    tutorLiveRef.current = 0;
+    setTutorLiveDisplay(0);
+    finalizedRef.current = false;
+    advancingRef.current = false;
+    setPhase("taking");
+    saveProgress({ currentBlock: 0, currentQuestionIndex: 0, revealed: {}, tutorElapsedSeconds: 0 });
+  }
+
+  function chooseAnswer(questionId: string, choiceId: string) {
+    setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
+    if (rawElapsedRef.current[questionId] === undefined) {
+      rawElapsedRef.current[questionId] = examMode === "tutor" ? tutorLiveRef.current : blockSeconds - blockSecondsLeft;
     }
   }
 
-  setSubmitting(false);
-  setQuestionTimes(times);
-  setPhase("results");
+  function submitTutorAnswer(questionId: string) {
+    const nextRevealed = { ...revealed, [questionId]: true };
+    setRevealed(nextRevealed);
+    loadChoiceStats(questionId);
+    saveProgress({ revealed: nextRevealed });
+  }
+
+  async function loadChoiceStats(questionId: string) {
+    if (loadedStatsRef.current.has(questionId)) return;
+    loadedStatsRef.current.add(questionId);
+    const supabase = createClient();
+    const { data } = await supabase.rpc("qbank_choice_stats", { p_question_id: questionId });
+    const { percents } = choiceStatsToPercents((data ?? []) as ChoiceStatRow[]);
+    setChoiceStats((prev) => ({ ...prev, [questionId]: percents }));
+  }
+
+  function toggleStrike(questionId: string, choiceId: string) {
+    setStruckChoices((prev) => {
+      const current = new Set(prev[questionId] ?? []);
+      if (current.has(choiceId)) current.delete(choiceId);
+      else current.add(choiceId);
+      return { ...prev, [questionId]: current };
+    });
+  }
+
+  async function toggleFlag(questionId: string) {
+    const nextValue = !flagged[questionId];
+    setFlagged((prev) => ({ ...prev, [questionId]: nextValue }));
+    const supabase = createClient();
+    await supabase
+      .from("qbank_marks")
+      .upsert({ user_id: userId, question_id: questionId, marked: nextValue, updated_at: new Date().toISOString() });
+  }
+
+  function endBlock() {
+    if (advancingRef.current || finalizedRef.current) return;
+    for (const q of currentQuestions) {
+      if (rawElapsedRef.current[q.id] === undefined) {
+        rawElapsedRef.current[q.id] = examMode === "tutor" ? tutorLiveRef.current : blockSeconds - blockSecondsLeft;
+      }
+    }
+    if (currentBlock >= blocks.length - 1) {
+      finalizeTest();
+      return;
+    }
+    // Save progress at each block boundary so closing the tab mid-test and
+    // coming back via "Resume" on Previous Tests doesn't lose answers.
+    const supabase = createClient();
+    supabase
+      .from("qbank_test_sessions")
+      .update({
+        mode: examMode,
+        answers,
+        revealed,
+        current_block: currentBlock,
+        current_question_index: currentQuestionIndex,
+        tutor_elapsed_seconds: tutorLiveRef.current,
+        question_seconds: deriveTimes(),
+        in_progress: true,
+      })
+      .eq("id", session.id);
+    setPhase("blockDone");
+  }
+
+  function goToNextBlock() {
+    if (finalizedRef.current || advancingRef.current) return;
+    advancingRef.current = true;
+    const nextIndex = currentBlock + 1;
+    const nextBlockLen = (blocks[nextIndex] ?? []).length;
+    setCurrentBlock(nextIndex);
+    setCurrentQuestionIndex(0);
+    setBlockSecondsLeft(nextBlockLen * SECONDS_PER_QUESTION);
+    tutorLiveRef.current = 0;
+    setTutorLiveDisplay(0);
+    setPhase("taking");
+    saveProgress({ currentBlock: nextIndex, currentQuestionIndex: 0, tutorElapsedSeconds: 0 });
+    setTimeout(() => {
+      advancingRef.current = false;
+    }, 300);
+  }
+
+  function deriveTimes(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const block of blocks) {
+      let prev = 0;
+      for (const q of block) {
+        const t = rawElapsedRef.current[q.id];
+        if (t === undefined) continue;
+        out[q.id] = Math.max(0, t - prev);
+        prev = t;
+      }
+    }
+    return out;
+  }
+
+  // Saves the finished test the same way as before (qbank_test_sessions),
+  // then additionally logs one row per answered question to
+  // qbank_question_attempts - a flat, per-question attempt log (separate
+  // from the session's answers blob) that future analytics can query
+  // directly without having to unpack every session's JSON. Best-effort:
+  // if the attempt-row insert fails, the test is still marked submitted
+  // and the student still sees their results - only the session save
+  // itself is treated as must-succeed (retried by leaving finalizedRef
+  // false so the student can hit "Finish test" again).
+  async function finalizeTest() {
+    if (finalizedRef.current) return;
+    finalizedRef.current = true;
+    setSubmitting(true);
+
+    const total = questions.length;
+    const correct = questions.filter(
+      (q) => answers[q.id] === q.correct_choice_id
+    ).length;
+
+    const times = deriveTimes();
+    const supabase = createClient();
+    const submittedAt = new Date().toISOString();
+
+    const { error: sessionError } = await supabase
+      .from("qbank_test_sessions")
+      .update({
+        mode: examMode,
+        answers,
+        question_seconds: times,
+        score_correct: correct,
+        score_total: total,
+        submitted_at: submittedAt,
+        in_progress: false,
+      })
+      .eq("id", session.id);
+
+    if (sessionError) {
+      console.error("Failed to save test session:", sessionError);
+      finalizedRef.current = false;
+      setSubmitting(false);
+      return;
+    }
+
+    const attemptRows = questions
+      .filter((q) => !!answers[q.id])
+      .map((q) => ({
+        user_id: userId,
+        question_id: q.id,
+        session_id: session.id,
+        selected_choice_id: answers[q.id],
+        is_correct: answers[q.id] === q.correct_choice_id,
+        time_spent_seconds: times[q.id] ?? null,
+        confidence_level: null,
+        created_at: submittedAt,
+      }));
+
+    if (attemptRows.length > 0) {
+      const { error: attemptsError } = await supabase
+        .from("qbank_question_attempts")
+        .insert(attemptRows);
+
+      if (attemptsError) {
+        console.error(
+          "Failed to save question attempts:",
+          attemptsError
+        );
+      }
+    }
+
+    setSubmitting(false);
+    setQuestionTimes(times);
+    setPhase("results");
+  }
+
+  if (phase === "start") {
+    return (
+      <div className="card max-w-xl">
+        <h1 className="text-xl font-bold mb-1">Custom test</h1>
+        <p className="text-sm text-slate-400 mb-6">
+          {blocks.length} block{blocks.length === 1 ? "" : "s"} · {questions.length} question
+          {questions.length === 1 ? "" : "s"} total · {session.questions_per_block} per block
+        </p>
+        <p className="text-sm text-slate-300 mb-6">
+          Test mode gives the whole block a shared clock (about 75 seconds per question) and
+          ends the block when it runs out. Tutor mode is different: it's a simple stopwatch that
+          starts at 0 and keeps counting up across the whole block - it only pauses while you're
+          reading a submitted answer's explanation, and never forces the block to end. You can
+          switch between the two at any point.
+        </p>
+        <button type="button" onClick={startTest} className="btn-primary">
+          Start test
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "blockDone") {
+    return (
+      <div className="card max-w-xl">
+        <h2 className="text-lg font-bold mb-2">Block {currentBlock + 1} complete</h2>
+        <p className="text-sm text-slate-400 mb-6">Ready for the next block whenever you are.</p>
+        <button type="button" onClick={goToNextBlock} className="btn-primary">
+          Continue to block {currentBlock + 2}
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "taking" && currentQuestion) {
+    const struck = struckChoices[currentQuestion.id] ?? new Set<string>();
+    const isFlagged = !!flagged[currentQuestion.id];
+    const chosen = answers[currentQuestion.id];
+    const answeredCorrectly = chosen === currentQuestion.correct_choice_id;
+
+    return (
+      <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
+        <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-black/90 backdrop-blur border-b border-slate-800">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="text-sm text-slate-400">
+              Block {currentBlock + 1} of {blocks.length} · Item {currentQuestionIndex + 1} of{" "}
+              {currentQuestions.length} · {answeredInBlock}/{currentQuestions.length} answered
+            </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center border border-slate-700 rounded-lg overflow-hidden text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setExamMode("test")}
+                  className={`px-2 py-1 ${examMode === "test" ? "bg-brand-900/50 text-brand-200" : "text-slate-400 hover:text-slate-200"}`}
+                >
+                  Test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExamMode("tutor")}
+                  className={`px-2 py-1 border-l border-slate-700 ${examMode === "tutor" ? "bg-brand-900/50 text-brand-200" : "text-slate-400 hover:text-slate-200"}`}
+                >
+                  Tutor
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleFlag(currentQuestion.id)}
+                className={`text-xs font-semibold border rounded-lg px-2 py-1 ${
+                  isFlagged ? "border-amber-500 text-amber-400 bg-amber-900/20" : "border-slate-700 text-brand-400 hover:text-brand-300"
+                }`}
+              >
+                {isFlagged ? "Marked" : "Mark"}
+              </button>
+              <button type="button" onClick={() => setShowNormalValues(true)} className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1">
+                Lab values
+              </button>
+              <button type="button" onClick={() => setShowAiHelper(true)} className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1">
+                AI Help
+              </button>
+              <button type="button" onClick={() => setShowCalculator(true)} className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1">
+                Calculator
+              </button>
+              <button type="button" onClick={() => setShowSettings(true)} className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-2 py-1">
+                Settings
+              </button>
+              <span className="text-xs text-slate-400">
+                {examMode === "tutor" ? (
+                  <>
+                    Time elapsed{" "}
+                    <span className="font-bold tabular-nums text-sm ml-1 text-white">
+                      {formatSeconds(tutorLiveDisplay)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Block time{" "}
+                    <span className={`font-bold tabular-nums text-sm ml-1 ${blockSecondsLeft <= 60 ? "text-amber-400" : "text-white"}`}>
+                      {formatSeconds(blockSecondsLeft)}
+                    </span>
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          {examMode === "tutor"
+            ? "Tutor mode: the clock keeps running block-wide - it pauses while you're reading a submitted answer's explanation, and picks back up right where it left off on the next question."
+            : "Test mode: no feedback until you end the block."}{" "}
+          Select text to highlight it (click a highlight to remove it) - double-click an answer choice to strike it out.
+        </p>
+
+        <div className="flex gap-4 items-start">
+          <QuestionNavigator
+            items={currentQuestions.map((q, i) => ({ index: i, answered: !!answers[q.id], flagged: !!flagged[q.id] }))}
+            currentIndex={currentQuestionIndex}
+            onSelect={setCurrentQuestionIndex}
+          />
+
+          <div className="flex-1 min-w-0 space-y-4">
+            {/* key={currentQuestion.id} forces React to fully unmount and
+                rebuild this card on every question change, instead of trying
+                to patch it - text highlighting inserts <mark> tags straight
+                into the DOM, bypassing React, and without this remount those
+                manual edits corrupt the next question's rendered text and can
+                leave navigation looking frozen until a hard refresh. */}
+            <div className="card" key={currentQuestion.id}>
+              <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
+                <p className="text-sm font-semibold mb-3" data-highlight-zone style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
+                  {currentQuestionIndex + 1}. {currentQuestion.question}
+                </p>
+                {currentQuestion.question_image_url && (
+                  <div className="mb-3">
+                    <ImageLink url={currentQuestion.question_image_url} label="View image" onOpen={setLightboxUrl} />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {currentQuestion.choices.map((c) => {
+                    const isStruck = struck.has(c.id);
+                    const isChosen = chosen === c.id;
+                    const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
+                    let borderClass = "border-slate-700 hover:border-slate-600";
+                    if (isRevealedNow && isCorrectChoice) borderClass = "border-green-600 bg-green-900/20";
+                    else if (isRevealedNow && isChosen) borderClass = "border-red-600 bg-red-900/20";
+                    else if (isChosen) borderClass = "border-brand-400 bg-brand-900/20";
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="radio"
+                            name={`q-${currentQuestion.id}`}
+                            checked={isChosen}
+                            disabled={isRevealedNow}
+                            onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                            className="w-4 h-4 shrink-0"
+                          />
+                          <span
+                            className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                            data-highlight-zone
+                            style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                            onDoubleClick={(e) => {
+                              if (isRevealedNow) return;
+                              e.preventDefault();
+                              window.getSelection()?.removeAllRanges();
+                              toggleStrike(currentQuestion.id, c.id);
+                            }}
+                          >
+                            {c.text}
+                          </span>
+                          {isRevealedNow && (
+                            <span className="ml-auto shrink-0 flex items-center gap-2">
+                              {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
+                                <span className="text-xs text-slate-400">
+                                  {choiceStats[currentQuestion.id][c.id]}%
+                                </span>
+                              )}
+                              {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
+                              {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {examMode === "tutor" && !isRevealedNow && (
+                <button type="button" onClick={() => submitTutorAnswer(currentQuestion.id)} disabled={!chosen} className="btn-primary mt-4">
+                  Submit answer
+                </button>
+              )}
+
+              {isRevealedNow && (
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  <p className={`text-sm font-semibold mb-2 ${answeredCorrectly ? "text-green-400" : "text-red-400"}`}>
+                    {answeredCorrectly ? "Correct" : "Incorrect"}
+                  </p>
+                  {currentQuestion.meta?.educational_objective && (
+                    <div className="mb-3 p-2 rounded bg-slate-900/60 border border-slate-800">
+                      <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
+                      <p className="text-sm text-slate-300">{currentQuestion.meta.educational_objective}</p>
+                    </div>
+                  )}
+                  {currentQuestion.explanation_image_url && (
+                    <div className="mb-2">
+                      <ImageLink url={currentQuestion.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+                    </div>
+                  )}
+                  {currentQuestion.explanation && (
+                    <p className="text-sm text-slate-300 whitespace-pre-line">{currentQuestion.explanation}</p>
+                  )}
+                  {currentQuestion.meta?.key_takeaway && (
+                    <div className="mt-3 p-2 rounded bg-brand-900/20 border border-brand-800/40">
+                      <p className="text-xs font-semibold text-brand-300 mb-1">Key takeaway</p>
+                      <p className="text-sm text-slate-200 whitespace-pre-line">{currentQuestion.meta.key_takeaway}</p>
+                    </div>
+                  )}
+                  {currentQuestion.meta?.exam_trap && (
+                    <div className="mt-3 p-2 rounded bg-amber-900/20 border border-amber-800/40">
+                      <p className="text-xs font-semibold text-amber-300 mb-1">Exam trap</p>
+                      <p className="text-sm text-slate-200 whitespace-pre-line">{currentQuestion.meta.exam_trap}</p>
+                    </div>
+                  )}
+                  <ChoiceExplanations
+                    choices={currentQuestion.choices}
+                    correctChoiceId={currentQuestion.correct_choice_id}
+                    onOpen={setLightboxUrl}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => setCurrentQuestionIndex((i) => Math.max(0, i - 1))} disabled={isFirstQuestion} className="btn-secondary">
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentQuestionIndex((i) => Math.min(currentQuestions.length - 1, i + 1))}
+                disabled={isLastQuestion}
+                className="btn-secondary"
+              >
+                Next
+              </button>
+              <button type="button" onClick={endBlock} className="btn-primary" disabled={submitting}>
+                {submitting ? "Submitting..." : isLastBlock ? "Finish test" : `End block ${currentBlock + 1}`}
+              </button>
+            </div>
+            {!isLastBlock && <p className="text-xs text-slate-500">You won&apos;t be able to come back to this block once you end it.</p>}
+          </div>
+        </div>
+
+        {showNormalValues && (
+          <div className="fixed inset-0 z-20 bg-black/70 flex items-center justify-center px-4" onClick={() => setShowNormalValues(false)}>
+            <div className="card max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-semibold">Lab values</h2>
+                <button type="button" onClick={() => setShowNormalValues(false)} className="text-slate-400 hover:text-white text-sm">
+                  Close
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">Standard adult reference ranges - actual lab ranges vary by assay/lab.</p>
+              <LabValuesSearch compact />
+            </div>
+          </div>
+        )}
+
+        {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+        {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
+        {showSettings && (
+          <ExamSettings
+            fontSize={fontSize}
+            setFontSize={setFontSize}
+            theme={examTheme}
+            setTheme={setExamTheme}
+            splitScreen={splitScreen}
+            setSplitScreen={setSplitScreen}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+
+        {lightboxUrl && (
+          <div
+            className="fixed inset-0 z-30 bg-black/85 flex items-center justify-center px-4 py-8"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+            >
+              &times;
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightboxUrl}
+              alt=""
+              className="max-w-full max-h-full rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Results
+  const total = questions.length;
+  const correct = questions.filter((q) => answers[q.id] === q.correct_choice_id).length;
+  const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+  return (
+    <div className="space-y-4 pb-10">
+      <div className="card">
+        <h1 className="text-xl font-bold mb-1">Test results</h1>
+        <div className="flex items-center gap-4 mt-3">
+          <span className={`text-3xl font-bold ${pct === 100 ? "text-green-400" : pct >= 50 ? "text-brand-300" : "text-red-400"}`}>{pct}%</span>
+          <span className="text-sm text-slate-400">{correct}/{total} correct</span>
+        </div>
+        <div className="flex flex-wrap gap-3 mt-4">
+          <Link href="/qbank" className="btn-primary">
+            Create another test
+          </Link>
+          <Link href="/qbank/previous" className="btn-secondary">
+            Previous tests
+          </Link>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {questions.map((q, idx) => {
+          const chosen = answers[q.id];
+          const isCorrect = chosen === q.correct_choice_id;
+          const seconds = questionTimes[q.id];
+          return (
+            <div key={q.id} className="card">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold">{idx + 1}. {q.question}</p>
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  {seconds !== undefined && (
+                    <span className="text-xs font-semibold rounded-full px-2 py-1 bg-slate-800 text-slate-400">{formatSeconds(seconds)}</span>
+                  )}
+                  <span className={`text-xs font-semibold rounded-full px-2 py-1 ${isCorrect ? "bg-green-900/40 text-green-400" : chosen ? "bg-red-900/40 text-red-400" : "bg-slate-800 text-slate-400"}`}>
+                    {isCorrect ? "Correct" : chosen ? "Incorrect" : "Not answered"}
+                  </span>
+                </div>
+              </div>
+              {q.question_image_url && (
+                <div className="mb-2">
+                  <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
+                </div>
+              )}
+              <div className="space-y-1.5 mb-2">
+                {q.choices.map((c, i) => {
+                  const isThisCorrect = c.id === q.correct_choice_id;
+                  const isThisChosen = c.id === chosen;
+                  const pct = choiceStats[q.id]?.[c.id];
+                  return (
+                    <div
+                      key={c.id}
+                      className={`text-sm px-2 py-1 rounded ${
+                        isThisCorrect ? "bg-green-900/20 text-green-300" : isThisChosen ? "bg-red-900/20 text-red-300" : "text-slate-400"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span>
+                          {String.fromCharCode(65 + i)}. {c.text}
+                          {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
+                        </span>
+                        {pct !== undefined && <span className="text-xs text-slate-500 shrink-0">{pct}%</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {q.meta?.educational_objective && (
+                <div className="mb-2 p-2 rounded bg-slate-900/60 border border-slate-800">
+                  <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
+                  <p className="text-sm text-slate-300">{q.meta.educational_objective}</p>
+                </div>
+              )}
+              {q.explanation_image_url && (
+                <div className="mb-2">
+                  <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+                </div>
+              )}
+              {q.explanation && (
+                <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">
+                  {q.explanation}
+                </p>
+              )}
+              {q.meta?.key_takeaway && (
+                <div className="mt-2 p-2 rounded bg-brand-900/20 border border-brand-800/40">
+                  <p className="text-xs font-semibold text-brand-300 mb-1">Key takeaway</p>
+                  <p className="text-sm text-slate-200 whitespace-pre-line">{q.meta.key_takeaway}</p>
+                </div>
+              )}
+              {q.meta?.exam_trap && (
+                <div className="mt-2 p-2 rounded bg-amber-900/20 border border-amber-800/40">
+                  <p className="text-xs font-semibold text-amber-300 mb-1">Exam trap</p>
+                  <p className="text-sm text-slate-200 whitespace-pre-line">{q.meta.exam_trap}</p>
+                </div>
+              )}
+              <ChoiceExplanations choices={q.choices} correctChoiceId={q.correct_choice_id} onOpen={setLightboxUrl} />
+            </div>
+          );
+        })}
+      </div>
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-30 bg-black/85 flex items-center justify-center px-4 py-8"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
+          >
+            &times;
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt=""
+            className="max-w-full max-h-full rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
