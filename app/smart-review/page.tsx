@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { QBankQuestion } from "@/lib/qbankTypes";
 import { computeSmartReviewQueue, type QBankAnswerEvent } from "@/lib/masteryDashboard";
 import { computeAllConceptMasteryStates, MASTERY_LABELS, type MasteryState } from "@/lib/conceptMastery";
+import { encodeSessionQueue, sessionHrefAt } from "@/lib/reviewSession";
 import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -90,19 +91,43 @@ export default async function SmartReviewPage() {
   const lowCount = queue.filter((q) => q.priority === "low").length;
   const hasAnyHistory = qbankEvents.length > 0;
 
+  // Only queue items with an actual sample question can be walked through
+  // in a session (the rest fall back to a plain "go to Question Bank" link
+  // with nothing to chain together) - same items already used to populate
+  // "Start Review" on each card below.
+  const sessionItems = queue
+    .filter((item) => !!item.sampleQuestionId && !!item.sampleChoiceId)
+    .map((item) => ({ questionId: item.sampleQuestionId!, choiceId: item.sampleChoiceId! }));
+  const encodedQueue = sessionItems.length > 0 ? encodeSessionQueue(sessionItems) : null;
+  const sessionStartHref = encodedQueue ? sessionHrefAt(encodedQueue, 0) : null;
+
   return (
     <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <span className="text-purple-400">&#10022;</span> Smart Review
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            {queue.length > 0
-              ? `${queue.length} concept${queue.length === 1 ? "" : "s"} due for review - ${highCount} high · ${mediumCount} medium · ${lowCount} low priority`
-              : "Your prioritized queue of concepts you're still missing, pulled from your Question Bank history."}
-          </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <span className="text-purple-400">&#10022;</span> Smart Review
+            </h1>
+            <p className="text-sm text-slate-400 mt-1">
+              {queue.length > 0
+                ? `${queue.length} concept${queue.length === 1 ? "" : "s"} due for review - ${highCount} high · ${mediumCount} medium · ${lowCount} low priority`
+                : "Your prioritized queue of concepts you're still missing, pulled from your Question Bank history."}
+            </p>
+          </div>
+          {sessionStartHref && (
+            <Link href={sessionStartHref} className="btn-primary shrink-0">
+              Start full review session &rarr;
+            </Link>
+          )}
         </div>
+
+        {sessionStartHref && (
+          <p className="text-xs text-slate-500 -mt-4">
+            Walks through all {sessionItems.length} reviewable concept{sessionItems.length === 1 ? "" : "s"} in
+            this queue back to back, instead of returning here between each one.
+          </p>
+        )}
 
         {queue.length === 0 ? (
           <div className="card border-purple-900/40">
