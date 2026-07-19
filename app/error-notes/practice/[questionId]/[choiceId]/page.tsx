@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { QBankQuestion } from "@/lib/qbankTypes";
 import { buildReframedExplanation, extractQuestionAsk } from "@/lib/errorNotes";
+import { decodeSessionQueue, sessionHrefAt } from "@/lib/reviewSession";
 import AppShell from "@/components/AppShell";
 import ErrorNotePracticeClient from "@/components/ErrorNotePracticeClient";
 
@@ -10,8 +11,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ErrorNotePracticePage({
   params,
+  searchParams,
 }: {
   params: { questionId: string; choiceId: string };
+  searchParams?: { session?: string; pos?: string };
 }) {
   const supabase = createClient();
   const {
@@ -35,6 +38,19 @@ export default async function ErrorNotePracticePage({
 
   const concept = q.meta?.primary_concept?.trim() || q.meta?.topic?.trim() || "this concept";
   const questionAsk = extractQuestionAsk(q.question);
+
+  // If this page was reached from Smart Review's "Start full review
+  // session," these two params carry the whole session along in the URL -
+  // no database row for it. sessionTotal/sessionIndex are for the "2 of 5"
+  // progress pill, nextHref is what the "Next concept" button on the
+  // finished screen points to (null once this was the last item).
+  const encodedQueue = searchParams?.session;
+  const pos = Number.parseInt(searchParams?.pos ?? "", 10);
+  const sessionQueue = encodedQueue ? decodeSessionQueue(encodedQueue) : [];
+  const inSession = sessionQueue.length > 0 && Number.isInteger(pos) && pos >= 0 && pos < sessionQueue.length;
+  const sessionTotal = inSession ? sessionQueue.length : null;
+  const sessionIndex = inSession ? pos + 1 : null;
+  const nextHref = inSession && encodedQueue ? sessionHrefAt(encodedQueue, pos + 1) : null;
   const reframed = buildReframedExplanation({
     chosenText: chosen.text,
     correctText: correctChoice.text,
@@ -48,9 +64,19 @@ export default async function ErrorNotePracticePage({
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full space-y-6">
         <div>
-          <Link href="/error-notes" className="text-xs text-slate-400 hover:text-slate-200">
-            &larr; Back to Error Notes
-          </Link>
+          <div className="flex items-center justify-between gap-3">
+            <Link
+              href={inSession ? "/smart-review" : "/error-notes"}
+              className="text-xs text-slate-400 hover:text-slate-200"
+            >
+              &larr; {inSession ? "Exit review session" : "Back to Error Notes"}
+            </Link>
+            {inSession && (
+              <span className="text-xs font-semibold text-purple-300 bg-purple-900/30 rounded-full px-2.5 py-1">
+                Review session &middot; {sessionIndex} of {sessionTotal}
+              </span>
+            )}
+          </div>
           <h1 className="text-2xl font-bold mt-2">Master This Weakness</h1>
           <p className="text-sm text-slate-400 mt-1">{concept}</p>
         </div>
@@ -89,6 +115,9 @@ export default async function ErrorNotePracticePage({
           errorNote={chosen.error_note ?? null}
           originalQuestion={q.question}
           userId={user.id}
+          sessionIndex={sessionIndex}
+          sessionTotal={sessionTotal}
+          nextHref={nextHref}
         />
       </main>
     </AppShell>
