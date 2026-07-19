@@ -284,11 +284,11 @@ export default async function Home() {
             advice.
           </p>
           <div className="flex flex-wrap gap-4 text-xs text-slate-400">
+            <Link href="/about" className="hover:text-slate-200">About</Link>
             <Link href="/privacy" className="hover:text-slate-200">Privacy Policy</Link>
             <Link href="/terms" className="hover:text-slate-200">Terms of Service</Link>
-            <a href="mailto:cherryyeshmith84@gmail.com" className="hover:text-slate-200">
-              Contact
-            </a>
+            <Link href="/refund" className="hover:text-slate-200">Refund Policy</Link>
+            <Link href="/contact" className="hover:text-slate-200">Contact</Link>
           </div>
         </div>
       </footer>
