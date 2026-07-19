@@ -303,9 +303,16 @@ export default function ErrorNotePracticeClient({
                   Go to Smart Review
                 </Link>
               )}
-              <Link href="/error-notes" className="btn-secondary text-sm">
-                Back to Error Notes
-              </Link>
+              {/* Only offer the Error Notes exit when this page wasn't
+                  reached from a review session - inside a session, that
+                  link was the wrong-looking option sitting right next to
+                  "Next concept"/"Finish session" and it's not where the
+                  student actually came from, so it doesn't belong here. */}
+              {!inSession && (
+                <Link href="/error-notes" className="btn-secondary text-sm">
+                  Back to Error Notes
+                </Link>
+              )}
             </div>
           </div>
         </div>
