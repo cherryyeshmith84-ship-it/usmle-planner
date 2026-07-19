@@ -31,12 +31,22 @@ export default function ErrorNotePracticeClient({
   errorNote,
   originalQuestion,
   userId,
+  sessionIndex = null,
+  sessionTotal = null,
+  nextHref = null,
 }: {
   concept: string;
   weakConcept: string | null;
   errorNote: string | null;
   originalQuestion: string;
   userId: string;
+  // Present only when this page was reached via Smart Review's "Start full
+  // review session" - see lib/reviewSession.ts. sessionIndex/sessionTotal
+  // drive the "2 of 5" language below; nextHref is where "Next concept"
+  // goes, and is null once this was the last item in the session.
+  sessionIndex?: number | null;
+  sessionTotal?: number | null;
+  nextHref?: string | null;
 }) {
   const [harder, setHarder] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -131,6 +141,8 @@ export default function ErrorNotePracticeClient({
   const finished = atEnd && !loadingMore;
   const waitingForMore = atEnd && loadingMore;
   const currentQuestion = questions && !atEnd ? questions[currentIdx] : null;
+  const inSession = sessionIndex !== null && sessionTotal !== null;
+  const isLastInSession = inSession && !nextHref;
 
   return (
     <div className="space-y-4">
@@ -269,10 +281,28 @@ export default function ErrorNotePracticeClient({
               back on its own after some time to confirm you&apos;ve actually got it, instead of
               taking today&apos;s score as the final word.
             </p>
+
+            {inSession && (
+              <p className="text-xs text-purple-300 mb-3">
+                Review session &middot; concept {sessionIndex} of {sessionTotal}
+                {isLastInSession ? " - this is the last one." : ""}
+              </p>
+            )}
+
             <div className="flex flex-wrap gap-3">
-              <Link href="/smart-review" className="btn-secondary text-sm">
-                Go to Smart Review
-              </Link>
+              {nextHref ? (
+                <Link href={nextHref} className="btn-primary text-sm">
+                  Next concept in session &rarr;
+                </Link>
+              ) : isLastInSession ? (
+                <Link href="/smart-review" className="btn-primary text-sm">
+                  Finish session - back to Smart Review
+                </Link>
+              ) : (
+                <Link href="/smart-review" className="btn-secondary text-sm">
+                  Go to Smart Review
+                </Link>
+              )}
               <Link href="/error-notes" className="btn-secondary text-sm">
                 Back to Error Notes
               </Link>
