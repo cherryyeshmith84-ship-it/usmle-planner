@@ -49,9 +49,14 @@ export default async function AdminQuestionBankPage({
               Students build their own custom tests from these by subject, system, and status.
             </p>
           </div>
-          <Link href="/admin/qbank/new" className="btn-primary shrink-0">
-            + Add question
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link href="/admin/qbank/bulk-import" className="btn-secondary">
+              Bulk import
+            </Link>
+            <Link href="/admin/qbank/new" className="btn-primary">
+              + Add question
+            </Link>
+          </div>
         </div>
 
         <QBankFilters
