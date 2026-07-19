@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 interface NavItem {
   href: string;
@@ -41,8 +41,22 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
-function isActive(pathname: string, href: string) {
+// The "Master This Weakness" practice page lives at
+// /error-notes/practice/[questionId]/[choiceId] for historical reasons (it
+// was built as part of Error Notes first), so by URL alone it always looks
+// like "Error Notes" is the active section - including when Smart Review's
+// "Start Review" / "Start full review session" sent the student there. That
+// makes the sidebar appear to jump to Error Notes even though the student
+// never left Smart Review and the page itself says "Review session" the
+// whole time. inReviewSession detects that case (the practice page reached
+// with a `session` query param, which only Smart Review ever adds - see
+// lib/reviewSession.ts) and keeps Smart Review highlighted instead.
+function isActive(pathname: string, href: string, inReviewSession: boolean) {
   if (href === "/dashboard") return pathname === "/dashboard";
+  if (inReviewSession) {
+    if (href === "/smart-review") return true;
+    if (href === "/error-notes") return false;
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -66,9 +80,11 @@ export default function NavBar({
   streak?: number;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const inReviewSession = pathname.startsWith("/error-notes/practice/") && !!searchParams.get("session");
 
   function linkClass(href: string) {
-    const active = isActive(pathname, href);
+    const active = isActive(pathname, href, inReviewSession);
     return `text-sm font-medium px-3 py-2.5 rounded-lg transition ${
       active ? "bg-brand-900/40 text-brand-300" : "text-slate-300 hover:bg-slate-800"
     }`;
