@@ -18,8 +18,8 @@ const FEATURES = [
     desc: "Every wrong answer gets tagged with why you missed it, so the recurring patterns behind your mistakes become visible instead of invisible.",
   },
   {
-    title: "Smart Review",
-    desc: "A prioritized queue that resurfaces the concepts you're still missing, ranked by how often you're currently getting them wrong.",
+    title: "Anki",
+    desc: "Flip-card flashcards on a spaced-repetition schedule - cards you're shaky on come back sooner, ones you know cold fade into the background.",
   },
   {
     title: "Visual Lab",
@@ -35,7 +35,7 @@ const HOW_IT_WORKS = [
   { title: "Answer questions", desc: "Practice with tagged, Step 1-style questions from the Question Bank." },
   { title: "Diagnose the mistake", desc: "Every wrong answer gets an Error Note explaining exactly what you confused it with and why." },
   { title: "Track the weak concept", desc: "That mistake feeds your Error DNA and Master Grid profile automatically - no extra work." },
-  { title: "Review it at the right time", desc: "Smart Review resurfaces the concept until you're reliably getting it right." },
+  { title: "Review it at the right time", desc: "Anki resurfaces the concept on a spaced-repetition schedule until you're reliably getting it right." },
   { title: "Retest mastery", desc: "Your Master Grid score updates as you prove you've actually got it this time." },
 ];
 
@@ -58,6 +58,12 @@ const FAQS = [
   },
 ];
 
+const NAV_LINKS = [
+  { href: "#how-it-works", label: "How it works" },
+  { href: "#features", label: "Features" },
+  { href: "#faq", label: "FAQ" },
+];
+
 export default async function Home() {
   const supabase = createClient();
   const {
@@ -70,35 +76,50 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen flex flex-col">
-      <header className="max-w-5xl mx-auto w-full px-6 py-6 flex items-center justify-between">
-        <span className="font-bold text-lg text-brand-300">Master Grid</span>
+      {/* Header */}
+      <header className="max-w-6xl mx-auto w-full px-6 py-5 flex items-center justify-between sticky top-0 z-20 bg-black/80 backdrop-blur">
+        <span className="font-extrabold text-xl tracking-tight text-white">
+          Master<span className="text-brand-400">Grid</span>
+        </span>
+        <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-300">
+          {NAV_LINKS.map((l) => (
+            <a key={l.href} href={l.href} className="hover:text-white transition">
+              {l.label}
+            </a>
+          ))}
+        </nav>
         <div className="flex gap-3">
           <Link href="/login" className="btn-secondary">Log in</Link>
-          <Link href="/signup" className="btn-primary">Sign up</Link>
+          <Link href="/signup" className="btn-primary">Get Started Free</Link>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-16 text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-white mb-4">
-          Stop repeating the same Step 1 mistakes.
+      <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-16 text-center">
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.05] mb-6">
+          Stop repeating the
+          <br />
+          same Step 1 mistakes.
         </h1>
-        <p className="text-lg text-slate-300 mb-8">
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
           Master Grid identifies what you get wrong, why you get it wrong, and what you should
-          review next.
+          review next - so every hour you study actually moves the needle.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
-          <Link href="/signup" className="btn-primary text-base px-6 py-3">
-            Start Free
+          <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
+            Get Started Free
           </Link>
-          <a href="#how-it-works" className="btn-secondary text-base px-6 py-3">
-            See How Master Grid Works
+          <a href="#how-it-works" className="btn-secondary text-base px-7 py-3.5">
+            See How It Works
           </a>
         </div>
       </section>
 
       {/* Product visual: the core loop at a glance */}
-      <section className="max-w-5xl mx-auto w-full px-6 pb-16">
+      <section className="max-w-5xl mx-auto w-full px-6 pb-20">
+        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest text-center mb-6">
+          The core loop
+        </p>
         <div className="grid sm:grid-cols-3 gap-4 items-stretch">
           <div className="card">
             <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
@@ -146,50 +167,52 @@ export default async function Home() {
 
           <div className="card">
             <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              Smart Review
+              Anki
             </p>
-            <div className="border border-purple-900/40 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-semibold text-slate-200">VIPoma / WDHA syndrome</p>
-                <span className="text-[10px] font-semibold bg-red-900/30 text-red-300 rounded-full px-2 py-0.5">
-                  High
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">Missed 2 of your last 2 related attempts</p>
+            <div className="border border-purple-900/40 rounded-lg p-3 text-center">
+              <p className="text-xs font-semibold text-slate-200 mb-1">VIPoma / WDHA syndrome</p>
+              <p className="text-xs text-slate-500 mb-2">Tap to flip</p>
+              <span className="text-[10px] font-semibold bg-purple-900/30 text-purple-300 rounded-full px-2 py-0.5">
+                Due today
+              </span>
             </div>
-            <p className="text-xs text-slate-500 mt-3">Resurfaces what you're still missing.</p>
+            <p className="text-xs text-slate-500 mt-3">Spaced repetition, so it sticks.</p>
           </div>
         </div>
       </section>
 
       {/* Six core features */}
-      <section id="features" className="max-w-5xl mx-auto w-full px-6 py-16">
-        <h2 className="text-2xl font-bold text-center mb-2">Everything you need in one platform</h2>
-        <p className="text-slate-400 text-center mb-10">
+      <section id="features" className="max-w-5xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
+          Everything you need in one platform
+        </h2>
+        <p className="text-slate-400 text-center text-lg mb-12">
           Not just another question bank - a system that turns your mistakes into a plan.
         </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {FEATURES.map((f) => (
             <div key={f.title} className="card">
-              <h3 className="font-semibold mb-1">{f.title}</h3>
-              <p className="text-sm text-slate-300">{f.desc}</p>
+              <h3 className="font-bold text-lg mb-1.5">{f.title}</h3>
+              <p className="text-sm text-slate-300 leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="max-w-3xl mx-auto w-full px-6 py-16">
-        <h2 className="text-2xl font-bold text-center mb-10">How it works</h2>
-        <div className="space-y-4">
+      <section id="how-it-works" className="max-w-3xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
+          How it works
+        </h2>
+        <div className="space-y-6">
           {HOW_IT_WORKS.map((step, i) => (
             <div key={step.title} className="flex gap-4 items-start">
-              <span className="shrink-0 w-8 h-8 rounded-full bg-brand-900/50 text-brand-300 font-bold flex items-center justify-center text-sm">
+              <span className="shrink-0 w-10 h-10 rounded-full bg-brand-900/50 text-brand-300 font-extrabold flex items-center justify-center text-base">
                 {i + 1}
               </span>
               <div>
-                <h3 className="font-semibold">{step.title}</h3>
-                <p className="text-sm text-slate-400">{step.desc}</p>
+                <h3 className="font-bold text-lg">{step.title}</h3>
+                <p className="text-slate-400">{step.desc}</p>
               </div>
             </div>
           ))}
@@ -197,9 +220,11 @@ export default async function Home() {
       </section>
 
       {/* Sample explanation */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-16">
-        <h2 className="text-2xl font-bold text-center mb-2">See it in action</h2>
-        <p className="text-slate-400 text-center mb-8">
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
+          See it in action
+        </h2>
+        <p className="text-slate-400 text-center text-lg mb-10">
           A simplified example of what you&apos;ll see after answering a question.
         </p>
         <div className="card">
@@ -235,40 +260,44 @@ export default async function Home() {
       </section>
 
       {/* What's included free */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-16">
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
         <div className="card text-center">
-          <h2 className="text-xl font-bold mb-2">Everything is free right now</h2>
+          <h2 className="text-2xl font-extrabold mb-2">Everything is free right now</h2>
           <p className="text-sm text-slate-400 mb-4">
             No paywall, no premium tier. Every feature below is included:
           </p>
           <p className="text-sm text-slate-300">
             Question Bank &middot; Self-Assessments &middot; Master Grid &middot; Error Notes
-            &middot; Smart Review &middot; Visual Lab &middot; Study Planner
+            &middot; Anki &middot; Visual Lab &middot; Study Planner
           </p>
         </div>
       </section>
 
       {/* FAQ */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-16">
-        <h2 className="text-2xl font-bold text-center mb-10">Frequently asked questions</h2>
+      <section id="faq" className="max-w-3xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
+          Frequently asked questions
+        </h2>
         <div className="space-y-4">
           {FAQS.map((f) => (
             <div key={f.q} className="card">
-              <h3 className="font-semibold mb-1">{f.q}</h3>
-              <p className="text-sm text-slate-400">{f.a}</p>
+              <h3 className="font-bold text-base mb-1.5">{f.q}</h3>
+              <p className="text-sm text-slate-400 leading-relaxed">{f.a}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* Final CTA */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-16 text-center">
-        <h2 className="text-2xl font-bold mb-4">Ready to find your pattern?</h2>
+      <section className="max-w-3xl mx-auto w-full px-6 py-20 text-center">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-6">
+          Ready to find your pattern?
+        </h2>
         <div className="flex gap-4 justify-center flex-wrap">
-          <Link href="/signup" className="btn-primary text-base px-6 py-3">
-            Start Free
+          <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
+            Get Started Free
           </Link>
-          <Link href="/login" className="btn-secondary text-base px-6 py-3">
+          <Link href="/login" className="btn-secondary text-base px-7 py-3.5">
             I already have an account
           </Link>
         </div>
