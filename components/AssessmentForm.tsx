@@ -231,6 +231,7 @@ What is the most likely diagnosis?`;
           secondary_concepts: q.meta?.secondary_concepts?.trim() || undefined,
           difficulty: q.meta?.difficulty || undefined,
           question_type: q.meta?.question_type || undefined,
+          answer_table_columns: q.meta?.answer_table_columns?.length ? q.meta.answer_table_columns : undefined,
         },
       }));
 
@@ -419,10 +420,31 @@ What is the most likely diagnosis?`;
               onChange={(url) => updateQuestion(qIdx, { question_image_url: url })}
             />
 
+            <label className="label">
+              Table columns (optional - for a multi-column answer choice like a Blood
+              Pressure/Creatinine/K+ matching question, instead of plain-text choices)
+            </label>
+            <input
+              className="input mb-3"
+              placeholder="e.g. Blood Pressure, Creatinine, Serum K+ (leave blank for normal choices)"
+              value={(q.meta?.answer_table_columns ?? []).join(", ")}
+              onChange={(e) =>
+                updateQuestionMeta(qIdx, {
+                  answer_table_columns: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                })
+              }
+            />
+
             <p className="label mb-2">
               Answer choices - click the circle next to the correct one. For each wrong
               choice, tag whether it&apos;s a close distractor or an unrelated one, so the
               score report can tell a near-miss from a fundamentals gap.
+              {(q.meta?.answer_table_columns?.length ?? 0) > 0 && (
+                <span className="block text-slate-500 font-normal mt-1">
+                  Table mode: type each choice&apos;s cells separated by &ldquo;|&rdquo; in the order{" "}
+                  {(q.meta?.answer_table_columns ?? []).join(" | ")}.
+                </span>
+              )}
             </p>
             <div className="space-y-2 mb-3">
               {q.choices.map((c, cIdx) => {
@@ -439,7 +461,11 @@ What is the most likely diagnosis?`;
                       />
                       <input
                         className="input flex-1"
-                        placeholder={`Choice ${cIdx + 1}`}
+                        placeholder={
+                          (q.meta?.answer_table_columns?.length ?? 0) > 0
+                            ? (q.meta!.answer_table_columns ?? []).map(() => "value").join(" | ")
+                            : `Choice ${cIdx + 1}`
+                        }
                         value={c.text}
                         onChange={(e) => updateChoice(qIdx, cIdx, e.target.value)}
                       />
