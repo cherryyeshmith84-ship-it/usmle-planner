@@ -11,6 +11,7 @@ import {
   type ScoreResult,
 } from "@/lib/assessments";
 import type { Assessment, AssessmentAttempt } from "@/lib/types";
+import { splitAnswerTableRow } from "@/lib/qbank";
 import AttemptReview from "./AttemptReview";
 import LabValuesSearch from "./LabValuesSearch";
 import AiHelper from "./AiHelper";
@@ -626,59 +627,122 @@ export default function AssessmentTake({
                     <ImageLink url={currentQuestion.question_image_url} label="View image" onOpen={setLightboxUrl} />
                   </div>
                 )}
-                <div className="space-y-2">
-                  {currentQuestion.choices.map((c) => {
-                    const isStruck = struck.has(c.id);
-                    const isChosen = chosen === c.id;
-                    const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
-                    let borderClass = "border-slate-700 hover:border-slate-600";
-                    if (isRevealedNow && isCorrectChoice) {
-                      borderClass = "border-green-600 bg-green-900/20";
-                    } else if (isRevealedNow && isChosen) {
-                      borderClass = "border-red-600 bg-red-900/20";
-                    } else if (isChosen) {
-                      borderClass = "border-brand-400 bg-brand-900/20";
-                    }
-                    return (
-                      <label
-                        key={c.id}
-                        className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${
-                          isRevealedNow ? "cursor-default" : "cursor-pointer"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            name={`q-${currentQuestion.id}`}
-                            checked={isChosen}
-                            disabled={isRevealedNow}
-                            onChange={() => chooseAnswer(currentQuestion.id, c.id)}
-                            className="w-4 h-4 shrink-0"
-                          />
-                          <span
-                            className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
-                            data-highlight-zone
-                            style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-                            onDoubleClick={(e) => {
-                              if (isRevealedNow) return;
-                              e.preventDefault();
-                              window.getSelection()?.removeAllRanges();
-                              toggleStrike(currentQuestion.id, c.id);
-                            }}
-                          >
-                            {c.text}
-                          </span>
-                          {isRevealedNow && isCorrectChoice && (
-                            <span className="text-xs text-green-400 ml-auto shrink-0">Correct</span>
-                          )}
-                          {isRevealedNow && isChosen && !isCorrectChoice && (
-                            <span className="text-xs text-red-400 ml-auto shrink-0">Your answer</span>
-                          )}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
+                {currentQuestion.meta?.answer_table_columns && currentQuestion.meta.answer_table_columns.length > 0 ? (
+                  <div className="overflow-x-auto" data-highlight-zone>
+                    <table className="w-full text-sm border-collapse" style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="text-left py-2 pr-3 text-slate-400 font-semibold w-10"></th>
+                          {currentQuestion.meta.answer_table_columns.map((col) => (
+                            <th key={col} className="text-left py-2 px-3 text-slate-400 font-semibold">
+                              {col}
+                            </th>
+                          ))}
+                          <th className="w-24"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentQuestion.choices.map((c, i) => {
+                          const isChosen = chosen === c.id;
+                          const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
+                          let rowClass = "border-b border-slate-800 hover:bg-slate-900/40 cursor-pointer";
+                          if (isRevealedNow && isCorrectChoice) rowClass = "border-b border-slate-800 bg-green-900/20";
+                          else if (isRevealedNow && isChosen) rowClass = "border-b border-slate-800 bg-red-900/20";
+                          else if (isChosen) rowClass = "border-b border-slate-800 bg-brand-900/20";
+                          const cells = splitAnswerTableRow(c.text, currentQuestion.meta!.answer_table_columns!);
+                          return (
+                            <tr
+                              key={c.id}
+                              className={rowClass}
+                              onClick={() => !isRevealedNow && chooseAnswer(currentQuestion.id, c.id)}
+                            >
+                              <td className="py-2 pr-3">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name={`q-${currentQuestion.id}`}
+                                    checked={isChosen}
+                                    disabled={isRevealedNow}
+                                    onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                                    className="w-4 h-4"
+                                  />
+                                  <span className="text-xs text-slate-500">{String.fromCharCode(65 + i)}</span>
+                                </div>
+                              </td>
+                              {cells.map((cell, ci) => (
+                                <td key={ci} className="py-2 px-3 text-slate-200">
+                                  {cell}
+                                </td>
+                              ))}
+                              <td className="py-2 px-3 text-right">
+                                {isRevealedNow && isCorrectChoice && (
+                                  <span className="text-xs text-green-400">Correct</span>
+                                )}
+                                {isRevealedNow && isChosen && !isCorrectChoice && (
+                                  <span className="text-xs text-red-400">Your answer</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {currentQuestion.choices.map((c) => {
+                      const isStruck = struck.has(c.id);
+                      const isChosen = chosen === c.id;
+                      const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
+                      let borderClass = "border-slate-700 hover:border-slate-600";
+                      if (isRevealedNow && isCorrectChoice) {
+                        borderClass = "border-green-600 bg-green-900/20";
+                      } else if (isRevealedNow && isChosen) {
+                        borderClass = "border-red-600 bg-red-900/20";
+                      } else if (isChosen) {
+                        borderClass = "border-brand-400 bg-brand-900/20";
+                      }
+                      return (
+                        <label
+                          key={c.id}
+                          className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${
+                            isRevealedNow ? "cursor-default" : "cursor-pointer"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="radio"
+                              name={`q-${currentQuestion.id}`}
+                              checked={isChosen}
+                              disabled={isRevealedNow}
+                              onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                              className="w-4 h-4 shrink-0"
+                            />
+                            <span
+                              className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                              data-highlight-zone
+                              style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                              onDoubleClick={(e) => {
+                                if (isRevealedNow) return;
+                                e.preventDefault();
+                                window.getSelection()?.removeAllRanges();
+                                toggleStrike(currentQuestion.id, c.id);
+                              }}
+                            >
+                              {c.text}
+                            </span>
+                            {isRevealedNow && isCorrectChoice && (
+                              <span className="text-xs text-green-400 ml-auto shrink-0">Correct</span>
+                            )}
+                            {isRevealedNow && isChosen && !isCorrectChoice && (
+                              <span className="text-xs text-red-400 ml-auto shrink-0">Your answer</span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {examMode === "tutor" && !isRevealedNow && (
