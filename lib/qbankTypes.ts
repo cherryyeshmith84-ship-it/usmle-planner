@@ -126,6 +126,13 @@ export interface QBankQuestionMeta {
   difficulty?: QuestionDifficulty;
   question_type?: QBankQuestionType | string;
   status?: QuestionAdminStatus;
+  // Optional table-style answer choices - e.g. a multi-parameter matching
+  // question where each option is a row of values across named columns
+  // ("Blood Pressure | Creatinine | Serum K+") instead of one plain
+  // sentence. When set, each choice's `text` is interpreted as pipe- ("|")
+  // separated cell values in this column order and rendered as a table
+  // with these names as headers, instead of a plain answer-choice list.
+  answer_table_columns?: string[];
 }
 
 export interface QBankQuestion {
@@ -178,5 +185,5 @@ export type QuestionStatus = "unused" | "correct" | "incorrect" | "omitted";
 
 export interface QuestionStatusInfo {
   status: QuestionStatus;
-  marked: boolean; 
+  marked: boolean;
 }
