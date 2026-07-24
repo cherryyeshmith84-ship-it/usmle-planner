@@ -167,6 +167,18 @@ export function choiceStatsToPercents(rows: ChoiceStatRow[]): {
   return { percents, counts, total };
 }
 
+/**
+ * Splits one choice's text into table cells for a table-style answer choice
+ * (see QBankQuestionMeta.answer_table_columns) - cells are separated by "|"
+ * in the same order as the columns. Pads with "" if the choice has fewer
+ * cells than columns (e.g. it was written before a column was added), and
+ * ignores any extra cells beyond the number of columns.
+ */
+export function splitAnswerTableRow(text: string, columns: string[]): string[] {
+  const cells = text.split("|").map((c) => c.trim());
+  return columns.map((_, i) => cells[i] ?? "");
+}
+
 // ---------------------------------------------------------------------------
 // Full authored-question template parser
 // ---------------------------------------------------------------------------
@@ -256,6 +268,9 @@ export interface ParsedQBankTemplate {
   secondaryConcepts: string[];
   difficulty: QuestionDifficulty | "";
   questionType: string;
+  // Column headers for a table-style answer choice, parsed from an
+  // "Answer Table Columns: A, B, C" line. Empty array if not present.
+  answerTableColumns: string[];
 }
 
 /**
@@ -273,7 +288,26 @@ export interface ParsedQBankTemplate {
  * parsePastedQuestion helper this builds on).
  */
 export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate | null {
-  const top = splitByLabels(raw, [
+  // "Answer Table Columns: A, B, C" is an inline "Label: value" line (the
+  // value sits after a colon on the SAME line), unlike every other label
+  // below which is handled by splitByLabels and expects the label alone on
+  // its own line with the value in the block underneath - so it's pulled
+  // out here first, and stripped from the text before the rest of the
+  // block-based parsing runs so it doesn't get swallowed into the stem or
+  // whichever block precedes it.
+  let answerTableColumns: string[] = [];
+  const tableColumnsMatch = raw.match(/^\s*Answer Table Columns\s*:\s*(.+)$/im);
+  const rawWithoutTableColumns = tableColumnsMatch
+    ? raw.slice(0, tableColumnsMatch.index!) + raw.slice(tableColumnsMatch.index! + tableColumnsMatch[0].length)
+    : raw;
+  if (tableColumnsMatch) {
+    answerTableColumns = tableColumnsMatch[1]
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  const top = splitByLabels(rawWithoutTableColumns, [
     { key: "correctAnswer", regex: /^\s*Correct answer\s*:?\s*$/im },
     { key: "distractorClassification", regex: /^\s*\d*\.?\s*Distractor Classification\s*$/im },
     { key: "questionImage", regex: /^\s*\d*\.?\s*Question Image\s*$/im },
@@ -457,5 +491,6 @@ export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate
     secondaryConcepts,
     difficulty,
     questionType,
+    answerTableColumns,
   };
 }
