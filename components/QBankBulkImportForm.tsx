@@ -183,6 +183,8 @@ export default function QBankBulkImportForm({ userId }: { userId: string }) {
           difficulty: parsed.difficulty || undefined,
           question_type: parsed.questionType || undefined,
           status: "under_review" as const,
+          answer_table_columns:
+            parsed.answerTableColumns.length > 0 ? parsed.answerTableColumns : undefined,
         },
         created_by: userId,
       };
@@ -329,6 +331,11 @@ export default function QBankBulkImportForm({ userId }: { userId: string }) {
                         )}
                       </span>
                       {it.parsed.difficulty && <span>Difficulty: {it.parsed.difficulty}</span>}
+                      {it.parsed.answerTableColumns.length > 0 && (
+                        <span className="text-brand-400">
+                          Table ({it.parsed.answerTableColumns.join(", ")})
+                        </span>
+                      )}
                     </div>
 
                     <div className="relative">
