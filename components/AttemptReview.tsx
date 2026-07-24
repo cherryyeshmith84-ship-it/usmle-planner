@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { buildErrorBreakdown, classifyAnswer, formatSeconds } from "@/lib/assessments";
+import { splitAnswerTableRow } from "@/lib/qbank";
 import type { Assessment } from "@/lib/types";
 
 /**
@@ -179,34 +180,81 @@ export default function AttemptReview({
                 <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
               </div>
             )}
-            <div className="space-y-2 mb-3">
-              {q.choices.map((c, i) => {
-                const isThisCorrect = c.id === q.correct_choice_id;
-                const isThisChosen = c.id === chosen;
-                return (
-                  <div
-                    key={c.id}
-                    className={`border rounded-xl px-3 py-2 text-sm ${
-                      isThisCorrect
-                        ? "border-green-700 bg-green-900/20 text-green-300"
-                        : isThisChosen
-                        ? "border-red-700 bg-red-900/20 text-red-300"
-                        : "border-slate-700 text-slate-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span>
-                        {String.fromCharCode(65 + i)}. {c.text}
-                      </span>
-                      {isThisCorrect && <span className="text-xs text-green-400 ml-auto">Correct answer</span>}
-                      {isThisChosen && !isThisCorrect && (
-                        <span className="text-xs text-red-400 ml-auto">Chosen answer</span>
-                      )}
+            {q.meta?.answer_table_columns && q.meta.answer_table_columns.length > 0 ? (
+              <div className="overflow-x-auto mb-3">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-700">
+                      <th className="text-left py-1.5 pr-3 text-slate-500 font-semibold w-8"></th>
+                      {q.meta.answer_table_columns.map((col) => (
+                        <th key={col} className="text-left py-1.5 px-3 text-slate-500 font-semibold">
+                          {col}
+                        </th>
+                      ))}
+                      <th className="w-24"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {q.choices.map((c, i) => {
+                      const isThisCorrect = c.id === q.correct_choice_id;
+                      const isThisChosen = c.id === chosen;
+                      const cells = splitAnswerTableRow(c.text, q.meta!.answer_table_columns!);
+                      return (
+                        <tr
+                          key={c.id}
+                          className={`border-b border-slate-800 ${
+                            isThisCorrect
+                              ? "bg-green-900/20 text-green-300"
+                              : isThisChosen
+                              ? "bg-red-900/20 text-red-300"
+                              : "text-slate-300"
+                          }`}
+                        >
+                          <td className="py-1.5 pr-3 font-semibold">{String.fromCharCode(65 + i)}</td>
+                          {cells.map((cell, ci) => (
+                            <td key={ci} className="py-1.5 px-3">
+                              {cell}
+                            </td>
+                          ))}
+                          <td className="py-1.5 px-3 text-xs text-right">
+                            {isThisCorrect ? "correct answer" : isThisChosen ? "chosen answer" : ""}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="space-y-2 mb-3">
+                {q.choices.map((c, i) => {
+                  const isThisCorrect = c.id === q.correct_choice_id;
+                  const isThisChosen = c.id === chosen;
+                  return (
+                    <div
+                      key={c.id}
+                      className={`border rounded-xl px-3 py-2 text-sm ${
+                        isThisCorrect
+                          ? "border-green-700 bg-green-900/20 text-green-300"
+                          : isThisChosen
+                          ? "border-red-700 bg-red-900/20 text-red-300"
+                          : "border-slate-700 text-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>
+                          {String.fromCharCode(65 + i)}. {c.text}
+                        </span>
+                        {isThisCorrect && <span className="text-xs text-green-400 ml-auto">Correct answer</span>}
+                        {isThisChosen && !isThisCorrect && (
+                          <span className="text-xs text-red-400 ml-auto">Chosen answer</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
             {q.explanation_image_url && (
               <div className="mb-2">
                 <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
