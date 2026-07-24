@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { chunkIntoBlocks, formatSeconds } from "@/lib/assessments";
-import { choiceStatsToPercents, type ChoiceStatRow } from "@/lib/qbank";
+import { choiceStatsToPercents, splitAnswerTableRow, type ChoiceStatRow } from "@/lib/qbank";
 import type { QBankQuestion, QBankTestSession, ExamModeOption } from "@/lib/qbankTypes";
 import LabValuesSearch from "./LabValuesSearch";
 import AiHelper from "./AiHelper";
@@ -12,7 +12,7 @@ import ExamCalculator from "./ExamCalculator";
 import ExamSettings, { type ExamTheme, type FontSize } from "./ExamSettings";
 import QuestionNavigator from "./QuestionNavigator";
 
-type Phase = "start" | "taking" | "blockDone" | "results";
+type Phase = "taking" | "blockDone" | "results";
 
 const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 const SECONDS_PER_QUESTION = 75; // seconds per question
@@ -105,17 +105,22 @@ export default function QBankTake({
   );
 
   const alreadyDone = !!session.submitted_at;
-  // A session that was left mid-test (started, not yet submitted) resumes
-  // straight into "taking" at its saved position, instead of showing the
-  // "Start test" screen again and losing the student's place.
-  const resuming = !alreadyDone && !!session.in_progress;
 
-  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : resuming ? "taking" : "start");
+  // A brand-new test, and one that was left mid-test (started, not yet
+  // submitted), both go straight into "taking" - there's no separate
+  // "Start test" landing screen anymore, so a fresh session resumes at its
+  // saved position (block 0 / question 0 for a new one) with no extra click.
+  const [phase, setPhase] = useState<Phase>(alreadyDone ? "results" : "taking");
   const [currentBlock, setCurrentBlock] = useState(session.current_block ?? 0);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(session.current_question_index ?? 0);
   const [answers, setAnswers] = useState<Record<string, string>>(session.answers ?? {});
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>(session.question_seconds ?? {});
   const [submitting, setSubmitting] = useState(false);
+  // Results screen: which question's full explanation is expanded, by index
+  // into `questions`. null means the review list is just the numbered grid -
+  // nothing is auto-expanded, so the student picks a number to see that
+  // question's explanation instead of scrolling through everything at once.
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const [showNormalValues, setShowNormalValues] = useState(false);
   const [showAiHelper, setShowAiHelper] = useState(false);
@@ -313,20 +318,6 @@ export default function QBankTake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  function startTest() {
-    setCurrentBlock(0);
-    setCurrentQuestionIndex(0);
-    setBlockSecondsLeft((blocks[0] ?? []).length * SECONDS_PER_QUESTION);
-    setRevealed({});
-    rawElapsedRef.current = {};
-    tutorLiveRef.current = 0;
-    setTutorLiveDisplay(0);
-    finalizedRef.current = false;
-    advancingRef.current = false;
-    setPhase("taking");
-    saveProgress({ currentBlock: 0, currentQuestionIndex: 0, revealed: {}, tutorElapsedSeconds: 0 });
-  }
-
   function chooseAnswer(questionId: string, choiceId: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: choiceId }));
     if (rawElapsedRef.current[questionId] === undefined) {
@@ -503,28 +494,6 @@ export default function QBankTake({
     setPhase("results");
   }
 
-  if (phase === "start") {
-    return (
-      <div className="card max-w-xl">
-        <h1 className="text-xl font-bold mb-1">Custom test</h1>
-        <p className="text-sm text-slate-400 mb-6">
-          {blocks.length} block{blocks.length === 1 ? "" : "s"} · {questions.length} question
-          {questions.length === 1 ? "" : "s"} total · {session.questions_per_block} per block
-        </p>
-        <p className="text-sm text-slate-300 mb-6">
-          Test mode gives the whole block a shared clock (about 75 seconds per question) and
-          ends the block when it runs out. Tutor mode is different: it's a simple stopwatch that
-          starts at 0 and keeps counting up across the whole block - it only pauses while you're
-          reading a submitted answer's explanation, and never forces the block to end. You can
-          switch between the two at any point.
-        </p>
-        <button type="button" onClick={startTest} className="btn-primary">
-          Start test
-        </button>
-      </div>
-    );
-  }
-
   if (phase === "blockDone") {
     return (
       <div className="card max-w-xl">
@@ -641,58 +610,128 @@ export default function QBankTake({
                     <ImageLink url={currentQuestion.question_image_url} label="View image" onOpen={setLightboxUrl} />
                   </div>
                 )}
-                <div className="space-y-2">
-                  {currentQuestion.choices.map((c) => {
-                    const isStruck = struck.has(c.id);
-                    const isChosen = chosen === c.id;
-                    const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
-                    let borderClass = "border-slate-700 hover:border-slate-600";
-                    if (isRevealedNow && isCorrectChoice) borderClass = "border-green-600 bg-green-900/20";
-                    else if (isRevealedNow && isChosen) borderClass = "border-red-600 bg-red-900/20";
-                    else if (isChosen) borderClass = "border-brand-400 bg-brand-900/20";
-                    return (
-                      <label
-                        key={c.id}
-                        className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            name={`q-${currentQuestion.id}`}
-                            checked={isChosen}
-                            disabled={isRevealedNow}
-                            onChange={() => chooseAnswer(currentQuestion.id, c.id)}
-                            className="w-4 h-4 shrink-0"
-                          />
-                          <span
-                            className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
-                            data-highlight-zone
-                            style={{ fontSize: FONT_SIZE_PX[fontSize] }}
-                            onDoubleClick={(e) => {
-                              if (isRevealedNow) return;
-                              e.preventDefault();
-                              window.getSelection()?.removeAllRanges();
-                              toggleStrike(currentQuestion.id, c.id);
-                            }}
-                          >
-                            {c.text}
-                          </span>
-                          {isRevealedNow && (
-                            <span className="ml-auto shrink-0 flex items-center gap-2">
-                              {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
-                                <span className="text-xs text-slate-400">
-                                  {choiceStats[currentQuestion.id][c.id]}%
-                                </span>
-                              )}
-                              {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
-                              {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
+                {currentQuestion.meta?.answer_table_columns && currentQuestion.meta.answer_table_columns.length > 0 ? (
+                  <div className="overflow-x-auto" data-highlight-zone>
+                    <table className="w-full text-sm border-collapse" style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="text-left py-2 pr-3 text-slate-400 font-semibold w-10"></th>
+                          {currentQuestion.meta.answer_table_columns.map((col) => (
+                            <th key={col} className="text-left py-2 px-3 text-slate-400 font-semibold">
+                              {col}
+                            </th>
+                          ))}
+                          <th className="w-24"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentQuestion.choices.map((c, i) => {
+                          const isChosen = chosen === c.id;
+                          const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
+                          let rowClass = "border-b border-slate-800 hover:bg-slate-900/40 cursor-pointer";
+                          if (isRevealedNow && isCorrectChoice) rowClass = "border-b border-slate-800 bg-green-900/20";
+                          else if (isRevealedNow && isChosen) rowClass = "border-b border-slate-800 bg-red-900/20";
+                          else if (isChosen) rowClass = "border-b border-slate-800 bg-brand-900/20";
+                          const cells = splitAnswerTableRow(c.text, currentQuestion.meta!.answer_table_columns!);
+                          return (
+                            <tr
+                              key={c.id}
+                              className={rowClass}
+                              onClick={() => !isRevealedNow && chooseAnswer(currentQuestion.id, c.id)}
+                            >
+                              <td className="py-2 pr-3">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name={`q-${currentQuestion.id}`}
+                                    checked={isChosen}
+                                    disabled={isRevealedNow}
+                                    onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                                    className="w-4 h-4"
+                                  />
+                                  <span className="text-xs text-slate-500">{String.fromCharCode(65 + i)}</span>
+                                </div>
+                              </td>
+                              {cells.map((cell, ci) => (
+                                <td key={ci} className="py-2 px-3 text-slate-200">
+                                  {cell}
+                                </td>
+                              ))}
+                              <td className="py-2 px-3 text-right">
+                                {isRevealedNow && (
+                                  <span className="flex items-center justify-end gap-2">
+                                    {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
+                                      <span className="text-xs text-slate-400">
+                                        {choiceStats[currentQuestion.id][c.id]}%
+                                      </span>
+                                    )}
+                                    {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
+                                    {isChosen && !isCorrectChoice && (
+                                      <span className="text-xs text-red-400">Your answer</span>
+                                    )}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {currentQuestion.choices.map((c) => {
+                      const isStruck = struck.has(c.id);
+                      const isChosen = chosen === c.id;
+                      const isCorrectChoice = c.id === currentQuestion.correct_choice_id;
+                      let borderClass = "border-slate-700 hover:border-slate-600";
+                      if (isRevealedNow && isCorrectChoice) borderClass = "border-green-600 bg-green-900/20";
+                      else if (isRevealedNow && isChosen) borderClass = "border-red-600 bg-red-900/20";
+                      else if (isChosen) borderClass = "border-brand-400 bg-brand-900/20";
+                      return (
+                        <label
+                          key={c.id}
+                          className={`flex flex-col gap-2 border rounded-xl px-3 py-2 transition ${borderClass} ${isRevealedNow ? "cursor-default" : "cursor-pointer"}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="radio"
+                              name={`q-${currentQuestion.id}`}
+                              checked={isChosen}
+                              disabled={isRevealedNow}
+                              onChange={() => chooseAnswer(currentQuestion.id, c.id)}
+                              className="w-4 h-4 shrink-0"
+                            />
+                            <span
+                              className={`text-sm ${isStruck ? "line-through opacity-50" : ""}`}
+                              data-highlight-zone
+                              style={{ fontSize: FONT_SIZE_PX[fontSize] }}
+                              onDoubleClick={(e) => {
+                                if (isRevealedNow) return;
+                                e.preventDefault();
+                                window.getSelection()?.removeAllRanges();
+                                toggleStrike(currentQuestion.id, c.id);
+                              }}
+                            >
+                              {c.text}
                             </span>
-                          )}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
+                            {isRevealedNow && (
+                              <span className="ml-auto shrink-0 flex items-center gap-2">
+                                {choiceStats[currentQuestion.id]?.[c.id] !== undefined && (
+                                  <span className="text-xs text-slate-400">
+                                    {choiceStats[currentQuestion.id][c.id]}%
+                                  </span>
+                                )}
+                                {isCorrectChoice && <span className="text-xs text-green-400">Correct</span>}
+                                {isChosen && !isCorrectChoice && <span className="text-xs text-red-400">Your answer</span>}
+                              </span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {examMode === "tutor" && !isRevealedNow && (
@@ -838,29 +877,109 @@ export default function QBankTake({
         </div>
       </div>
 
-      <div className="space-y-3">
-        {questions.map((q, idx) => {
-          const chosen = answers[q.id];
-          const isCorrect = chosen === q.correct_choice_id;
-          const seconds = questionTimes[q.id];
-          return (
-            <div key={q.id} className="card">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold">{idx + 1}. {q.question}</p>
-                <div className="flex items-center gap-2 shrink-0 ml-2">
-                  {seconds !== undefined && (
-                    <span className="text-xs font-semibold rounded-full px-2 py-1 bg-slate-800 text-slate-400">{formatSeconds(seconds)}</span>
-                  )}
-                  <span className={`text-xs font-semibold rounded-full px-2 py-1 ${isCorrect ? "bg-green-900/40 text-green-400" : chosen ? "bg-red-900/40 text-red-400" : "bg-slate-800 text-slate-400"}`}>
-                    {isCorrect ? "Correct" : chosen ? "Incorrect" : "Not answered"}
-                  </span>
-                </div>
+      <div className="card">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+          Review by question
+        </p>
+        <p className="text-xs text-slate-500 mb-3">
+          Click a number to see that question's explanation. Click it again to collapse.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {questions.map((q, idx) => {
+            const chosen = answers[q.id];
+            const isCorrect = chosen === q.correct_choice_id;
+            const isOpen = expandedIdx === idx;
+            let badgeClass = "bg-slate-800 text-slate-400 border-slate-700";
+            if (isCorrect) badgeClass = "bg-green-900/30 text-green-400 border-green-800";
+            else if (chosen) badgeClass = "bg-red-900/30 text-red-400 border-red-800";
+            return (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => setExpandedIdx(isOpen ? null : idx)}
+                className={`w-9 h-9 rounded-lg border text-sm font-semibold flex items-center justify-center transition ${badgeClass} ${
+                  isOpen ? "ring-2 ring-brand-400" : ""
+                }`}
+                title={isCorrect ? "Correct" : chosen ? "Incorrect" : "Not answered"}
+              >
+                {idx + 1}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {expandedIdx !== null && (() => {
+        const q = questions[expandedIdx];
+        const chosen = answers[q.id];
+        const isCorrect = chosen === q.correct_choice_id;
+        const seconds = questionTimes[q.id];
+        return (
+          <div className="card">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold">{expandedIdx + 1}. {q.question}</p>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                {seconds !== undefined && (
+                  <span className="text-xs font-semibold rounded-full px-2 py-1 bg-slate-800 text-slate-400">{formatSeconds(seconds)}</span>
+                )}
+                <span className={`text-xs font-semibold rounded-full px-2 py-1 ${isCorrect ? "bg-green-900/40 text-green-400" : chosen ? "bg-red-900/40 text-red-400" : "bg-slate-800 text-slate-400"}`}>
+                  {isCorrect ? "Correct" : chosen ? "Incorrect" : "Not answered"}
+                </span>
               </div>
-              {q.question_image_url && (
-                <div className="mb-2">
-                  <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
-                </div>
-              )}
+            </div>
+            {q.question_image_url && (
+              <div className="mb-2">
+                <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
+              </div>
+            )}
+            {q.meta?.answer_table_columns && q.meta.answer_table_columns.length > 0 ? (
+              <div className="overflow-x-auto mb-2">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-700">
+                      <th className="text-left py-1.5 pr-3 text-slate-500 font-semibold w-8"></th>
+                      {q.meta.answer_table_columns.map((col) => (
+                        <th key={col} className="text-left py-1.5 px-3 text-slate-500 font-semibold">
+                          {col}
+                        </th>
+                      ))}
+                      <th className="w-20"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {q.choices.map((c, i) => {
+                      const isThisCorrect = c.id === q.correct_choice_id;
+                      const isThisChosen = c.id === chosen;
+                      const pct = choiceStats[q.id]?.[c.id];
+                      const cells = splitAnswerTableRow(c.text, q.meta!.answer_table_columns!);
+                      return (
+                        <tr
+                          key={c.id}
+                          className={`border-b border-slate-800 ${
+                            isThisCorrect
+                              ? "bg-green-900/20 text-green-300"
+                              : isThisChosen
+                              ? "bg-red-900/20 text-red-300"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          <td className="py-1.5 pr-3 font-semibold">{String.fromCharCode(65 + i)}</td>
+                          {cells.map((cell, ci) => (
+                            <td key={ci} className="py-1.5 px-3">
+                              {cell}
+                            </td>
+                          ))}
+                          <td className="py-1.5 px-3 text-xs text-right">
+                            {isThisCorrect ? "correct" : isThisChosen ? "your answer" : ""}
+                            {pct !== undefined && <span className="text-slate-500 ml-1">{pct}%</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
               <div className="space-y-1.5 mb-2">
                 {q.choices.map((c, i) => {
                   const isThisCorrect = c.id === q.correct_choice_id;
@@ -884,39 +1003,39 @@ export default function QBankTake({
                   );
                 })}
               </div>
-              {q.meta?.educational_objective && (
-                <div className="mb-2 p-2 rounded bg-slate-900/60 border border-slate-800">
-                  <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
-                  <p className="text-sm text-slate-300">{q.meta.educational_objective}</p>
-                </div>
-              )}
-              {q.explanation_image_url && (
-                <div className="mb-2">
-                  <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
-                </div>
-              )}
-              {q.explanation && (
-                <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">
-                  {q.explanation}
-                </p>
-              )}
-              {q.meta?.key_takeaway && (
-                <div className="mt-2 p-2 rounded bg-brand-900/20 border border-brand-800/40">
-                  <p className="text-xs font-semibold text-brand-300 mb-1">Key takeaway</p>
-                  <p className="text-sm text-slate-200 whitespace-pre-line">{q.meta.key_takeaway}</p>
-                </div>
-              )}
-              {q.meta?.exam_trap && (
-                <div className="mt-2 p-2 rounded bg-amber-900/20 border border-amber-800/40">
-                  <p className="text-xs font-semibold text-amber-300 mb-1">Exam trap</p>
-                  <p className="text-sm text-slate-200 whitespace-pre-line">{q.meta.exam_trap}</p>
-                </div>
-              )}
-              <ChoiceExplanations choices={q.choices} correctChoiceId={q.correct_choice_id} onOpen={setLightboxUrl} />
-            </div>
-          );
-        })}
-      </div>
+            )}
+            {q.meta?.educational_objective && (
+              <div className="mb-2 p-2 rounded bg-slate-900/60 border border-slate-800">
+                <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
+                <p className="text-sm text-slate-300">{q.meta.educational_objective}</p>
+              </div>
+            )}
+            {q.explanation_image_url && (
+              <div className="mb-2">
+                <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
+              </div>
+            )}
+            {q.explanation && (
+              <p className="text-sm text-slate-300 border-t border-slate-800 pt-2 whitespace-pre-line">
+                {q.explanation}
+              </p>
+            )}
+            {q.meta?.key_takeaway && (
+              <div className="mt-2 p-2 rounded bg-brand-900/20 border border-brand-800/40">
+                <p className="text-xs font-semibold text-brand-300 mb-1">Key takeaway</p>
+                <p className="text-sm text-slate-200 whitespace-pre-line">{q.meta.key_takeaway}</p>
+              </div>
+            )}
+            {q.meta?.exam_trap && (
+              <div className="mt-2 p-2 rounded bg-amber-900/20 border border-amber-800/40">
+                <p className="text-xs font-semibold text-amber-300 mb-1">Exam trap</p>
+                <p className="text-sm text-slate-200 whitespace-pre-line">{q.meta.exam_trap}</p>
+              </div>
+            )}
+            <ChoiceExplanations choices={q.choices} correctChoiceId={q.correct_choice_id} onOpen={setLightboxUrl} />
+          </div>
+        );
+      })()}
 
       {lightboxUrl && (
         <div
