@@ -9,6 +9,7 @@ import {
   blankQBankQuestion,
   choiceStatsToPercents,
   parseFullQBankQuestionTemplate,
+  splitAnswerTableRow,
   type ChoiceStatRow,
 } from "@/lib/qbank";
 import {
@@ -90,6 +91,14 @@ export default function QBankQuestionForm({
   );
   const [difficulty, setDifficulty] = useState<QuestionDifficulty | "">(initial?.meta?.difficulty ?? "");
   const [questionType, setQuestionType] = useState(initial?.meta?.question_type ?? "");
+
+  // Table-style answer choices (e.g. a multi-parameter matching question) -
+  // when set, each choice's text box below holds pipe-separated cell values
+  // instead of a plain sentence, and both the checklist/save and the
+  // preview modal render an actual table using these as column headers.
+  const [answerTableColumns, setAnswerTableColumns] = useState<string[]>(
+    initial?.meta?.answer_table_columns ?? []
+  );
 
   // Concept Library entries, fetched once. Topic/Subtopic still just suggest
   // the canonical spelling (typing a new value still works there) - but
@@ -271,6 +280,7 @@ export default function QBankQuestionForm({
     setSecondaryConceptsText(parsed.secondaryConcepts.join(", "));
     setDifficulty(parsed.difficulty);
     setQuestionType(parsed.questionType);
+    setAnswerTableColumns(parsed.answerTableColumns);
     setBulkText("");
   }
 
@@ -378,6 +388,7 @@ export default function QBankQuestionForm({
         difficulty: difficulty || undefined,
         question_type: questionType || undefined,
         status: nextStatus,
+        answer_table_columns: answerTableColumns.length > 0 ? answerTableColumns : undefined,
       },
     };
 
@@ -465,7 +476,12 @@ export default function QBankQuestionForm({
           classification, educational objective, main explanation, key takeaway, exam trap,
           per-choice explanations (with error notes), subjects/systems checkboxes, and the
           classification block - and every field below fills itself in. You can also paste just
-          the stem and choices if that&apos;s all you have; everything else is optional.
+          the stem and choices if that&apos;s all you have; everything else is optional. For a
+          table-style question (e.g. one row per option, with values across several columns like
+          Blood Pressure / Creatinine / K+), add a line{" "}
+          <span className="text-slate-300">Answer Table Columns: Col A, Col B, Col C</span> and
+          write each choice&apos;s cells separated by &ldquo;|&rdquo;, e.g.{" "}
+          <span className="text-slate-300">A. Increased | Decreased | No change</span>.
         </p>
         <textarea
           className="input mb-2"
@@ -499,10 +515,31 @@ export default function QBankQuestionForm({
           onChange={setQuestionImageUrl}
         />
 
+        <label className="label">
+          Table columns (optional - for a multi-column answer choice like a Blood
+          Pressure/Creatinine/K+ matching question, instead of plain-text choices)
+        </label>
+        <input
+          className="input mb-3"
+          placeholder="e.g. Blood Pressure, Creatinine, Serum K+ (leave blank for normal choices)"
+          value={answerTableColumns.join(", ")}
+          onChange={(e) =>
+            setAnswerTableColumns(
+              e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
+            )
+          }
+        />
+
         <p className="label mb-2">
           Answer choices - click the circle next to the correct one. For each wrong
           choice, tag whether it&apos;s a close distractor or an unrelated one, so the
           score report can tell a near-miss from a fundamentals gap.
+          {answerTableColumns.length > 0 && (
+            <span className="block text-slate-500 font-normal mt-1">
+              Table mode: type each choice&apos;s cells separated by &ldquo;|&rdquo; in the order{" "}
+              {answerTableColumns.join(" | ")}.
+            </span>
+          )}
         </p>
         <div className="space-y-2 mb-3">
           {choices.map((c, idx) => {
@@ -519,7 +556,11 @@ export default function QBankQuestionForm({
                   />
                   <input
                     className="input flex-1"
-                    placeholder={`Choice ${idx + 1}`}
+                    placeholder={
+                      answerTableColumns.length > 0
+                        ? answerTableColumns.map(() => "value").join(" | ")
+                        : `Choice ${idx + 1}`
+                    }
                     value={c.text}
                     onChange={(e) => updateChoice(idx, e.target.value)}
                   />
@@ -1044,28 +1085,73 @@ export default function QBankQuestionForm({
                 <ImageLink url={questionImageUrl} label="View image" onOpen={setPreviewLightbox} />
               </div>
             )}
-            <div className="space-y-2 mb-4">
-              {choices.map((c, i) => {
-                const isChosen = previewChoiceId === c.id;
-                const isCorrect = c.id === correctChoiceId;
-                let borderClass = "border-slate-700 hover:border-slate-600";
-                if (previewChoiceId) {
-                  if (isCorrect) borderClass = "border-green-600 bg-green-900/20";
-                  else if (isChosen) borderClass = "border-red-600 bg-red-900/20";
-                }
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    disabled={!!previewChoiceId}
-                    onClick={() => setPreviewChoiceId(c.id)}
-                    className={`w-full text-left border rounded-xl px-3 py-2 text-sm transition ${borderClass}`}
-                  >
-                    {String.fromCharCode(65 + i)}. {c.text || "(blank choice)"}
-                  </button>
-                );
-              })}
-            </div>
+            {answerTableColumns.length > 0 ? (
+              <div className="overflow-x-auto mb-4">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-700">
+                      <th className="text-left py-2 pr-3 text-slate-400 font-semibold w-10"></th>
+                      {answerTableColumns.map((col) => (
+                        <th key={col} className="text-left py-2 px-3 text-slate-400 font-semibold">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {choices.map((c, i) => {
+                      const isChosen = previewChoiceId === c.id;
+                      const isCorrect = c.id === correctChoiceId;
+                      let rowClass = "border-b border-slate-800 hover:bg-slate-900/40 cursor-pointer";
+                      if (previewChoiceId) {
+                        if (isCorrect) rowClass = "border-b border-slate-800 bg-green-900/20";
+                        else if (isChosen) rowClass = "border-b border-slate-800 bg-red-900/20";
+                      }
+                      const cells = splitAnswerTableRow(c.text, answerTableColumns);
+                      return (
+                        <tr
+                          key={c.id}
+                          className={rowClass}
+                          onClick={() => !previewChoiceId && setPreviewChoiceId(c.id)}
+                        >
+                          <td className="py-2 pr-3 text-slate-400 font-semibold">
+                            {String.fromCharCode(65 + i)}
+                          </td>
+                          {cells.map((cell, ci) => (
+                            <td key={ci} className="py-2 px-3">
+                              {cell || "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {choices.map((c, i) => {
+                  const isChosen = previewChoiceId === c.id;
+                  const isCorrect = c.id === correctChoiceId;
+                  let borderClass = "border-slate-700 hover:border-slate-600";
+                  if (previewChoiceId) {
+                    if (isCorrect) borderClass = "border-green-600 bg-green-900/20";
+                    else if (isChosen) borderClass = "border-red-600 bg-red-900/20";
+                  }
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      disabled={!!previewChoiceId}
+                      onClick={() => setPreviewChoiceId(c.id)}
+                      className={`w-full text-left border rounded-xl px-3 py-2 text-sm transition ${borderClass}`}
+                    >
+                      {String.fromCharCode(65 + i)}. {c.text || "(blank choice)"}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {previewChoiceId && (
               <div className="pt-3 border-t border-slate-800 space-y-3">
                 <p
