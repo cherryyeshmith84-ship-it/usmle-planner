@@ -158,6 +158,12 @@ export interface AssessmentQuestionMeta {
   secondary_concepts?: string;
   difficulty?: QuestionDifficulty;
   question_type?: QBankQuestionType | string;
+  // Optional table-style answer choices - mirrors
+  // QBankQuestionMeta.answer_table_columns in lib/qbankTypes.ts. When set,
+  // each choice's `text` is interpreted as pipe- ("|") separated cell
+  // values in this column order and rendered as a table with these names
+  // as headers, instead of a plain answer-choice list.
+  answer_table_columns?: string[];
 }
 
 export interface AssessmentQuestion {
