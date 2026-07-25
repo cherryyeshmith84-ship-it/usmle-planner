@@ -93,11 +93,16 @@ export default function QBankTake({
   session,
   questions,
   initialMarked,
+  backHref = "/qbank",
 }: {
   userId: string;
   session: QBankTestSession;
   questions: QBankQuestion[];
   initialMarked: Record<string, boolean>;
+  // Where "Exit" sends the student back to - the sidebar/nav is hidden
+  // while taking or reviewing a test (see app/qbank/take/[id]/page.tsx), so
+  // this is the only way back without a browser back-button.
+  backHref?: string;
 }) {
   const blocks = useMemo(
     () => chunkIntoBlocks(questions as any, session.questions_per_block) as unknown as QBankQuestion[][],
@@ -499,9 +504,14 @@ export default function QBankTake({
       <div className="card max-w-xl">
         <h2 className="text-lg font-bold mb-2">Block {currentBlock + 1} complete</h2>
         <p className="text-sm text-slate-400 mb-6">Ready for the next block whenever you are.</p>
-        <button type="button" onClick={goToNextBlock} className="btn-primary">
-          Continue to block {currentBlock + 2}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={goToNextBlock} className="btn-primary">
+            Continue to block {currentBlock + 2}
+          </button>
+          <Link href={backHref} className="btn-secondary">
+            Exit for now
+          </Link>
+        </div>
       </div>
     );
   }
@@ -516,7 +526,18 @@ export default function QBankTake({
       <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
         <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-black/90 backdrop-blur border-b border-slate-800">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <span className="text-sm text-slate-400">
+            <span className="text-sm text-slate-400 flex items-center gap-3">
+              <Link
+                href={backHref}
+                onClick={(e) => {
+                  if (!confirm("Exit this test? Your progress so far is saved and you can resume it later from Previous Tests.")) {
+                    e.preventDefault();
+                  }
+                }}
+                className="text-xs font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg px-2 py-1"
+              >
+                &larr; Exit
+              </Link>
               Block {currentBlock + 1} of {blocks.length} · Item {currentQuestionIndex + 1} of{" "}
               {currentQuestions.length} · {answeredInBlock}/{currentQuestions.length} answered
             </span>
@@ -877,45 +898,38 @@ export default function QBankTake({
         </div>
       </div>
 
-      <div className="card">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-          Review by question
-        </p>
-        <p className="text-xs text-slate-500 mb-3">
-          Click a number to see that question's explanation. Click it again to collapse.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {questions.map((q, idx) => {
-            const chosen = answers[q.id];
-            const isCorrect = chosen === q.correct_choice_id;
-            const isOpen = expandedIdx === idx;
-            let badgeClass = "bg-slate-800 text-slate-400 border-slate-700";
-            if (isCorrect) badgeClass = "bg-green-900/30 text-green-400 border-green-800";
-            else if (chosen) badgeClass = "bg-red-900/30 text-red-400 border-red-800";
-            return (
-              <button
-                key={q.id}
-                type="button"
-                onClick={() => setExpandedIdx(isOpen ? null : idx)}
-                className={`w-9 h-9 rounded-lg border text-sm font-semibold flex items-center justify-center transition ${badgeClass} ${
-                  isOpen ? "ring-2 ring-brand-400" : ""
-                }`}
-                title={isCorrect ? "Correct" : chosen ? "Incorrect" : "Not answered"}
-              >
-                {idx + 1}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <p className="text-xs text-slate-500">
+        Click a question number on the left to see that question&apos;s explanation. Click it again to collapse.
+      </p>
 
-      {expandedIdx !== null && (() => {
-        const q = questions[expandedIdx];
-        const chosen = answers[q.id];
-        const isCorrect = chosen === q.correct_choice_id;
-        const seconds = questionTimes[q.id];
-        return (
-          <div className="card">
+      <div className="flex gap-4 items-start">
+        <QuestionNavigator
+          items={questions.map((q, idx) => {
+            const chosen = answers[q.id];
+            const status: "correct" | "incorrect" | "unanswered" = !chosen
+              ? "unanswered"
+              : chosen === q.correct_choice_id
+              ? "correct"
+              : "incorrect";
+            return { index: idx, answered: !!chosen, flagged: false, status };
+          })}
+          currentIndex={expandedIdx}
+          onSelect={(idx) => setExpandedIdx(idx === expandedIdx ? null : idx)}
+        />
+
+        <div className="flex-1 min-w-0">
+          {expandedIdx === null ? (
+            <div className="card text-sm text-slate-400">
+              Pick a question number to review its explanation.
+            </div>
+          ) : (
+            (() => {
+              const q = questions[expandedIdx];
+              const chosen = answers[q.id];
+              const isCorrect = chosen === q.correct_choice_id;
+              const seconds = questionTimes[q.id];
+              return (
+                <div className="card">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-semibold">{expandedIdx + 1}. {q.question}</p>
               <div className="flex items-center gap-2 shrink-0 ml-2">
@@ -1034,8 +1048,11 @@ export default function QBankTake({
             )}
             <ChoiceExplanations choices={q.choices} correctChoiceId={q.correct_choice_id} onOpen={setLightboxUrl} />
           </div>
-        );
-      })()}
+              );
+            })()
+          )}
+        </div>
+      </div>
 
       {lightboxUrl && (
         <div
