@@ -898,7 +898,12 @@ export default function AssessmentTake({
           </div>
         )}
 
-        {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+        {showAiHelper && (
+          <AiHelper
+            onClose={() => setShowAiHelper(false)}
+            questionContext={{ stem: currentQuestion.question, choices: currentQuestion.choices.map((c) => c.text) }}
+          />
+        )}
         {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
         {showSettings && (
           <ExamSettings
@@ -942,7 +947,7 @@ export default function AssessmentTake({
   if (!result) return null;
   const complete = result.total > 0 && result.pct === 100;
   return (
-    <div className="space-y-4 pb-10">
+    <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
       <div className="card">
         <h1 className="text-xl font-bold mb-1">{assessment.name} - results</h1>
         {assessment.test_id && (
@@ -981,13 +986,6 @@ export default function AssessmentTake({
           </button>
           <button
             type="button"
-            onClick={() => setShowAiHelper(true)}
-            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
-          >
-            AI Help
-          </button>
-          <button
-            type="button"
             onClick={() => setShowCalculator(true)}
             className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
           >
@@ -1006,7 +1004,14 @@ export default function AssessmentTake({
         </div>
       </div>
 
-      <AttemptReview assessment={assessment} answers={answers} questionTimes={questionTimes} />
+      <AttemptReview
+        assessment={assessment}
+        answers={answers}
+        questionTimes={questionTimes}
+        fontSize={fontSize}
+        examTheme={examTheme}
+        splitScreen={splitScreen}
+      />
 
       {showNormalValues && (
         <div className="fixed inset-0 z-20 bg-black/70 flex items-center justify-center px-4" onClick={() => setShowNormalValues(false)}>
@@ -1023,7 +1028,6 @@ export default function AssessmentTake({
         </div>
       )}
 
-      {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
       {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
       {showSettings && (
         <ExamSettings
