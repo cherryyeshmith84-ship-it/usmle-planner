@@ -891,10 +891,47 @@ export default function QBankTake({
         <div className="flex flex-wrap gap-3 mt-4">
           <button
             type="button"
+            onClick={() => setExpandedIdx((i) => (i === null ? 0 : Math.max(0, i - 1)))}
+            disabled={expandedIdx === 0}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2 disabled:opacity-40 disabled:hover:text-brand-400"
+          >
+            &larr; Previous
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedIdx((i) => (i === null ? 0 : Math.min(questions.length - 1, i + 1)))}
+            disabled={expandedIdx === questions.length - 1}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2 disabled:opacity-40 disabled:hover:text-brand-400"
+          >
+            Next &rarr;
+          </button>
+          <button
+            type="button"
             onClick={() => setShowNormalValues(true)}
             className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
           >
             Lab values
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAiHelper(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            AI Help
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCalculator(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            Calculator
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            Settings
           </button>
           <Link href={backHref} className="btn-secondary">
             &larr; Exit
@@ -1071,6 +1108,20 @@ export default function QBankTake({
             <LabValuesSearch compact />
           </div>
         </div>
+      )}
+
+      {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+      {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
+      {showSettings && (
+        <ExamSettings
+          fontSize={fontSize}
+          setFontSize={setFontSize}
+          theme={examTheme}
+          setTheme={setExamTheme}
+          splitScreen={splitScreen}
+          setSplitScreen={setSplitScreen}
+          onClose={() => setShowSettings(false)}
+        />
       )}
 
       {lightboxUrl && (
