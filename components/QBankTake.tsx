@@ -889,11 +889,15 @@ export default function QBankTake({
           <span className="text-sm text-slate-400">{correct}/{total} correct</span>
         </div>
         <div className="flex flex-wrap gap-3 mt-4">
-          <Link href="/qbank" className="btn-primary">
-            Create another test
-          </Link>
-          <Link href="/qbank/previous" className="btn-secondary">
-            Previous tests
+          <button
+            type="button"
+            onClick={() => setShowNormalValues(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            Lab values
+          </button>
+          <Link href={backHref} className="btn-secondary">
+            &larr; Exit
           </Link>
         </div>
       </div>
@@ -1053,6 +1057,21 @@ export default function QBankTake({
           )}
         </div>
       </div>
+
+      {showNormalValues && (
+        <div className="fixed inset-0 z-20 bg-black/70 flex items-center justify-center px-4" onClick={() => setShowNormalValues(false)}>
+          <div className="card max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">Lab values</h2>
+              <button type="button" onClick={() => setShowNormalValues(false)} className="text-slate-400 hover:text-white text-sm">
+                Close
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">Standard adult reference ranges - actual lab ranges vary by assay/lab.</p>
+            <LabValuesSearch compact />
+          </div>
+        </div>
+      )}
 
       {lightboxUrl && (
         <div
