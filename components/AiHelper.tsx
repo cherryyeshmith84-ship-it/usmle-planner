@@ -7,12 +7,26 @@ interface ChatEntry {
   text: string;
 }
 
+export interface AiHelperQuestionContext {
+  stem: string;
+  choices: string[];
+}
+
 /**
  * In-exam "Ask AI" chat button. Explains concepts/terms without revealing
  * which lettered choice is correct (see lib/examAiPrompt.ts for the rules
- * given to the model).
+ * given to the model). When `questionContext` is passed (the stem + choices
+ * of whatever question is currently on screen, taking or reviewing), it's
+ * sent along automatically with every message - the student doesn't have to
+ * copy/paste the question themselves.
  */
-export default function AiHelper({ onClose }: { onClose: () => void }) {
+export default function AiHelper({
+  onClose,
+  questionContext,
+}: {
+  onClose: () => void;
+  questionContext?: AiHelperQuestionContext;
+}) {
   const [message, setMessage] = useState("");
   const [history, setHistory] = useState<ChatEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,7 +44,7 @@ export default function AiHelper({ onClose }: { onClose: () => void }) {
       const res = await fetch("/api/exam-ai-help", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({ message: trimmed, questionContext }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -64,8 +78,9 @@ export default function AiHelper({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <p className="text-xs text-slate-500 mb-3">
-          Ask about a term, lab value, or concept - paste the relevant part of the question if
-          needed. It won&apos;t just hand you the answer letter.
+          {questionContext
+            ? "Ask about a term, lab value, or concept in this question - I can already see it, no need to paste it in. I won't just hand you the answer letter."
+            : "Ask about a term, lab value, or concept - paste the relevant part of the question if needed. It won't just hand you the answer letter."}
         </p>
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-1">
