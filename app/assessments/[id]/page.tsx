@@ -1,7 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Assessment, AssessmentAttempt, Profile } from "@/lib/types";
-import AppShell from "@/components/AppShell";
 import AssessmentTake from "@/components/AssessmentTake";
 
 export const dynamic = "force-dynamic";
@@ -33,11 +32,14 @@ export default async function TakeAssessmentPage({ params }: { params: { id: str
   const assessment = assessmentRes.data as Assessment;
   const existingAttempt = (attemptRes.data as AssessmentAttempt) ?? null;
 
+  // No AppShell here on purpose - the sidebar/top nav is hidden while
+  // actually taking or reviewing this assessment, and comes back once the
+  // student exits via AssessmentTake's own "Exit" link/buttons.
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
-      <main className="flex-1 px-6 py-8 w-full">
+    <div className="min-h-screen">
+      <main className="px-6 py-8 w-full">
         <AssessmentTake userId={user.id} assessment={assessment} existingAttempt={existingAttempt} />
       </main>
-    </AppShell>
+    </div>
   );
 }
