@@ -135,9 +135,31 @@ export default function AttemptReview({
         </div>
       )}
 
-      <p className="text-xs text-slate-500">
-        Click a question number on the left to see that question&apos;s explanation. Click it again to collapse.
-      </p>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs text-slate-500">
+          Click a question number on the left to see that question&apos;s explanation. Click it again to collapse.
+        </p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setExpandedIdx((i) => (i === null ? 0 : Math.max(0, i - 1)))}
+            disabled={expandedIdx === 0}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-1.5 disabled:opacity-40 disabled:hover:text-brand-400"
+          >
+            &larr; Previous
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedIdx((i) => (i === null ? 0 : Math.min(assessment.questions.length - 1, i + 1)))
+            }
+            disabled={expandedIdx === assessment.questions.length - 1}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-1.5 disabled:opacity-40 disabled:hover:text-brand-400"
+          >
+            Next &rarr;
+          </button>
+        </div>
+      </div>
 
       <div className="flex gap-4 items-start">
         <QuestionNavigator
