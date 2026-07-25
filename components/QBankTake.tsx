@@ -836,7 +836,12 @@ export default function QBankTake({
           </div>
         )}
 
-        {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+        {showAiHelper && (
+          <AiHelper
+            onClose={() => setShowAiHelper(false)}
+            questionContext={{ stem: currentQuestion.question, choices: currentQuestion.choices.map((c) => c.text) }}
+          />
+        )}
         {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
         {showSettings && (
           <ExamSettings
@@ -879,9 +884,13 @@ export default function QBankTake({
   const total = questions.length;
   const correct = questions.filter((q) => answers[q.id] === q.correct_choice_id).length;
   const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+  // Whichever question is currently expanded in the review panel below -
+  // used to pass the right question into AI Help/Ask AI so it already knows
+  // what the student's looking at, instead of a generic chat.
+  const reviewQuestion = expandedIdx !== null ? questions[expandedIdx] : null;
 
   return (
-    <div className="space-y-4 pb-10">
+    <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
       <div className="card">
         <h1 className="text-xl font-bold mb-1">Test results</h1>
         <div className="flex items-center gap-4 mt-3">
@@ -972,7 +981,7 @@ export default function QBankTake({
               return (
                 <div className="card">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold">{expandedIdx + 1}. {q.question}</p>
+              <p className="text-sm font-semibold" style={{ fontSize: FONT_SIZE_PX[fontSize] }}>{expandedIdx + 1}. {q.question}</p>
               <div className="flex items-center gap-2 shrink-0 ml-2">
                 {seconds !== undefined && (
                   <span className="text-xs font-semibold rounded-full px-2 py-1 bg-slate-800 text-slate-400">{formatSeconds(seconds)}</span>
@@ -982,6 +991,7 @@ export default function QBankTake({
                 </span>
               </div>
             </div>
+            <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
             {q.question_image_url && (
               <div className="mb-2">
                 <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
@@ -989,7 +999,7 @@ export default function QBankTake({
             )}
             {q.meta?.answer_table_columns && q.meta.answer_table_columns.length > 0 ? (
               <div className="overflow-x-auto mb-2">
-                <table className="w-full text-sm border-collapse">
+                <table className="w-full text-sm border-collapse" style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                   <thead>
                     <tr className="border-b border-slate-700">
                       <th className="text-left py-1.5 pr-3 text-slate-500 font-semibold w-8"></th>
@@ -1048,7 +1058,7 @@ export default function QBankTake({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span>
+                        <span style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                           {String.fromCharCode(65 + i)}. {c.text}
                           {isThisCorrect ? " (correct)" : isThisChosen ? " (your answer)" : ""}
                         </span>
@@ -1059,6 +1069,7 @@ export default function QBankTake({
                 })}
               </div>
             )}
+            </div>
             {q.meta?.educational_objective && (
               <div className="mb-2 p-2 rounded bg-slate-900/60 border border-slate-800">
                 <p className="text-xs font-semibold text-slate-400 mb-1">Educational objective</p>
@@ -1110,7 +1121,16 @@ export default function QBankTake({
         </div>
       )}
 
-      {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+      {showAiHelper && (
+        <AiHelper
+          onClose={() => setShowAiHelper(false)}
+          questionContext={
+            reviewQuestion
+              ? { stem: reviewQuestion.question, choices: reviewQuestion.choices.map((c) => c.text) }
+              : undefined
+          }
+        />
+      )}
       {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
       {showSettings && (
         <ExamSettings
