@@ -1,7 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Assessment, Profile } from "@/lib/types";
-import AppShell from "@/components/AppShell";
 import AssessmentTake from "@/components/AssessmentTake";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +26,12 @@ export default async function TakeQuestionBankPage({ params }: { params: { id: s
   // reachable (and retakeable) through this URL.
   if (assessment.kind !== "qbank") notFound();
 
+  // No AppShell here on purpose - the sidebar/top nav is hidden while
+  // actually taking or reviewing this, and comes back once the student
+  // exits via AssessmentTake's own "Exit" link/buttons back to /qbank.
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
-      <main className="flex-1 px-6 py-8 w-full">
+    <div className="min-h-screen">
+      <main className="px-6 py-8 w-full">
         <AssessmentTake
           userId={user.id}
           assessment={assessment}
@@ -38,6 +40,6 @@ export default async function TakeQuestionBankPage({ params }: { params: { id: s
           backHref="/qbank"
         />
       </main>
-    </AppShell>
+    </div>
   );
 }
