@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { buildExamHelpSystemPrompt, buildExamHelpUserPrompt } from "@/lib/examAiPrompt";
+import {
+  buildExamHelpSystemPrompt,
+  buildExamHelpUserPrompt,
+  type ExamQuestionContext,
+} from "@/lib/examAiPrompt";
 
 export async function POST(request: Request) {
   const supabase = createClient();
@@ -22,12 +26,21 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const message: string = (body?.message || "").trim();
+  // The question currently on screen (stem + choices), sent automatically by
+  // AiHelper so the student doesn't have to paste it in themselves.
+  const questionContext: ExamQuestionContext | undefined =
+    body?.questionContext && typeof body.questionContext.stem === "string"
+      ? {
+          stem: body.questionContext.stem,
+          choices: Array.isArray(body.questionContext.choices) ? body.questionContext.choices : [],
+        }
+      : undefined;
 
   if (!message) {
     return NextResponse.json({ error: "Type a question first." }, { status: 400 });
   }
 
-  const systemPrompt = buildExamHelpSystemPrompt();
+  const systemPrompt = buildExamHelpSystemPrompt(questionContext);
   const userPrompt = buildExamHelpUserPrompt(message);
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
