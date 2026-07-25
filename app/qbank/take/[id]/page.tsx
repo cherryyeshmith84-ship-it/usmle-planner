@@ -2,7 +2,6 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { QBankQuestion, QBankTestSession } from "@/lib/qbankTypes";
-import AppShell from "@/components/AppShell";
 import QBankTake from "@/components/QBankTake";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +44,13 @@ export default async function TakeQBankSessionPage({ params }: { params: { id: s
     if (m.marked) initialMarked[m.question_id] = true;
   }
 
+  // No AppShell here on purpose - the sidebar/top nav is hidden while
+  // actually taking or reviewing a test (distraction-free, like a real exam
+  // screen), and comes back once the student exits via QBankTake's own
+  // "Exit" link/buttons back to /qbank.
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
-      <main className="flex-1 px-6 py-8 w-full">
+    <div className="min-h-screen">
+      <main className="px-6 py-8 w-full">
         <QBankTake
           userId={user.id}
           session={session}
@@ -55,6 +58,6 @@ export default async function TakeQBankSessionPage({ params }: { params: { id: s
           initialMarked={initialMarked}
         />
       </main>
-    </AppShell>
+    </div>
   );
 }
