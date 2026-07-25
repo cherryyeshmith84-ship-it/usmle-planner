@@ -432,9 +432,14 @@ export default function AssessmentTake({
             You only get one attempt at this - once you finish, you can&apos;t retake it.
           </p>
         )}
-        <button type="button" onClick={startAssessment} className="btn-primary">
-          Start exam
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={startAssessment} className="btn-primary">
+            Start exam
+          </button>
+          <Link href={backHref} className="btn-secondary">
+            {allowRetake ? "Back to question bank" : "Back to assessments"}
+          </Link>
+        </div>
       </div>
     );
   }
@@ -457,6 +462,17 @@ export default function AssessmentTake({
               Take a break
             </button>
           )}
+          <Link
+            href={backHref}
+            onClick={(e) => {
+              if (!confirm("Exit now? This attempt isn't saved until you finish the whole exam, so your answers so far will be lost.")) {
+                e.preventDefault();
+              }
+            }}
+            className="btn-secondary text-red-400"
+          >
+            Exit (progress will be lost)
+          </Link>
         </div>
       </div>
     );
@@ -474,9 +490,22 @@ export default function AssessmentTake({
           The exam clock is paused. Come back whenever you&apos;re ready - you don&apos;t
           have to use all of it now.
         </p>
-        <button type="button" onClick={goToNextBlock} className="btn-primary">
-          End break and continue to block {currentBlock + 2}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={goToNextBlock} className="btn-primary">
+            End break and continue to block {currentBlock + 2}
+          </button>
+          <Link
+            href={backHref}
+            onClick={(e) => {
+              if (!confirm("Exit now? This attempt isn't saved until you finish the whole exam, so your answers so far will be lost.")) {
+                e.preventDefault();
+              }
+            }}
+            className="btn-secondary text-red-400"
+          >
+            Exit (progress will be lost)
+          </Link>
+        </div>
       </div>
     );
   }
@@ -491,7 +520,18 @@ export default function AssessmentTake({
       <div className="space-y-4 pb-10" data-exam-theme={examTheme}>
         <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-black/90 backdrop-blur border-b border-slate-800">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <span className="text-sm text-slate-400">
+            <span className="text-sm text-slate-400 flex items-center gap-3">
+              <Link
+                href={backHref}
+                onClick={(e) => {
+                  if (!confirm("Exit now? This attempt isn't saved until you finish the whole exam, so your answers so far will be lost.")) {
+                    e.preventDefault();
+                  }
+                }}
+                className="text-xs font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg px-2 py-1"
+              >
+                &larr; Exit
+              </Link>
               {assessment.test_id && (
                 <span className="text-slate-500 mr-2">Test Id: {assessment.test_id}</span>
               )}
