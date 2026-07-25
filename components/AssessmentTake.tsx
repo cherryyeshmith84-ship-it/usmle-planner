@@ -979,6 +979,27 @@ export default function AssessmentTake({
           >
             Lab values
           </button>
+          <button
+            type="button"
+            onClick={() => setShowAiHelper(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            AI Help
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCalculator(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            Calculator
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-2"
+          >
+            Settings
+          </button>
           <Link href={backHref} className="btn-secondary">
             &larr; Exit
           </Link>
@@ -1000,6 +1021,20 @@ export default function AssessmentTake({
             <LabValuesSearch compact />
           </div>
         </div>
+      )}
+
+      {showAiHelper && <AiHelper onClose={() => setShowAiHelper(false)} />}
+      {showCalculator && <ExamCalculator onClose={() => setShowCalculator(false)} />}
+      {showSettings && (
+        <ExamSettings
+          fontSize={fontSize}
+          setFontSize={setFontSize}
+          theme={examTheme}
+          setTheme={setExamTheme}
+          splitScreen={splitScreen}
+          setSplitScreen={setSplitScreen}
+          onClose={() => setShowSettings(false)}
+        />
       )}
     </div>
   );
