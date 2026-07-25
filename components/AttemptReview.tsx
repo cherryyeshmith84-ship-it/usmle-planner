@@ -5,6 +5,13 @@ import { buildErrorBreakdown, classifyAnswer, formatSeconds } from "@/lib/assess
 import { splitAnswerTableRow } from "@/lib/qbank";
 import type { Assessment } from "@/lib/types";
 import QuestionNavigator from "./QuestionNavigator";
+import AiHelper from "./AiHelper";
+import type { ExamTheme, FontSize } from "./ExamSettings";
+
+// Mirrors the same map in QBankTake.tsx/AssessmentTake.tsx - kept local
+// rather than shared since it's a one-line lookup, same convention as the
+// rest of this codebase's small per-file helpers.
+const FONT_SIZE_PX: Record<FontSize, string> = { sm: "13px", md: "14px", lg: "17px" };
 
 /**
  * Small text link (UWorld-style "Exhibit" link) that opens an image full-size
@@ -92,10 +99,20 @@ export default function AttemptReview({
   assessment,
   answers,
   questionTimes,
+  fontSize = "md",
+  examTheme = "dark",
+  splitScreen = false,
 }: {
   assessment: Assessment;
   answers: Record<string, string>;
   questionTimes: Record<string, number>;
+  // Same in-exam display preferences as the taking screen (see
+  // AssessmentTake.tsx/QBankTake.tsx's Settings panel) - optional since the
+  // admin's per-student attempt page uses this component without them and
+  // just gets the defaults.
+  fontSize?: FontSize;
+  examTheme?: ExamTheme;
+  splitScreen?: boolean;
 }) {
   const breakdown = buildErrorBreakdown(assessment.questions, answers);
   const wrongCount = breakdown.near + breakdown.far;
@@ -107,9 +124,14 @@ export default function AttemptReview({
   // Which question (by index into assessment.questions) is currently
   // expanded in the review panel - null means nothing is open yet.
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // "Ask AI" lives here (rather than in the parent AssessmentTake) so it can
+  // automatically see whichever question is currently expanded, instead of
+  // needing that state passed down from a component that doesn't have it.
+  const [showAiHelper, setShowAiHelper] = useState(false);
+  const reviewQuestion = expandedIdx !== null ? assessment.questions[expandedIdx] : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-exam-theme={examTheme}>
       {wrongCount > 0 && (
         <div className="card">
           <h2 className="font-semibold mb-2">Error pattern</h2>
@@ -158,6 +180,13 @@ export default function AttemptReview({
           >
             Next &rarr;
           </button>
+          <button
+            type="button"
+            onClick={() => setShowAiHelper(true)}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300 border border-slate-700 rounded-lg px-3 py-1.5"
+          >
+            AI Help
+          </button>
         </div>
       </div>
 
@@ -189,7 +218,7 @@ export default function AttemptReview({
               return (
                 <div className="card">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold">
+                    <p className="text-sm font-semibold" style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                       {expandedIdx + 1}. {q.question}
                     </p>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
@@ -230,6 +259,7 @@ export default function AttemptReview({
                       <p className="text-sm text-slate-300">{q.meta.educational_objective}</p>
                     </div>
                   )}
+                  <div className={splitScreen ? "grid grid-cols-2 gap-6" : ""}>
                   {q.question_image_url && (
                     <div className="mb-3">
                       <ImageLink url={q.question_image_url} label="View image" onOpen={setLightboxUrl} />
@@ -237,7 +267,7 @@ export default function AttemptReview({
                   )}
                   {q.meta?.answer_table_columns && q.meta.answer_table_columns.length > 0 ? (
                     <div className="overflow-x-auto mb-3">
-                      <table className="w-full text-sm border-collapse">
+                      <table className="w-full text-sm border-collapse" style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                         <thead>
                           <tr className="border-b border-slate-700">
                             <th className="text-left py-1.5 pr-3 text-slate-500 font-semibold w-8"></th>
@@ -297,7 +327,7 @@ export default function AttemptReview({
                             }`}
                           >
                             <div className="flex items-center gap-2">
-                              <span>
+                              <span style={{ fontSize: FONT_SIZE_PX[fontSize] }}>
                                 {String.fromCharCode(65 + i)}. {c.text}
                               </span>
                               {isThisCorrect && <span className="text-xs text-green-400 ml-auto">Correct answer</span>}
@@ -310,6 +340,7 @@ export default function AttemptReview({
                       })}
                     </div>
                   )}
+                  </div>
                   {q.explanation_image_url && (
                     <div className="mb-2">
                       <ImageLink url={q.explanation_image_url} label="View image" onOpen={setLightboxUrl} />
@@ -337,6 +368,17 @@ export default function AttemptReview({
           )}
         </div>
       </div>
+
+      {showAiHelper && (
+        <AiHelper
+          onClose={() => setShowAiHelper(false)}
+          questionContext={
+            reviewQuestion
+              ? { stem: reviewQuestion.question, choices: reviewQuestion.choices.map((c) => c.text) }
+              : undefined
+          }
+        />
+      )}
 
       {lightboxUrl && (
         <div
