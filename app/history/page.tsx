@@ -39,7 +39,7 @@ export default async function HistoryPage() {
   return (
     <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-1">Performance</h1>
+        <h1 className="text-xl font-bold mb-1">Analysis</h1>
         <p className="text-sm text-slate-400 mb-6">
           Upload your NBME, UWSA, Free 120, and UWorld self-assessment results to track your weak and
           strong systems over time.
