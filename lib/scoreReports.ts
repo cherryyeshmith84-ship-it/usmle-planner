@@ -20,7 +20,10 @@ export interface ScoreReport {
   overall_percent: number | null;
   // Keyed by lib/qbankTypes.ts STEP1_SYSTEMS labels -> percent correct (0-100).
   system_breakdown: Record<string, number>;
-  image_path: string | null;
+  // One score report can be built from several screenshots (e.g. a System
+  // table + a Subject table, or a scrolled multi-part capture) - all of
+  // them are stored and read together.
+  image_paths: string[];
   created_at?: string;
 }
 
