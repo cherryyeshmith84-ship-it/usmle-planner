@@ -30,44 +30,58 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
   const router = useRouter();
   const [stage, setStage] = useState<"idle" | "uploading" | "parsing" | "review" | "saving">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imagePaths, setImagePaths] = useState<string[]>([]);
   const [draft, setDraft] = useState<ParsedScoreReport | null>(null);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const fileList = e.target.files;
     e.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
-      setError("Please choose an image (screenshot/photo) or a PDF of your score report.");
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+
+    const bad = files.find((f) => !f.type.startsWith("image/") && f.type !== "application/pdf");
+    if (bad) {
+      setError("Please choose images (screenshots/photos) or PDFs of your score report.");
+      return;
+    }
+    if (files.length > 6) {
+      setError("Please upload at most 6 files at a time.");
       return;
     }
 
     setError(null);
     setStage("uploading");
     const supabase = createClient();
-    const ext = file.name.split(".").pop() || "png";
-    const path = `${userId}/${crypto.randomUUID()}.${ext}`;
-    const { error: uploadError } = await supabase.storage.from("score-reports").upload(path, file, {
-      upsert: false,
-    });
-    if (uploadError) {
-      setStage("idle");
-      setError(uploadError.message);
-      return;
+
+    const paths: string[] = [];
+    for (const file of files) {
+      const ext = file.name.split(".").pop() || "png";
+      const path = `${userId}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("score-reports").upload(path, file, {
+        upsert: false,
+      });
+      if (uploadError) {
+        setStage("idle");
+        setError(uploadError.message);
+        return;
+      }
+      paths.push(path);
     }
-    setImagePath(path);
+    setImagePaths(paths);
 
     setStage("parsing");
     try {
-      const { base64, mimeType } = await fileToBase64(file);
+      const encoded = await Promise.all(files.map((f) => fileToBase64(f)));
       const res = await fetch("/api/score-report/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mimeType }),
+        body: JSON.stringify({
+          files: encoded.map(({ base64, mimeType }) => ({ base64, mimeType })),
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.error || "Couldn't read that image - you can still enter it manually below.");
+        setError(json.error || "Couldn't read those files - you can still enter it manually below.");
         setDraft({
           exam_type: "other",
           exam_name: "",
@@ -123,7 +137,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       overall_score: draft.overall_score,
       overall_percent: draft.overall_percent,
       system_breakdown: draft.system_breakdown,
-      image_path: imagePath,
+      image_paths: imagePaths,
     });
     if (insertError) {
       setStage("review");
@@ -132,14 +146,14 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     }
     setStage("idle");
     setDraft(null);
-    setImagePath(null);
+    setImagePaths([]);
     router.refresh();
   }
 
   function cancel() {
     setStage("idle");
     setDraft(null);
-    setImagePath(null);
+    setImagePaths([]);
     setError(null);
   }
 
@@ -148,16 +162,19 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       <div className="card">
         <p className="text-sm font-semibold mb-1">Upload a score report</p>
         <p className="text-xs text-slate-400 mb-3">
-          A screenshot, photo, or PDF of an NBME, UWSA, Free 120, or UWorld self-assessment result. The
-          AI reads the overall score and system breakdown for you - you'll get to check it before it's
-          saved.
+          Screenshots, photos, or PDFs of an NBME, UWSA, Free 120, UWorld, or any other platform's
+          self-assessment result - from any platform. You can select several files at once (e.g. one
+          image per table, or a few scrolled screenshots of the same report) and the AI will read and
+          combine all of them into one result. You'll get to check everything before it's saved.
         </p>
         <input
           type="file"
           accept="image/*,application/pdf"
+          multiple
           onChange={handleFile}
           className="text-sm text-slate-300"
         />
+        <p className="text-xs text-slate-600 mt-1">Up to 6 files per report.</p>
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
       </div>
     );
@@ -167,7 +184,9 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     return (
       <div className="card">
         <p className="text-sm text-slate-400">
-          {stage === "uploading" ? "Uploading file..." : "Reading your score report with AI..."}
+          {stage === "uploading"
+            ? `Uploading file${imagePaths.length > 1 ? "s" : ""}...`
+            : "Reading your score report with AI..."}
         </p>
       </div>
     );
@@ -179,7 +198,10 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     <div className="card space-y-4">
       <div>
         <p className="text-sm font-semibold">Check what the AI read</p>
-        <p className="text-xs text-slate-400">Fix anything that's wrong before saving.</p>
+        <p className="text-xs text-slate-400">
+          Fix anything that's wrong before saving.
+          {imagePaths.length > 1 && ` Combined from ${imagePaths.length} files you uploaded.`}
+        </p>
         {error && <p className="text-xs text-amber-400 mt-1">{error}</p>}
       </div>
 
