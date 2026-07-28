@@ -29,21 +29,54 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => null);
-  const imageBase64: string | undefined = body?.imageBase64;
-  const mimeType: string = body?.mimeType || "image/png";
-  if (!imageBase64) {
+  // Accepts either a single { imageBase64, mimeType } (older callers) or a
+  // { files: [{ base64, mimeType }, ...] } batch - a student may upload
+  // several screenshots/PDFs (from the same or different platforms) for
+  // one score report, e.g. one image per table, or a scrolled multi-part
+  // capture. All of them are sent to Gemini together so it can merge them
+  // into a single combined result instead of parsing each in isolation.
+  type FileInput = { base64: string; mimeType: string };
+  let files: FileInput[] = [];
+  if (Array.isArray(body?.files) && body.files.length > 0) {
+    files = body.files
+      .filter((f: any) => typeof f?.base64 === "string" && f.base64.length > 0)
+      .map((f: any) => ({ base64: f.base64, mimeType: f.mimeType || "image/png" }));
+  } else if (typeof body?.imageBase64 === "string" && body.imageBase64.length > 0) {
+    files = [{ base64: body.imageBase64, mimeType: body.mimeType || "image/png" }];
+  }
+  if (files.length === 0) {
     return NextResponse.json({ error: "No image provided." }, { status: 400 });
+  }
+  if (files.length > 6) {
+    return NextResponse.json({ error: "Too many files - please upload at most 6 at a time." }, { status: 400 });
   }
 
   const systemListText = STEP1_SYSTEMS.map((s, i) => `${i + 1}. ${s}`).join("\n");
 
+  const multiFileNote =
+    files.length > 1
+      ? `\nYou have been given ${files.length} separate images/files this time. They are
+almost always pieces of the SAME score report - for example one image of a
+"Performance By System" table and another of a "Performance By Subject"
+table, a scrolled multi-part screenshot capture, or one image showing the
+overall score and another showing the system breakdown. Treat all of them
+together as one report and merge everything you read across every file
+into a single combined "system_breakdown" object (and single exam_type/
+exam_name/taken_date/overall_score/overall_percent) - do not produce
+separate results per file. Only if two files are unmistakably from
+different exams entirely (different dates, different exam names) should
+you prioritize the most complete/most recent one instead of merging.\n`
+      : "";
+
   const prompt = `
-You are carefully reading every pixel of a screenshot/PDF of a USMLE Step 1
-practice exam score report (an NBME self-assessment form, a UWSA, the Free
-120, or a UWorld self-assessment/performance summary). These reports are
-often dense, multi-page, or contain more than one breakdown table - do not
-stop after the first number you find. Work through the ENTIRE document
-top to bottom before answering.
+You are carefully reading every pixel of a screenshot/PDF (there may be more
+than one - see below) of a USMLE Step 1 practice exam score report from ANY
+platform (an NBME self-assessment form, a UWSA, the Free 120, a UWorld
+self-assessment/performance summary, or any similar third-party practice
+exam tool). These reports are often dense, multi-page, or contain more than
+one breakdown table - do not stop after the first number you find. Work
+through the ENTIRE document top to bottom before answering.
+${multiFileNote}
 
 There are exactly 14 systems you need to check for (listed below, numbered).
 For EACH of the 14, look everywhere in the document for a matching row,
@@ -150,7 +183,10 @@ field as null (system_breakdown as {}).
           contents: [
             {
               role: "user",
-              parts: [{ text: prompt }, { inlineData: { mimeType, data: imageBase64 } }],
+              parts: [
+                { text: prompt },
+                ...files.map((f) => ({ inlineData: { mimeType: f.mimeType, data: f.base64 } })),
+              ],
             },
           ],
           generationConfig: {
