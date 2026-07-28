@@ -35,13 +35,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No image provided." }, { status: 400 });
   }
 
-  const systemListText = STEP1_SYSTEMS.map((s) => `- ${s}`).join("\n");
+  const systemListText = STEP1_SYSTEMS.map((s, i) => `${i + 1}. ${s}`).join("\n");
 
   const prompt = `
-You are reading a screenshot of a USMLE Step 1 practice exam score report
-(this could be an NBME self-assessment form, a UWSA, the Free 120, or a
-UWorld self-assessment/performance summary). Extract what you can see and
-respond with ONLY JSON in exactly this shape, no extra commentary:
+You are carefully reading every pixel of a screenshot/PDF of a USMLE Step 1
+practice exam score report (an NBME self-assessment form, a UWSA, the Free
+120, or a UWorld self-assessment/performance summary). These reports are
+often dense, multi-page, or contain more than one breakdown table - do not
+stop after the first number you find. Work through the ENTIRE document
+top to bottom before answering.
+
+There are exactly 14 systems you need to check for (listed below, numbered).
+For EACH of the 14, look everywhere in the document for a matching row,
+bar, or percentage before deciding it isn't there. Some reports label these
+"System", others label very similar categories under "Organ System" or
+similar - use whichever table breaks performance down by organ
+system/discipline. If a report shows both a "System" table and a
+"Discipline/Subject" table, prefer the System one, but if only a
+Discipline/Subject table exists, map each discipline to the closest
+matching system below rather than leaving it blank - only skip a system if
+you are confident, after checking the whole document, that no related
+number appears anywhere.
+
+The 14 systems (map any similar/abbreviated label you see - e.g. "Cardio",
+"Cardiology" -> #4; "Renal", "Genitourinary" -> #12; "Repro" -> whichever of
+#6/#9 the context indicates; "GI" -> #7; "MSK", "Derm" -> #11; "Heme/Onc",
+"Blood" -> #3; "Psych", "Behavioral Science", "Neuro" -> #1; "Biostats",
+"Epi" -> #2):
+${systemListText}
+
+Respond with ONLY JSON in exactly this shape, no extra commentary:
 
 {
   "exam_type": "nbme" | "uwsa" | "free120" | "uworld_self_assessment" | "other",
@@ -51,15 +74,13 @@ respond with ONLY JSON in exactly this shape, no extra commentary:
     predicted score) is shown, otherwise null,
   "overall_percent": number 0-100 if an overall percent-correct is shown or can be
     computed, otherwise null,
-  "system_breakdown": an object mapping ONLY the following exact system names to a
-    percent-correct number (0-100) for each one you can actually read a value for -
-    omit any system not shown in the image, do not invent numbers:
-${systemListText}
+  "system_breakdown": an object mapping the exact system names from the numbered
+    list above to a percent-correct number (0-100) - include every one you found a
+    value for anywhere in the document, do not invent numbers for ones you didn't
+    find.
 }
 
-If the report uses different category names than the list above (e.g. "Cardiology"
-instead of "Cardiovascular System"), map it to the closest matching name from the
-list. If you genuinely cannot read the image or it isn't a score report, return every
+If you genuinely cannot read the document or it isn't a score report, return every
 field as null (system_breakdown as {}).
 `.trim();
 
@@ -79,8 +100,9 @@ field as null (system_breakdown as {}).
             },
           ],
           generationConfig: {
-            temperature: 0.2,
+            temperature: 0.1,
             responseMimeType: "application/json",
+            maxOutputTokens: 3000,
           },
         }),
       }
