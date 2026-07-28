@@ -1,198 +1,166 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import {
-  formatSlotDate,
-  formatSlotTime,
-  groupSlotsByDate,
-  mentorPhotoUrl,
-  type Mentor,
-  type MentorSlot,
-} from "@/lib/mentors";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+interface NavItem {
+  href: string;
+  label: string;
+}
 
-type MyBooking = MentorSlot & { mentors?: { name: string; photo_path: string | null } | null };
+interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
 
-/**
- * Student-facing mentor directory: pick a mentor to load their open,
- * upcoming slots, then book one. Booking is a conditional update
- * (`is_booked=false -> true` in the same statement) so if two students
- * click at the same moment, only one write actually matches a row -
- * the loser just gets refreshed with that slot already gone.
- */
-export default function MentorBrowseClient({
-  mentors,
-  myBookings,
+const GROUPS: NavGroup[] = [
+  {
+    title: "Learn",
+    items: [
+      { href: "/qbank", label: "Question Bank" },
+      { href: "/assessments", label: "Self Assessments" },
+    ],
+  },
+  {
+    title: "Improve",
+    items: [
+      { href: "/master-grid", label: "Master Grid" },
+      { href: "/anki", label: "Anki" },
+      { href: "/error-notes", label: "Error Notes" },
+      { href: "/visual-lab", label: "Visual Lab" },
+    ],
+  },
+  {
+    title: "Plan",
+    items: [
+      { href: "/planner", label: "Study Planner" },
+      // "Performance" absorbs what used to be the standalone History page -
+      // detailed day-by-day history lives here now, not as its own nav item.
+      { href: "/history", label: "Performance" },
+    ],
+  },
+  {
+    title: "Mentorship",
+    // Same link for everyone - app/mentorship/page.tsx decides server-side
+    // whether the signed-in email belongs to a mentor (shows their
+    // availability manager) or a student (shows the mentor directory).
+    items: [{ href: "/mentorship", label: "Mentorship" }],
+  },
+];
+
+// Groups hidden from students until the admin flips the global publish
+// switch on. "Plan" (Study Planner/Performance) is intentionally left out -
+// that's always visible.
+const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
+
+function isActive(pathname: string, href: string) {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function initials(name: string | null | undefined) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return (first + last).toUpperCase() || "?";
+}
+
+export default function NavBar({
+  isAdmin,
+  userName,
+  streak,
+  contentPublished = true,
 }: {
-  mentors: Mentor[];
-  myBookings: MyBooking[];
+  isAdmin?: boolean;
+  // Optional - pages that haven't been updated to pass these yet just won't
+  // show the streak badge / real name in the profile block below.
+  userName?: string | null;
+  streak?: number;
+  // Whether the coach has published student content yet. Defaults to true
+  // so any caller that hasn't been updated to pass this (or admins, who
+  // should never be gated) still sees the full nav.
+  contentPublished?: boolean;
 }) {
-  const router = useRouter();
-  const [selected, setSelected] = useState<Mentor | null>(null);
-  const [slots, setSlots] = useState<MentorSlot[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [bookingId, setBookingId] = useState<string | null>(null);
-  const [bookError, setBookError] = useState<string | null>(null);
-  const [bookedMsg, setBookedMsg] = useState<string | null>(null);
+  const pathname = usePathname();
+  const visibleGroups = GROUPS.filter(
+    (group) => isAdmin || contentPublished || !GATED_GROUP_TITLES.has(group.title)
+  );
 
-  const now = new Date().toISOString();
-  const upcomingBookings = myBookings.filter((b) => b.end_time >= now);
-
-  async function selectMentor(m: Mentor) {
-    setSelected(m);
-    setBookError(null);
-    setBookedMsg(null);
-    setLoadingSlots(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("mentor_slots")
-      .select("*")
-      .eq("mentor_id", m.id)
-      .eq("is_booked", false)
-      .gte("end_time", now)
-      .order("start_time", { ascending: true });
-    setSlots((data ?? []) as MentorSlot[]);
-    setLoadingSlots(false);
-  }
-
-  async function book(slotId: string) {
-    setBookingId(slotId);
-    setBookError(null);
-    const supabase = createClient();
-    // Conditional update: only succeeds if the slot is still unbooked at the
-    // moment this statement runs - the WHERE clause is checked and applied
-    // atomically by Postgres, so a slot can't be double-booked by two
-    // students clicking at nearly the same time.
-    const { data, error } = await supabase
-      .from("mentor_slots")
-      .update({ is_booked: true, booked_by: (await supabase.auth.getUser()).data.user?.id, booked_at: new Date().toISOString() })
-      .eq("id", slotId)
-      .eq("is_booked", false)
-      .select();
-    setBookingId(null);
-    if (error) {
-      setBookError(error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      setBookError("Someone just booked that slot - pick another.");
-      setSlots((prev) => prev.filter((s) => s.id !== slotId));
-      return;
-    }
-    setSlots((prev) => prev.filter((s) => s.id !== slotId));
-    setBookedMsg("Booked! You'll see it under \"My upcoming sessions\" after the page refreshes.");
-    router.refresh();
+  function linkClass(href: string) {
+    const active = isActive(pathname, href);
+    return `text-sm font-medium px-3 py-2.5 rounded-lg transition ${
+      active ? "bg-brand-900/40 text-brand-300" : "text-slate-300 hover:bg-slate-800"
+    }`;
   }
 
   return (
-    <div className="space-y-6">
-      {upcomingBookings.length > 0 && (
-        <div>
-          <p className="text-sm font-semibold mb-2">My upcoming sessions</p>
-          <div className="space-y-2">
-            {upcomingBookings.map((b) => (
-              <div key={b.id} className="card flex items-center gap-3 py-3">
-                {b.mentors?.photo_path ? (
-                  <img
-                    src={mentorPhotoUrl(b.mentors.photo_path, SUPABASE_URL) ?? ""}
-                    alt={b.mentors.name}
-                    className="w-9 h-9 rounded-full object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-brand-900/40 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
-                    {(b.mentors?.name ?? "?").slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <p className="text-sm">
-                  <span className="font-semibold">{b.mentors?.name ?? "Mentor"}</span> &middot;{" "}
-                  {formatSlotDate(b.start_time)}, {formatSlotTime(b.start_time)}&ndash;{formatSlotTime(b.end_time)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <p className="text-sm font-semibold">Mentors</p>
-          {mentors.length === 0 && <p className="text-sm text-slate-400">No mentors are listed yet.</p>}
-          {mentors.map((m) => {
-            const photoUrl = mentorPhotoUrl(m.photo_path, SUPABASE_URL);
-            const active = selected?.id === m.id;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => selectMentor(m)}
-                className={`card w-full text-left flex items-center gap-3 transition ${
-                  active ? "border-brand-500" : "hover:border-brand-500/50"
-                }`}
-              >
-                {photoUrl ? (
-                  <img src={photoUrl} alt={m.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
-                    {m.name.slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{m.name}</p>
-                  {m.bio && <p className="text-xs text-slate-400 line-clamp-2">{m.bio}</p>}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div>
-          <p className="text-sm font-semibold mb-3">
-            {selected ? `${selected.name}'s availability` : "Pick a mentor to see availability"}
-          </p>
-          {!selected && (
-            <p className="text-sm text-slate-400">Click a mentor on the left to see their open slots.</p>
-          )}
-          {selected && loadingSlots && <p className="text-sm text-slate-400">Loading...</p>}
-          {selected && !loadingSlots && (
-            <>
-              {selected.bio && <p className="text-sm text-slate-300 mb-4">{selected.bio}</p>}
-              {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
-              {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
-              {slots.length === 0 ? (
-                <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
-              ) : (
-                <div className="space-y-4">
-                  {groupSlotsByDate(slots).map(({ date, slots }) => (
-                    <div key={date}>
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
-                      <div className="space-y-2">
-                        {slots.map((s) => (
-                          <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                            <p className="text-sm">
-                              {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => book(s.id)}
-                              disabled={bookingId === s.id}
-                              className="btn-primary text-xs"
-                            >
-                              {bookingId === s.id ? "Booking..." : "Book"}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+    <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
+      <div className="px-5 py-6">
+        <span className="font-bold text-brand-300 block">Master Grid</span>
+        {typeof streak === "number" && streak > 0 && (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 mt-1">
+            🔥 {streak} day{streak === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
-    </div>
+
+      <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
+        <Link href="/dashboard" className={linkClass("/dashboard")}>
+          Home
+        </Link>
+
+        {visibleGroups.map((group) => (
+          <div key={group.title}>
+            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              {group.title}
+            </p>
+            <div className="flex flex-col gap-1">
+              {group.items.map((item) => (
+                <Link key={item.href} href={item.href} className={linkClass(item.href)}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {isAdmin && (
+          <div>
+            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Admin
+            </p>
+            <div className="flex flex-col gap-1">
+              <Link href="/lab-values" className={linkClass("/lab-values")}>
+                Lab Values
+              </Link>
+              <Link
+                href="/admin"
+                className="text-sm font-medium px-3 py-2.5 rounded-lg text-brand-300 bg-brand-900/40 hover:bg-brand-900/40"
+              >
+                Admin
+              </Link>
+            </div>
+          </div>
+        )}
+      </nav>
+
+      <div className="px-3 pb-6 pt-3 border-t border-slate-800">
+        <Link href="/settings" className={linkClass("/settings")}>
+          Settings
+        </Link>
+        <div className="flex items-center gap-2.5 px-3 py-2.5 mt-1">
+          <span className="w-7 h-7 rounded-full bg-brand-900/50 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
+            {initials(userName)}
+          </span>
+          <span className="text-sm text-slate-300 truncate">{userName || "Your profile"}</span>
+        </div>
+        <form action="/auth/signout" method="post">
+          <button className="w-full text-left text-sm font-medium px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-800 hover:text-slate-300">
+            Sign out
+          </button>
+        </form>
+      </div>
+    </aside>
   );
 }
