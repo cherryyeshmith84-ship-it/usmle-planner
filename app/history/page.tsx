@@ -1,37 +1,25 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { DailyLog } from "@/lib/types";
+import type { ScoreReport } from "@/lib/scoreReports";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
+import PerformanceClient from "@/components/PerformanceClient";
 
 export const dynamic = "force-dynamic";
 
-// Same four-tier semantic scale used across Master Grid, the dashboard, and
-// Smart Review, adapted to the 0-10 day-rating scale: green = strong,
-// yellow = needs review, orange = weak, red = critical.
-function ratingColor(rating: number | null) {
-  if (rating === null) return "bg-slate-800 text-slate-400";
-  if (rating >= 8) return "bg-green-900/40 text-green-400";
-  if (rating >= 6) return "bg-yellow-900/40 text-yellow-400";
-  if (rating >= 4) return "bg-orange-900/40 text-orange-400";
-  return "bg-red-900/40 text-red-400";
-}
-
+/**
+ * Performance page - now built entirely from uploaded score reports
+ * (NBME/UWSA/Free120/UWorld self-assessments) instead of the old plain
+ * daily-log list: weak/strong systems, progress-over-time comparison, and
+ * AI suggestions. See components/PerformanceClient.tsx and
+ * lib/scoreReports.ts.
+ */
 export default async function HistoryPage() {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-
-  const { data } = await supabase
-    .from("daily_logs")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("log_date", { ascending: false })
-    .limit(90);
-
-  const logs = (data ?? []) as DailyLog[];
 
   const { data: profileData } = await supabase
     .from("profiles")
@@ -41,65 +29,22 @@ export default async function HistoryPage() {
 
   const contentPublished = profileData?.is_admin ? true : await getContentPublished(supabase);
 
+  const { data } = await supabase
+    .from("score_reports")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("taken_date", { ascending: false });
+  const reports = (data ?? []) as ScoreReport[];
+
   return (
     <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-6">History</h1>
-
-        {logs.length === 0 && (
-          <p className="text-sm text-slate-400">
-            No logged days yet - head to your dashboard and save today's
-            progress to start building your history.
-          </p>
-        )}
-
-        <div className="space-y-3">
-          {logs.map((log) => {
-            const done = log.tasks.filter((t) => t.status === "done").length;
-            const total = log.tasks.length;
-            return (
-              <div key={log.id} className="card py-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold">{log.log_date}</span>
-                  <div className="flex items-center gap-2">
-                    {log.marked_complete && (
-                      <span className="text-xs font-semibold bg-green-900/40 text-green-400 rounded-full px-2 py-1">
-                        Completed
-                      </span>
-                    )}
-                    <span
-                      className={`text-xs font-semibold rounded-full px-2 py-1 ${ratingColor(
-                        log.rating
-                      )}`}
-                    >
-                      {log.rating !== null ? `${log.rating}/10` : "not rated"}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm text-slate-300">
-                  {log.hours_studied ?? "?"}h studied &middot; {done}/{total} tasks done
-                  {log.topics_skipped ? ` · skipped: ${log.topics_skipped}` : ""}
-                </p>
-                {log.block_scores?.length > 0 && (
-                  <p className="text-sm text-slate-400 mt-1">
-                    {log.block_scores
-                      .map((b) => `${b.resource} ${b.question_count}q, ${b.percent_correct}%`)
-                      .join(" · ")}
-                  </p>
-                )}
-                {log.notes && (
-                  <p className="text-sm text-slate-400 mt-2 italic">&ldquo;{log.notes}&rdquo;</p>
-                )}
-                {log.ai_feedback?.plan && (
-                  <p className="text-sm text-brand-300 mt-2">
-                    <span className="font-semibold">AI plan: </span>
-                    {log.ai_feedback.plan}
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
+        <h1 className="text-xl font-bold mb-1">Performance</h1>
+        <p className="text-sm text-slate-400 mb-6">
+          Upload your NBME, UWSA, Free 120, and UWorld self-assessment results to track your weak and
+          strong systems over time.
+        </p>
+        <PerformanceClient userId={user.id} initialReports={reports} />
       </main>
     </AppShell>
   );
