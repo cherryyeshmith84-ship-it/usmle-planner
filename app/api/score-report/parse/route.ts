@@ -60,9 +60,30 @@ number appears anywhere.
 The 14 systems (map any similar/abbreviated label you see - e.g. "Cardio",
 "Cardiology" -> #4; "Renal", "Genitourinary" -> #12; "Repro" -> whichever of
 #6/#9 the context indicates; "GI" -> #7; "MSK", "Derm" -> #11; "Heme/Onc",
-"Blood" -> #3; "Psych", "Behavioral Science", "Neuro" -> #1; "Biostats",
-"Epi" -> #2):
+"Blood" -> #3; "Psych", "Behavioral Science", "Neuro" -> #1:
 ${systemListText}
+
+Two systems are almost always present in NBME/UWSA/UWorld breakdowns but get
+missed because they're labeled inconsistently - look extra carefully for
+these two before leaving them blank:
+- #2 "Biostatistics & Epidemiology/Population Health": also appears as
+  "Biostatistics", "Epidemiology", "Population Health", "Interpretation of
+  the Medical Literature", "Evidence-Based Medicine", "ICM
+  (biostat/epi portion)", or sometimes combined into a row just called
+  "Biostat/Epi". If you see any row with "Biostat" or "Epi" anywhere in its
+  label, that value belongs here.
+- #14 "Social Sciences": also appears as "Social Sciences
+  (Ethics/Legal/Communication)", "Behavioral Science" (only if it's a
+  SEPARATE row from Psychiatry/Neurology - if there's just one combined
+  Psych/Behavioral row, that one goes to #1 instead), "Communication and
+  Interpersonal Skills", "Ethics", "Legal", "Patient Safety", or
+  "Professionalism". If several small rows like these exist separately,
+  average them into a single #14 value.
+
+Before finalizing your answer, re-scan the document specifically for these
+two - they are usually near the bottom of the breakdown table and easy to
+skip past. Only leave one blank if, after this second check, you are certain
+no matching row/number exists anywhere in the document.
 
 Respond with ONLY JSON in exactly this shape, no extra commentary:
 
