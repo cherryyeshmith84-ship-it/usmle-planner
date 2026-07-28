@@ -34,7 +34,12 @@ export function findMentorByEmail(mentors: Mentor[], email: string | null | unde
   return mentors.find((m) => m.email.toLowerCase() === lower) ?? null;
 }
 
-const DATE_FMT: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
+const DATE_FMT: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+};
 const TIME_FMT: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
 
 export function formatSlotDate(iso: string): string {
