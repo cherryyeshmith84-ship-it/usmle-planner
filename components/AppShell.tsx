@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
 import NavBar from "./NavBar";
 import TopHeader from "./TopHeader";
-import { createClient } from "@/lib/supabase/server";
-import { getContentPublished } from "@/lib/platformSettings";
 
 /**
  * Shared page shell: sidebar (NavBar) + persistent top header, wrapping
@@ -14,17 +12,21 @@ import { getContentPublished } from "@/lib/platformSettings";
  * keeps its own max-width/padding), this just adds the sidebar + header
  * around it.
  *
- * Also decides whether the gated nav groups (Learn/Improve) should show up
- * in the sidebar at all, based on the platform_settings publish switch.
- * Admins always see everything, so this only ever matters for students -
- * pass `contentPublished` in if the calling page already fetched it (to
- * avoid a second query), otherwise AppShell fetches it itself.
+ * Deliberately a plain sync component with no Supabase import - it's used
+ * from DashboardClient.tsx, which is a Client Component, and a Client
+ * Component can't (even transitively) import lib/supabase/server.ts (that
+ * needs next/headers, server-only - breaks the build if pulled in here).
+ * So `contentPublished` (the platform_settings publish switch, used to hide
+ * the Learn/Improve nav groups from students) has to be fetched by each
+ * calling Server Component page and passed in as a plain boolean prop -
+ * defaults to true so any page that hasn't been updated to pass it just
+ * shows the full nav.
  */
-export default async function AppShell({
+export default function AppShell({
   isAdmin,
   userName,
   streak,
-  contentPublished,
+  contentPublished = true,
   children,
 }: {
   isAdmin?: boolean;
@@ -33,15 +35,9 @@ export default async function AppShell({
   contentPublished?: boolean;
   children: ReactNode;
 }) {
-  let resolvedPublished = true;
-  if (!isAdmin) {
-    resolvedPublished =
-      contentPublished !== undefined ? contentPublished : await getContentPublished(createClient());
-  }
-
   return (
     <div className="min-h-screen flex">
-      <NavBar isAdmin={isAdmin} userName={userName} streak={streak} contentPublished={resolvedPublished} />
+      <NavBar isAdmin={isAdmin} userName={userName} streak={streak} contentPublished={contentPublished} />
       <div className="flex-1 flex flex-col min-w-0">
         <TopHeader userName={userName} streak={streak} />
         {children}
