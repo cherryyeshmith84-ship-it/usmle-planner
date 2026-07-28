@@ -6,6 +6,9 @@ import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+type CellValue = string | boolean;
+type RowValues = Record<string, CellValue>;
+
 function addDays(date: string, n: number): string {
   const d = new Date(date + "T00:00:00");
   d.setDate(d.getDate() + n);
@@ -16,15 +19,39 @@ function weekdayOf(date: string): string {
   return WEEKDAY[new Date(date + "T00:00:00").getDay()];
 }
 
+/** Turns a row's raw string/boolean values into what the DB should store (numbers coerced, blanks dropped). */
+function toFieldValues(row: RowValues, columns: PlannerColumn[]): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const col of columns) {
+    const v = row[col.key];
+    if (v === undefined) continue;
+    if (col.field_type === "checkbox") {
+      out[col.key] = !!v;
+    } else if (col.field_type === "number") {
+      if (v === "" || v === undefined) continue;
+      const n = Number(v);
+      if (!Number.isNaN(n)) out[col.key] = n;
+    } else {
+      if (v !== "") out[col.key] = v as string;
+    }
+  }
+  return out;
+}
+
 /**
  * Spreadsheet-style day-by-day planner grid - replaces the old
  * template-driven task checklist. One row per calendar date, one column per
  * active planner_columns row (admin-configurable in /admin/planner-config).
- * Cells autosave on blur/change straight to planner_entries via the
- * Supabase client (RLS: the row's own student, or an admin, can write).
+ *
+ * Edits are staged locally (not saved as you type) and only written to
+ * planner_entries when "Save changes" is clicked - gives a clear, visible
+ * confirmation that the student will actually see what was entered, instead
+ * of a silent per-cell autosave. Each row also has a "Clear" button to wipe
+ * a day back to blank, and rows/columns can be click-highlighted to flag
+ * something for attention (visual only, not saved).
  *
  * `canEdit` controls whether cells are interactive at all - false renders a
- * read-only grid (useful for e.g. a future "view only" context).
+ * read-only grid.
  */
 export default function PlannerGridClient({
   targetUserId,
@@ -43,9 +70,15 @@ export default function PlannerGridClient({
     [columns]
   );
 
-  const [entriesByDate, setEntriesByDate] = useState<Record<string, PlannerEntry["field_values"]>>(() => {
-    const map: Record<string, PlannerEntry["field_values"]> = {};
-    for (const e of initialEntries) map[e.log_date] = e.field_values ?? {};
+  const [valuesByDate, setValuesByDate] = useState<Record<string, RowValues>>(() => {
+    const map: Record<string, RowValues> = {};
+    for (const e of initialEntries) {
+      const row: RowValues = {};
+      for (const [k, v] of Object.entries(e.field_values ?? {})) {
+        row[k] = typeof v === "boolean" ? v : v === null || v === undefined ? "" : String(v);
+      }
+      map[e.log_date] = row;
+    }
     return map;
   });
 
@@ -59,8 +92,14 @@ export default function PlannerGridClient({
     return earliestExisting < fallback ? earliestExisting : fallback;
   });
   const [rangeEnd, setRangeEnd] = useState(() => addDays(today, 7));
-  const [savingDate, setSavingDate] = useState<string | null>(null);
   const [newDate, setNewDate] = useState("");
+  const [dirtyDates, setDirtyDates] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [clearingDate, setClearingDate] = useState<string | null>(null);
+  const [highlightedRows, setHighlightedRows] = useState<Set<string>>(new Set());
+  const [highlightedCols, setHighlightedCols] = useState<Set<string>>(new Set());
 
   const dates = useMemo(() => {
     const out: string[] = [];
@@ -74,30 +113,82 @@ export default function PlannerGridClient({
     return out;
   }, [rangeStart, rangeEnd]);
 
-  async function saveCell(date: string, key: string, value: string | number | boolean) {
-    if (!canEdit) return;
-    setSavingDate(date);
-    const nextValues = { ...(entriesByDate[date] ?? {}), [key]: value };
-    setEntriesByDate((prev) => ({ ...prev, [date]: nextValues }));
+  function setCellValue(date: string, key: string, value: CellValue) {
+    setSaveMessage(null);
+    setValuesByDate((prev) => ({ ...prev, [date]: { ...(prev[date] ?? {}), [key]: value } }));
+    setDirtyDates((prev) => new Set(prev).add(date));
+  }
+
+  async function saveAll() {
+    if (dirtyDates.size === 0 || !canEdit) return;
+    setSaving(true);
+    setSaveError(null);
     const supabase = createClient();
-    await supabase.from("planner_entries").upsert(
-      { user_id: targetUserId, log_date: date, field_values: nextValues },
-      { onConflict: "user_id,log_date" }
-    );
-    setSavingDate(null);
+    const targets = Array.from(dirtyDates);
+    const rows = targets.map((date) => ({
+      user_id: targetUserId,
+      log_date: date,
+      field_values: toFieldValues(valuesByDate[date] ?? {}, activeColumns),
+    }));
+    const { error } = await supabase.from("planner_entries").upsert(rows, { onConflict: "user_id,log_date" });
+    setSaving(false);
+    if (error) {
+      setSaveError(error.message);
+      return;
+    }
+    setDirtyDates(new Set());
+    setSaveMessage(`Saved ${targets.length} day${targets.length === 1 ? "" : "s"} - visible to the student now.`);
   }
 
   function addSpecificDay() {
     if (!newDate) return;
     if (newDate < rangeStart) setRangeStart(newDate);
     if (newDate > rangeEnd) setRangeEnd(newDate);
-    setEntriesByDate((prev) => (prev[newDate] ? prev : { ...prev, [newDate]: {} }));
+    setValuesByDate((prev) => (prev[newDate] ? prev : { ...prev, [newDate]: {} }));
     setNewDate("");
   }
 
+  async function clearDay(date: string) {
+    if (!canEdit) return;
+    if (!confirm(`Clear everything entered for ${date}? This can't be undone.`)) return;
+    setClearingDate(date);
+    const supabase = createClient();
+    await supabase.from("planner_entries").delete().eq("user_id", targetUserId).eq("log_date", date);
+    setClearingDate(null);
+    setValuesByDate((prev) => {
+      const next = { ...prev };
+      delete next[date];
+      return next;
+    });
+    setDirtyDates((prev) => {
+      const next = new Set(prev);
+      next.delete(date);
+      return next;
+    });
+  }
+
+  function toggleRowHighlight(date: string) {
+    setHighlightedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  }
+
+  function toggleColHighlight(key: string) {
+    setHighlightedCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   function renderCell(date: string, col: PlannerColumn) {
-    const raw = entriesByDate[date]?.[col.key];
+    const raw = valuesByDate[date]?.[col.key];
     const disabled = !canEdit;
+    const colHighlighted = highlightedCols.has(col.key);
 
     if (col.field_type === "checkbox") {
       return (
@@ -105,19 +196,21 @@ export default function PlannerGridClient({
           type="checkbox"
           checked={!!raw}
           disabled={disabled}
-          onChange={(e) => saveCell(date, col.key, e.target.checked)}
-          className="w-4 h-4"
+          onChange={(e) => setCellValue(date, col.key, e.target.checked)}
+          className="w-5 h-5"
         />
       );
     }
     if (col.field_type === "textarea") {
       return (
         <textarea
-          defaultValue={(raw as string) ?? ""}
+          value={(raw as string) ?? ""}
           disabled={disabled}
-          onBlur={(e) => saveCell(date, col.key, e.target.value)}
+          onChange={(e) => setCellValue(date, col.key, e.target.value)}
           rows={1}
-          className="input text-xs py-1 px-2 min-w-[140px] w-full resize-y"
+          className={`input text-sm py-1.5 px-2 min-w-[160px] w-full resize-y text-slate-100 ${
+            colHighlighted ? "border-amber-500" : ""
+          }`}
         />
       );
     }
@@ -125,20 +218,24 @@ export default function PlannerGridClient({
       return (
         <input
           type="number"
-          defaultValue={raw === undefined || raw === null || raw === "" ? "" : Number(raw)}
+          value={(raw as string) ?? ""}
           disabled={disabled}
-          onBlur={(e) => saveCell(date, col.key, e.target.value === "" ? "" : Number(e.target.value))}
-          className="input text-xs py-1 px-2 w-20"
+          onChange={(e) => setCellValue(date, col.key, e.target.value)}
+          className={`input text-sm py-1.5 px-2 w-24 font-medium text-slate-100 ${
+            colHighlighted ? "border-amber-500" : ""
+          }`}
         />
       );
     }
     return (
       <input
         type="text"
-        defaultValue={(raw as string) ?? ""}
+        value={(raw as string) ?? ""}
         disabled={disabled}
-        onBlur={(e) => saveCell(date, col.key, e.target.value)}
-        className="input text-xs py-1 px-2 min-w-[160px] w-full"
+        onChange={(e) => setCellValue(date, col.key, e.target.value)}
+        className={`input text-sm py-1.5 px-2 min-w-[160px] w-full text-slate-100 ${
+          colHighlighted ? "border-amber-500" : ""
+        }`}
       />
     );
   }
@@ -177,6 +274,27 @@ export default function PlannerGridClient({
         )}
       </div>
 
+      {canEdit && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={saveAll}
+            disabled={saving || dirtyDates.size === 0}
+            className="btn-primary text-sm"
+          >
+            {saving ? "Saving..." : dirtyDates.size > 0 ? `Save changes (${dirtyDates.size})` : "Save changes"}
+          </button>
+          {saveMessage && <p className="text-xs text-green-400">{saveMessage}</p>}
+          {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+          {!saveMessage && !saveError && dirtyDates.size === 0 && (
+            <p className="text-xs text-slate-500">
+              Click a cell to edit, then Save - nothing reaches the student until you save. Click a row's
+              day/date or a column header to highlight it.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="overflow-x-auto border border-slate-800 rounded-xl">
         <table className="min-w-full text-sm">
           <thead>
@@ -185,35 +303,67 @@ export default function PlannerGridClient({
               <th className="px-3 py-2 text-xs font-semibold text-slate-400">Date</th>
               {activeColumns.map((c) => (
                 <th key={c.id} className="px-3 py-2 text-xs font-semibold text-slate-400 whitespace-nowrap">
-                  {c.label}
+                  <button
+                    type="button"
+                    onClick={() => toggleColHighlight(c.key)}
+                    className={`hover:text-amber-400 transition ${
+                      highlightedCols.has(c.key) ? "text-amber-400" : ""
+                    }`}
+                    title="Click to highlight this column"
+                  >
+                    {c.label}
+                  </button>
                 </th>
               ))}
+              {canEdit && <th className="px-2 py-2" />}
             </tr>
           </thead>
           <tbody>
-            {dates.map((date) => (
-              <tr
-                key={date}
-                className={`border-t border-slate-800 ${date === today ? "bg-brand-900/10" : ""} ${
-                  savingDate === date ? "opacity-60" : ""
-                }`}
-              >
-                <td className="px-3 py-1.5 text-xs text-slate-400 whitespace-nowrap sticky left-0 bg-[#0a0a0a]">
-                  {weekdayOf(date)}
-                </td>
-                <td className="px-3 py-1.5 text-xs font-semibold whitespace-nowrap">
-                  {date}
-                  {date === today && (
-                    <span className="ml-1.5 text-[10px] font-semibold text-brand-400">TODAY</span>
-                  )}
-                </td>
-                {activeColumns.map((c) => (
-                  <td key={c.id} className="px-2 py-1">
-                    {renderCell(date, c)}
+            {dates.map((date) => {
+              const rowHighlighted = highlightedRows.has(date);
+              return (
+                <tr
+                  key={date}
+                  className={`border-t border-slate-800 ${date === today ? "bg-brand-900/10" : ""} ${
+                    rowHighlighted ? "bg-amber-900/20" : ""
+                  } ${dirtyDates.has(date) ? "outline outline-1 outline-brand-500/40" : ""}`}
+                >
+                  <td
+                    onClick={() => toggleRowHighlight(date)}
+                    className="px-3 py-1.5 text-xs text-slate-400 whitespace-nowrap sticky left-0 bg-[#0a0a0a] cursor-pointer hover:text-amber-400"
+                    title="Click to highlight this row"
+                  >
+                    {weekdayOf(date)}
                   </td>
-                ))}
-              </tr>
-            ))}
+                  <td
+                    onClick={() => toggleRowHighlight(date)}
+                    className="px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer"
+                  >
+                    {date}
+                    {date === today && (
+                      <span className="ml-1.5 text-[10px] font-semibold text-brand-400">TODAY</span>
+                    )}
+                  </td>
+                  {activeColumns.map((c) => (
+                    <td key={c.id} className="px-2 py-1">
+                      {renderCell(date, c)}
+                    </td>
+                  ))}
+                  {canEdit && (
+                    <td className="px-2 py-1">
+                      <button
+                        type="button"
+                        onClick={() => clearDay(date)}
+                        disabled={clearingDate === date}
+                        className="text-xs text-red-400 hover:text-red-300 whitespace-nowrap"
+                      >
+                        {clearingDate === date ? "Clearing..." : "Clear"}
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
