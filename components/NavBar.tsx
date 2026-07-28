@@ -31,26 +31,24 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: "Plan",
-    items: [
-      { href: "/planner", label: "Study Planner" },
-      // "Performance" absorbs what used to be the standalone History page -
-      // detailed day-by-day history lives here now, not as its own nav item.
-      { href: "/history", label: "Performance" },
-    ],
-  },
-  {
     title: "Mentorship",
-    // Same link for everyone - app/mentorship/page.tsx decides server-side
-    // whether the signed-in email belongs to a mentor (shows their
-    // availability manager) or a student (shows the mentor directory).
-    items: [{ href: "/mentorship", label: "Mentorship" }],
+    items: [
+      // Same link for everyone - app/mentorship/page.tsx decides server-side
+      // whether the signed-in email belongs to a mentor (shows their
+      // availability manager) or a student (shows the mentor directory).
+      { href: "/mentorship", label: "Mentorship" },
+      { href: "/planner", label: "Study Planner" },
+      // "Analysis" (was "Performance") absorbs what used to be the
+      // standalone History page - detailed day-by-day history lives here
+      // now, not as its own nav item.
+      { href: "/history", label: "Analysis" },
+    ],
   },
 ];
 
 // Groups hidden from students until the admin flips the global publish
-// switch on. "Plan" (Study Planner/Performance) is intentionally left out -
-// that's always visible.
+// switch on. "Mentorship" (which now also holds Study Planner/Analysis) is
+// intentionally left out - that's always visible.
 const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
 
 function isActive(pathname: string, href: string) {
