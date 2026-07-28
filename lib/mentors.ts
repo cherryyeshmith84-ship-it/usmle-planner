@@ -17,6 +17,7 @@ export interface MentorSlot {
   is_booked: boolean;
   booked_by: string | null;
   booked_at: string | null;
+  student_note: string | null;
   created_at?: string;
 }
 
