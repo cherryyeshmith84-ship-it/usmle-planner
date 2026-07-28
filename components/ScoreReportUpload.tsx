@@ -35,9 +35,15 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const fileList = e.target.files;
-    e.target.value = "";
-    if (!fileList || fileList.length === 0) return;
+    if (!fileList || fileList.length === 0) {
+      e.target.value = "";
+      return;
+    }
+    // Snapshot into a plain array BEFORE resetting e.target.value - clearing
+    // the input's value empties the live FileList in place (in Chrome at
+    // least), so reading it after reset silently yields zero files.
     const files = Array.from(fileList);
+    e.target.value = "";
 
     const bad = files.find((f) => !f.type.startsWith("image/") && f.type !== "application/pdf");
     if (bad) {
