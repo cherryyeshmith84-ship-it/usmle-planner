@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { QBankQuestion, QBankTestSession } from "@/lib/qbankTypes";
 import { computeQuestionStatuses, countByStatus, countByTag } from "@/lib/qbank";
+import { getContentPublished } from "@/lib/platformSettings";
 import NavBar from "@/components/NavBar";
+import ComingSoonCard from "@/components/ComingSoonCard";
 import QBankCreateTestForm from "@/components/QBankCreateTestForm";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +25,23 @@ export default async function QuestionBankCreateTestPage() {
     .single();
   const profile = profileData as Profile | null;
   if (!profile?.onboarding_completed) redirect("/onboarding");
+
+  // Hidden from students until the coach publishes content - admins always
+  // get through regardless of the switch.
+  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
+  if (!profile?.is_admin && !contentPublished) {
+    return (
+      <div className="min-h-screen flex">
+        <NavBar isAdmin={profile?.is_admin} contentPublished={contentPublished} />
+        <main className="flex-1 max-w-xl mx-auto px-6 py-8">
+          <ComingSoonCard
+            title="Question Bank"
+            description="Your coach hasn't published this yet - check back soon, or head to your Study Planner in the meantime."
+          />
+        </main>
+      </div>
+    );
+  }
 
   // Only questions an admin has actually published belong in the student
   // pool - without this filter, draft and legacy untagged stub questions
@@ -50,7 +69,7 @@ export default async function QuestionBankCreateTestPage() {
 
   return (
     <div className="min-h-screen flex">
-      <NavBar isAdmin={profile?.is_admin} />
+      <NavBar isAdmin={profile?.is_admin} contentPublished={contentPublished} />
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-xl font-bold">Question bank</h1>
