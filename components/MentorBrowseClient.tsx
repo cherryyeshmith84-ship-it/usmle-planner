@@ -1,90 +1,198 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/lib/types";
-import type { Mentor, MentorSlot } from "@/lib/mentors";
-import { findMentorByEmail } from "@/lib/mentors";
-import { getContentPublished } from "@/lib/platformSettings";
-import AppShell from "@/components/AppShell";
-import MentorAvailabilityClient from "@/components/MentorAvailabilityClient";
-import MentorBrowseClient from "@/components/MentorBrowseClient";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import {
+  formatSlotDate,
+  formatSlotTime,
+  groupSlotsByDate,
+  mentorPhotoUrl,
+  type Mentor,
+  type MentorSlot,
+} from "@/lib/mentors";
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+type MyBooking = MentorSlot & { mentors?: { name: string; photo_path: string | null } | null };
 
 /**
- * Single "Mentorship" nav destination for everyone - which view renders
- * depends on whether the signed-in user's email matches a mentors row:
- *   - Matches -> MentorAvailabilityClient (their own slot manager).
- *   - Doesn't match (students, admin) -> MentorBrowseClient (directory +
- *     booking + "my upcoming sessions").
- * A mentor never needs a separate account type/invite flow - they just
- * sign up at the normal /signup page with the email the admin entered for
- * them in /admin/mentors.
+ * Student-facing mentor directory: pick a mentor to load their open,
+ * upcoming slots, then book one. Booking is a conditional update
+ * (`is_booked=false -> true` in the same statement) so if two students
+ * click at the same moment, only one write actually matches a row -
+ * the loser just gets refreshed with that slot already gone.
  */
-export default async function MentorshipPage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+export default function MentorBrowseClient({
+  mentors,
+  myBookings,
+}: {
+  mentors: Mentor[];
+  myBookings: MyBooking[];
+}) {
+  const router = useRouter();
+  const [selected, setSelected] = useState<Mentor | null>(null);
+  const [slots, setSlots] = useState<MentorSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [bookingId, setBookingId] = useState<string | null>(null);
+  const [bookError, setBookError] = useState<string | null>(null);
+  const [bookedMsg, setBookedMsg] = useState<string | null>(null);
 
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("is_admin, full_name")
-    .eq("id", user.id)
-    .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
+  const now = new Date().toISOString();
+  const upcomingBookings = myBookings.filter((b) => b.end_time >= now);
 
-  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
-
-  const { data: mentorsData } = await supabase
-    .from("mentors")
-    .select("*")
-    .eq("active", true)
-    .order("name", { ascending: true });
-  const mentors = (mentorsData ?? []) as Mentor[];
-
-  const myMentorRecord = findMentorByEmail(mentors, user.email);
-
-  if (myMentorRecord) {
-    const { data: slotsData } = await supabase
+  async function selectMentor(m: Mentor) {
+    setSelected(m);
+    setBookError(null);
+    setBookedMsg(null);
+    setLoadingSlots(true);
+    const supabase = createClient();
+    const { data } = await supabase
       .from("mentor_slots")
       .select("*")
-      .eq("mentor_id", myMentorRecord.id)
+      .eq("mentor_id", m.id)
+      .eq("is_booked", false)
+      .gte("end_time", now)
       .order("start_time", { ascending: true });
-    const slots = (slotsData ?? []) as MentorSlot[];
-
-    return (
-      <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
-          <h1 className="text-xl font-bold mb-1">Your mentorship availability</h1>
-          <p className="text-sm text-slate-400 mb-6">
-            Add times you're free to meet. Students book straight from what you add here, and a slot
-            disappears from their view the moment someone books it.
-          </p>
-          <MentorAvailabilityClient mentor={myMentorRecord} initialSlots={slots} />
-        </main>
-      </AppShell>
-    );
+    setSlots((data ?? []) as MentorSlot[]);
+    setLoadingSlots(false);
   }
 
-  // Not a mentor - browse the directory. Also fetch this user's own booked
-  // sessions across every mentor so they can see "my upcoming sessions" up
-  // top regardless of which mentor they booked with.
-  const { data: myBookingsData } = await supabase
-    .from("mentor_slots")
-    .select("*, mentors(name, photo_path)")
-    .eq("booked_by", user.id)
-    .order("start_time", { ascending: true });
+  async function book(slotId: string) {
+    setBookingId(slotId);
+    setBookError(null);
+    const supabase = createClient();
+    // Conditional update: only succeeds if the slot is still unbooked at the
+    // moment this statement runs - the WHERE clause is checked and applied
+    // atomically by Postgres, so a slot can't be double-booked by two
+    // students clicking at nearly the same time.
+    const { data, error } = await supabase
+      .from("mentor_slots")
+      .update({ is_booked: true, booked_by: (await supabase.auth.getUser()).data.user?.id, booked_at: new Date().toISOString() })
+      .eq("id", slotId)
+      .eq("is_booked", false)
+      .select();
+    setBookingId(null);
+    if (error) {
+      setBookError(error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      setBookError("Someone just booked that slot - pick another.");
+      setSlots((prev) => prev.filter((s) => s.id !== slotId));
+      return;
+    }
+    setSlots((prev) => prev.filter((s) => s.id !== slotId));
+    setBookedMsg("Booked! You'll see it under \"My upcoming sessions\" after the page refreshes.");
+    router.refresh();
+  }
 
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-1">Mentorship</h1>
-        <p className="text-sm text-slate-400 mb-6">
-          Pick a mentor to see their open availability and book a slot.
-        </p>
-        <MentorBrowseClient mentors={mentors} myBookings={(myBookingsData ?? []) as any[]} />
-      </main>
-    </AppShell>
+    <div className="space-y-6">
+      {upcomingBookings.length > 0 && (
+        <div>
+          <p className="text-sm font-semibold mb-2">My upcoming sessions</p>
+          <div className="space-y-2">
+            {upcomingBookings.map((b) => (
+              <div key={b.id} className="card flex items-center gap-3 py-3">
+                {b.mentors?.photo_path ? (
+                  <img
+                    src={mentorPhotoUrl(b.mentors.photo_path, SUPABASE_URL) ?? ""}
+                    alt={b.mentors.name}
+                    className="w-9 h-9 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-brand-900/40 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
+                    {(b.mentors?.name ?? "?").slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <p className="text-sm">
+                  <span className="font-semibold">{b.mentors?.name ?? "Mentor"}</span> &middot;{" "}
+                  {formatSlotDate(b.start_time)}, {formatSlotTime(b.start_time)}&ndash;{formatSlotTime(b.end_time)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="space-y-3">
+          <p className="text-sm font-semibold">Mentors</p>
+          {mentors.length === 0 && <p className="text-sm text-slate-400">No mentors are listed yet.</p>}
+          {mentors.map((m) => {
+            const photoUrl = mentorPhotoUrl(m.photo_path, SUPABASE_URL);
+            const active = selected?.id === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => selectMentor(m)}
+                className={`card w-full text-left flex items-center gap-3 transition ${
+                  active ? "border-brand-500" : "hover:border-brand-500/50"
+                }`}
+              >
+                {photoUrl ? (
+                  <img src={photoUrl} alt={m.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
+                    {m.name.slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate">{m.name}</p>
+                  {m.bio && <p className="text-xs text-slate-400 line-clamp-2">{m.bio}</p>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold mb-3">
+            {selected ? `${selected.name}'s availability` : "Pick a mentor to see availability"}
+          </p>
+          {!selected && (
+            <p className="text-sm text-slate-400">Click a mentor on the left to see their open slots.</p>
+          )}
+          {selected && loadingSlots && <p className="text-sm text-slate-400">Loading...</p>}
+          {selected && !loadingSlots && (
+            <>
+              {selected.bio && <p className="text-sm text-slate-300 mb-4">{selected.bio}</p>}
+              {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
+              {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
+              {slots.length === 0 ? (
+                <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
+              ) : (
+                <div className="space-y-4">
+                  {groupSlotsByDate(slots).map(({ date, slots }) => (
+                    <div key={date}>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
+                      <div className="space-y-2">
+                        {slots.map((s) => (
+                          <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                            <p className="text-sm">
+                              {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => book(s.id)}
+                              disabled={bookingId === s.id}
+                              className="btn-primary text-xs"
+                            >
+                              {bookingId === s.id ? "Booking..." : "Book"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
