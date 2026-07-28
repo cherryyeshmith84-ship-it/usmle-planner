@@ -73,6 +73,7 @@ export default function DashboardClient({
   insights,
   questionsAnsweredToday,
   dailyQuestionGoal,
+  contentPublished,
 }: {
   userId: string;
   profile: Profile;
@@ -89,6 +90,11 @@ export default function DashboardClient({
   insights: DashboardInsights;
   questionsAnsweredToday: number;
   dailyQuestionGoal: number;
+  // Whether the coach has published student content yet - fetched
+  // server-side by app/dashboard/page.tsx (this file is a Client Component
+  // and can't fetch it itself) and passed straight through to AppShell so
+  // the sidebar hides Learn/Improve for students until it's published.
+  contentPublished?: boolean;
 }) {
   const [tasks, setTasks] = useState<StudyTask[]>(
     seedTasks(todayLog, profile, templateDayTasks)
@@ -287,7 +293,7 @@ export default function DashboardClient({
   }
 
   return (
-    <AppShell isAdmin={profile.is_admin} userName={profile.full_name} streak={streak}>
+    <AppShell isAdmin={profile.is_admin} userName={profile.full_name} streak={streak} contentPublished={contentPublished}>
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8 space-y-6 w-full">
         {pendingCount > 0 && (
           <div className="rounded-xl border border-amber-900 bg-amber-900/20 px-4 py-3 flex items-center justify-between">
