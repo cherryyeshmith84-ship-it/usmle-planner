@@ -37,7 +37,7 @@ export default function DashboardClient({
             <p className="text-sm text-slate-400">Your day-by-day study grid.</p>
           </Link>
           <Link href="/history" className="card hover:border-brand-500 transition block">
-            <p className="font-bold text-lg mb-1">Performance</p>
+            <p className="font-bold text-lg mb-1">Analysis</p>
             <p className="text-sm text-slate-400">Upload score reports, track weak/strong systems.</p>
           </Link>
         </div>
