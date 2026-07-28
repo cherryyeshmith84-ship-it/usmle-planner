@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { DailyLog } from "@/lib/types";
+import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +39,10 @@ export default async function HistoryPage() {
     .eq("id", user.id)
     .single();
 
+  const contentPublished = profileData?.is_admin ? true : await getContentPublished(supabase);
+
   return (
-    <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name}>
+    <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-6">History</h1>
 
