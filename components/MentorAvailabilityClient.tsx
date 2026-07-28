@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
+import { formatSlotDate, formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
+
+type SlotWithBooker = MentorSlot & {
+  booked_by_profile?: { full_name: string | null; email: string | null } | null;
+};
 
 /** Mentor's own availability manager - add/remove open time slots, see which are booked. */
 export default function MentorAvailabilityClient({
@@ -11,7 +15,7 @@ export default function MentorAvailabilityClient({
   initialSlots,
 }: {
   mentor: Mentor;
-  initialSlots: MentorSlot[];
+  initialSlots: SlotWithBooker[];
 }) {
   const router = useRouter();
   const slots = initialSlots;
@@ -103,10 +107,26 @@ export default function MentorAvailabilityClient({
                 <div className="space-y-2">
                   {slots.map((s) => (
                     <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                      <p className="text-sm">
-                        {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                      </p>
-                      <div className="flex items-center gap-3">
+                      <div>
+                        <p className="text-sm">
+                          {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                        </p>
+                        {s.is_booked && (
+                          <p className="text-xs text-slate-400 mt-1">
+                            Booked by{" "}
+                            <span className="font-medium text-slate-300">
+                              {s.booked_by_profile?.full_name || s.booked_by_profile?.email || "a student"}
+                            </span>
+                            {s.booked_at && (
+                              <>
+                                {" "}
+                                on {formatSlotDate(s.booked_at)} at {formatSlotTime(s.booked_at)}
+                              </>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
                         <span
                           className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
                             s.is_booked ? "bg-green-900/40 text-green-400" : "bg-slate-800 text-slate-300"
