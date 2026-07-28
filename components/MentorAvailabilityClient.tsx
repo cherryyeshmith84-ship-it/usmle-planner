@@ -112,18 +112,23 @@ export default function MentorAvailabilityClient({
                           {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
                         </p>
                         {s.is_booked && (
-                          <p className="text-xs text-slate-400 mt-1">
-                            Booked by{" "}
-                            <span className="font-medium text-slate-300">
-                              {s.booked_by_profile?.full_name || s.booked_by_profile?.email || "a student"}
-                            </span>
-                            {s.booked_at && (
-                              <>
-                                {" "}
-                                on {formatSlotDate(s.booked_at)} at {formatSlotTime(s.booked_at)}
-                              </>
+                          <>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Booked by{" "}
+                              <span className="font-medium text-slate-300">
+                                {s.booked_by_profile?.full_name || s.booked_by_profile?.email || "a student"}
+                              </span>
+                              {s.booked_at && (
+                                <>
+                                  {" "}
+                                  on {formatSlotDate(s.booked_at)} at {formatSlotTime(s.booked_at)}
+                                </>
+                              )}
+                            </p>
+                            {s.student_note && (
+                              <p className="text-xs text-slate-300 mt-1 italic">&ldquo;{s.student_note}&rdquo;</p>
                             )}
-                          </p>
+                          </>
                         )}
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
