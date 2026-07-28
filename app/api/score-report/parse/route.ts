@@ -68,22 +68,55 @@ missed because they're labeled inconsistently - look extra carefully for
 these two before leaving them blank:
 - #2 "Biostatistics & Epidemiology/Population Health": also appears as
   "Biostatistics", "Epidemiology", "Population Health", "Interpretation of
-  the Medical Literature", "Evidence-Based Medicine", "ICM
-  (biostat/epi portion)", or sometimes combined into a row just called
-  "Biostat/Epi". If you see any row with "Biostat" or "Epi" anywhere in its
-  label, that value belongs here.
+  the Medical Literature", "Evidence-Based Medicine", "Genetics &
+  Biostatistics" (UWorld's "Performance By Subject" table specifically -
+  check that table for this even if a separate "Performance By System"
+  table also exists and doesn't mention it), "ICM (biostat/epi portion)",
+  or a row just called "Biostat/Epi". If you see any row with "Biostat" or
+  "Epi" anywhere in its label, in ANY table on the page, that value goes
+  here.
 - #14 "Social Sciences": also appears as "Social Sciences
-  (Ethics/Legal/Communication)", "Behavioral Science" (only if it's a
-  SEPARATE row from Psychiatry/Neurology - if there's just one combined
-  Psych/Behavioral row, that one goes to #1 instead), "Communication and
-  Interpersonal Skills", "Ethics", "Legal", "Patient Safety", or
-  "Professionalism". If several small rows like these exist separately,
-  average them into a single #14 value.
+  (Ethics/Legal/Communication)", "Communication and Interpersonal Skills",
+  "Ethics", "Legal", "Patient Safety", or "Professionalism". IMPORTANT:
+  UWorld self-assessment score reports do NOT test this as its own
+  category anywhere (not under System, not under Subject) - if this is a
+  UWorld report (title/URL says uworld.com or "UWorld"), leave this one
+  null without searching further, that is the correct answer, not a
+  failure. Only keep searching for it on NBME/UWSA/Free120 reports.
 
-Before finalizing your answer, re-scan the document specifically for these
-two - they are usually near the bottom of the breakdown table and easy to
-skip past. Only leave one blank if, after this second check, you are certain
-no matching row/number exists anywhere in the document.
+UWorld "Performance By System" reports use exactly these 11 category names -
+if you see this exact table, map every row using this table (do not
+guess - use these mappings exactly):
+  "Cardiovascular System" -> #4 Cardiovascular System
+  "Respiratory System" -> #13 Respiratory System
+  "Gastrointestinal & Nutrition" -> #7 Gastrointestinal System
+  "Immunologic & Blood Disorders" -> #3 Blood & Lymphoreticular System
+  "Renal, Urinary & Reproductive" -> use this same value for BOTH #12 Renal
+    & Urinary System AND, split between #6 Female Reproductive System &
+    Breast / #9 Male Reproductive System (UWorld combines all three into
+    one score; reusing it for each is the best available estimate)
+  "Nervous System & Special Sensory" and "Behavioral & Mental Disorders" ->
+    average these two UWorld rows together into #1 Behavioral Health &
+    Nervous Systems/Special Senses (NBME's #1 combines what UWorld reports
+    separately)
+  "Musculoskeletal, Skin & Connective" -> #11 Musculoskeletal/Skin &
+    Subcutaneous Tissue
+  "Endocrine & Metabolic Disorders" -> #5 Endocrine System
+  "Gynecologic, Pregnancy & Childbirth" -> also folds into #6 Female
+    Reproductive System & Breast (average with the Renal/Urinary/Repro
+    value above if both are present)
+  "General Principles" -> #8 General Principles of Foundational Science
+  UWorld's System table has no row for #10 Multisystem Processes &
+  Disorders or #9 Male Reproductive System on their own - leave those null
+  unless the "Performance By Subject" table has something more specific.
+
+Before finalizing your answer, re-scan the document specifically for
+Biostatistics/Epi (checking every table on the page, not just the System
+one) - it's easy to miss when it only appears in a Subject table. Only
+leave a system blank if, after this second check, you are certain no
+matching row/number exists anywhere in the document (or, for Social
+Sciences on a UWorld report specifically, because UWorld genuinely doesn't
+test it).
 
 Respond with ONLY JSON in exactly this shape, no extra commentary:
 
@@ -123,7 +156,7 @@ field as null (system_breakdown as {}).
           generationConfig: {
             temperature: 0.1,
             responseMimeType: "application/json",
-            maxOutputTokens: 3000,
+            maxOutputTokens: 4096,
           },
         }),
       }
@@ -138,14 +171,35 @@ field as null (system_breakdown as {}).
     }
 
     const json = await res.json();
+    const finishReason = json?.candidates?.[0]?.finishReason;
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
+    // Gemini should return pure JSON (responseMimeType is set), but if it
+    // wraps it in a ```json fence anyway, or the JSON has leading/trailing
+    // junk, try to salvage just the {...} object before giving up.
     let parsed: Partial<ParsedScoreReport> = {};
     try {
       parsed = JSON.parse(text);
     } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0]);
+        } catch {
+          // fall through to the error response below
+        }
+      }
+    }
+
+    if (!parsed || Object.keys(parsed).length === 0) {
+      const reasonHint =
+        finishReason === "MAX_TOKENS"
+          ? " (the response was cut off - try again, it sometimes works on a second try)"
+          : "";
       return NextResponse.json(
-        { error: "Couldn't read that image as a score report - try a clearer screenshot, or enter it manually." },
+        {
+          error: `Couldn't read that file as a score report${reasonHint} - try a clearer screenshot, or enter it manually.`,
+        },
         { status: 422 }
       );
     }
