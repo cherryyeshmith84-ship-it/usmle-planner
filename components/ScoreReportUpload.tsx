@@ -37,8 +37,8 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Please choose an image file (a screenshot or photo of your score report).");
+    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+      setError("Please choose an image (screenshot/photo) or a PDF of your score report.");
       return;
     }
 
@@ -148,10 +148,16 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       <div className="card">
         <p className="text-sm font-semibold mb-1">Upload a score report</p>
         <p className="text-xs text-slate-400 mb-3">
-          A screenshot of an NBME, UWSA, Free 120, or UWorld self-assessment result. The AI reads the
-          overall score and system breakdown for you - you'll get to check it before it's saved.
+          A screenshot, photo, or PDF of an NBME, UWSA, Free 120, or UWorld self-assessment result. The
+          AI reads the overall score and system breakdown for you - you'll get to check it before it's
+          saved.
         </p>
-        <input type="file" accept="image/*" onChange={handleFile} className="text-sm text-slate-300" />
+        <input
+          type="file"
+          accept="image/*,application/pdf"
+          onChange={handleFile}
+          className="text-sm text-slate-300"
+        />
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
       </div>
     );
@@ -161,7 +167,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     return (
       <div className="card">
         <p className="text-sm text-slate-400">
-          {stage === "uploading" ? "Uploading image..." : "Reading your score report with AI..."}
+          {stage === "uploading" ? "Uploading file..." : "Reading your score report with AI..."}
         </p>
       </div>
     );
