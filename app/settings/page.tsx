@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
+import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import SettingsForm from "./SettingsForm";
 
@@ -29,8 +30,10 @@ export default async function SettingsPage() {
     ai_instructions: null,
   };
 
+  const contentPublished = profile.is_admin ? true : await getContentPublished(supabase);
+
   return (
-    <AppShell isAdmin={profile.is_admin} userName={profile.full_name}>
+    <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-6">Settings</h1>
         <SettingsForm profile={profile} userId={user.id} email={user.email ?? ""} />
