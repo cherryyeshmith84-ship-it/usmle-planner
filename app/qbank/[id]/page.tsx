@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Assessment, Profile } from "@/lib/types";
+import { getContentPublished } from "@/lib/platformSettings";
 import AssessmentTake from "@/components/AssessmentTake";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,15 @@ export default async function TakeQuestionBankPage({ params }: { params: { id: s
 
   const profile = profileRes.data as Profile | null;
   if (!profile?.onboarding_completed) redirect("/onboarding");
+
+  // Hidden from students until the coach publishes content - bounce back to
+  // the list page (which shows the "coming soon" placeholder) rather than
+  // rendering the test here, since this route has no sidebar of its own.
+  if (!profile?.is_admin) {
+    const published = await getContentPublished(supabase);
+    if (!published) redirect("/qbank");
+  }
+
   if (!assessmentRes.data) notFound();
 
   const assessment = assessmentRes.data as Assessment;
