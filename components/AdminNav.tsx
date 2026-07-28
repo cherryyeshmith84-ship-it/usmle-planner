@@ -1,144 +1,126 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-/** Mentor's own availability manager - add/remove open time slots, see which are booked. */
-export default function MentorAvailabilityClient({
-  mentor,
-  initialSlots,
-}: {
-  mentor: Mentor;
-  initialSlots: MentorSlot[];
-}) {
-  const router = useRouter();
-  const slots = initialSlots;
+interface NavItem {
+  href: string;
+  label: string;
+  addHref?: string;
+  addLabel?: string;
+}
 
-  const [date, setDate] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
 
-  async function addSlot() {
-    if (!date || !startTime || !endTime) {
-      setError("Pick a date, start time, and end time.");
-      return;
-    }
-    const start = new Date(`${date}T${startTime}`);
-    const end = new Date(`${date}T${endTime}`);
-    if (end <= start) {
-      setError("End time has to be after the start time.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    const supabase = createClient();
-    const { error: insertError } = await supabase.from("mentor_slots").insert({
-      mentor_id: mentor.id,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-    });
-    setSaving(false);
-    if (insertError) {
-      setError(insertError.message);
-      return;
-    }
-    setDate("");
-    setStartTime("");
-    setEndTime("");
-    router.refresh();
-  }
+const GROUPS: NavGroup[] = [
+  {
+    title: "Overview",
+    items: [
+      { href: "/admin", label: "Students" },
+      { href: "/admin/performance", label: "Performance" },
+    ],
+  },
+  {
+    title: "Content",
+    items: [
+      { href: "/admin/qbank", label: "Question Bank", addHref: "/admin/qbank/new", addLabel: "New question" },
+      { href: "/admin/qbank/bulk-import", label: "Bulk import" },
+      { href: "/admin/qbank/review", label: "Review queue" },
+      { href: "/admin/error-dna", label: "Error DNA" },
+      { href: "/admin/concepts", label: "Concept Library" },
+      {
+        href: "/admin/assessments",
+        label: "Self Assessments",
+        addHref: "/admin/assessments/new?kind=qbank",
+        addLabel: "New assessment",
+      },
+      { href: "/admin/templates", label: "Templates", addHref: "/admin/templates/new", addLabel: "New template" },
+    ],
+  },
+  {
+    title: "Mentorship",
+    items: [{ href: "/admin/mentors", label: "Mentors" }],
+  },
+  {
+    title: "Settings",
+    items: [{ href: "/admin/planner-config", label: "Planner Settings" }],
+  },
+];
 
-  async function removeSlot(id: string) {
-    if (!confirm("Remove this open slot?")) return;
-    setBusyId(id);
-    const supabase = createClient();
-    await supabase.from("mentor_slots").delete().eq("id", id);
-    setBusyId(null);
-    router.refresh();
-  }
+function isActive(pathname: string, href: string) {
+  if (href === "/admin") return pathname === "/admin";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
-  const now = new Date().toISOString();
-  const upcoming = slots.filter((s) => s.end_time >= now);
-  const past = slots.filter((s) => s.end_time < now);
-  const grouped = groupSlotsByDate(upcoming);
+export default function AdminNav() {
+  const pathname = usePathname();
 
   return (
-    <div className="space-y-6">
-      <div className="card">
-        <p className="text-sm font-semibold mb-3">Add an open slot</p>
-        <div className="grid sm:grid-cols-3 gap-3 mb-3">
-          <div>
-            <label className="label">Date</label>
-            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Start time</label>
-            <input type="time" className="input" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-          </div>
-          <div>
-            <label className="label">End time</label>
-            <input type="time" className="input" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-          </div>
-        </div>
-        {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
-        <button type="button" onClick={addSlot} disabled={saving} className="btn-primary text-sm">
-          {saving ? "Adding..." : "Add slot"}
-        </button>
+    <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
+      <div className="px-5 py-6">
+        <span className="font-bold text-brand-300 block mb-1">Master Grid</span>
+        <span className="text-xs font-semibold bg-brand-900/40 text-brand-300 rounded-full px-2 py-1">
+          Admin
+        </span>
       </div>
 
-      <div>
-        <p className="text-sm font-semibold mb-3">Your upcoming slots</p>
-        {grouped.length === 0 ? (
-          <p className="text-sm text-slate-400">No upcoming slots yet - add one above.</p>
-        ) : (
-          <div className="space-y-4">
-            {grouped.map(({ date, slots }) => (
-              <div key={date}>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
-                <div className="space-y-2">
-                  {slots.map((s) => (
-                    <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                      <p className="text-sm">
-                        {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                      </p>
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
-                            s.is_booked ? "bg-green-900/40 text-green-400" : "bg-slate-800 text-slate-300"
-                          }`}
-                        >
-                          {s.is_booked ? "Booked" : "Open"}
-                        </span>
-                        {!s.is_booked && (
-                          <button
-                            type="button"
-                            onClick={() => removeSlot(s.id)}
-                            disabled={busyId === s.id}
-                            className="text-xs text-red-400 hover:text-red-300"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+      <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
+        {GROUPS.map((group) => (
+          <div key={group.title}>
+            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              {group.title}
+            </p>
+            <div className="flex flex-col gap-1">
+              {group.items.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <div
+                    key={item.href}
+                    className={`group flex items-center justify-between gap-1 rounded-lg transition ${
+                      active ? "bg-brand-900/40" : "hover:bg-slate-800"
+                    }`}
+                  >
+                    <Link
+                      href={item.href}
+                      className={`flex-1 text-sm font-medium px-3 py-2.5 ${
+                        active ? "text-brand-300" : "text-slate-300"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                    {item.addHref && (
+                      <Link
+                        href={item.addHref}
+                        title={item.addLabel}
+                        className="shrink-0 pr-3 text-slate-500 hover:text-brand-300 text-base leading-none opacity-0 group-hover:opacity-100 transition"
+                      >
+                        +
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        )}
-      </div>
+        ))}
+      </nav>
 
-      {past.length > 0 && (
-        <p className="text-xs text-slate-600">
-          {past.length} past slot{past.length === 1 ? "" : "s"} not shown.
-        </p>
-      )}
-    </div>
+      <div className="px-3 pb-6 pt-3 border-t border-slate-800">
+        <Link
+          href="/dashboard"
+          className="block text-sm font-medium px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800"
+        >
+          My dashboard
+        </Link>
+        <form action="/auth/signout" method="post">
+          <button className="w-full text-left text-sm font-medium px-3 py-2.5 rounded-lg text-slate-400 hover:bg-slate-800">
+            Log out
+          </button>
+        </form>
+      </div>
+    </aside>
   );
 }
