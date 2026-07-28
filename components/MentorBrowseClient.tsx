@@ -37,6 +37,10 @@ export default function MentorBrowseClient({
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [bookError, setBookError] = useState<string | null>(null);
   const [bookedMsg, setBookedMsg] = useState<string | null>(null);
+  // Free-text note the student can leave when booking - e.g. where they are
+  // in their prep or what they want to talk about - so the mentor isn't
+  // walking in blind. One shared field, applied to whichever slot they book.
+  const [note, setNote] = useState("");
 
   const now = new Date().toISOString();
   const upcomingBookings = myBookings.filter((b) => b.end_time >= now);
@@ -68,7 +72,12 @@ export default function MentorBrowseClient({
     // students clicking at nearly the same time.
     const { data, error } = await supabase
       .from("mentor_slots")
-      .update({ is_booked: true, booked_by: (await supabase.auth.getUser()).data.user?.id, booked_at: new Date().toISOString() })
+      .update({
+        is_booked: true,
+        booked_by: (await supabase.auth.getUser()).data.user?.id,
+        booked_at: new Date().toISOString(),
+        student_note: note.trim() || null,
+      })
       .eq("id", slotId)
       .eq("is_booked", false)
       .select();
@@ -84,6 +93,7 @@ export default function MentorBrowseClient({
     }
     setSlots((prev) => prev.filter((s) => s.id !== slotId));
     setBookedMsg("Booked! You'll see it under \"My upcoming sessions\" after the page refreshes.");
+    setNote("");
     router.refresh();
   }
 
@@ -159,6 +169,18 @@ export default function MentorBrowseClient({
           {selected && !loadingSlots && (
             <>
               {selected.bio && <p className="text-sm text-slate-300 mb-4">{selected.bio}</p>}
+              {slots.length > 0 && (
+                <div className="mb-4">
+                  <label className="label">Your status / what you'd like to discuss (optional)</label>
+                  <textarea
+                    className="input min-h-[70px]"
+                    placeholder="e.g. Mid-dedicated, struggling with Cardio and Renal - want to talk study plan."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Applied to whichever slot you book below.</p>
+                </div>
+              )}
               {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
               {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
               {slots.length === 0 ? (
