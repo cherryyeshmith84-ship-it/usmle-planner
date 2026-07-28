@@ -3,7 +3,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { QBankTestSession } from "@/lib/qbankTypes";
+import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
+import ComingSoonCard from "@/components/ComingSoonCard";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +31,20 @@ export default async function PreviousQBankTestsPage() {
   const profile = profileData as Profile | null;
   if (!profile?.onboarding_completed) redirect("/onboarding");
 
+  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
+  if (!profile?.is_admin && !contentPublished) {
+    return (
+      <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+        <main className="flex-1 max-w-xl mx-auto px-6 py-8 w-full">
+          <ComingSoonCard
+            title="Question Bank"
+            description="Your coach hasn't published this yet - check back soon, or head to your Study Planner in the meantime."
+          />
+        </main>
+      </AppShell>
+    );
+  }
+
   const { data } = await supabase
     .from("qbank_test_sessions")
     .select("*")
@@ -38,7 +54,7 @@ export default async function PreviousQBankTestsPage() {
   const sessions = (data ?? []) as QBankTestSession[];
 
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold">Previous tests</h1>
