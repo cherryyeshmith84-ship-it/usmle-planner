@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { PersonalTemplate, Profile } from "@/lib/types";
+import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PersonalPlanForm from "@/components/PersonalPlanForm";
 
@@ -21,6 +22,8 @@ export default async function MyPlanPage() {
   const profile = profileData as Profile | null;
   if (!profile?.onboarding_completed) redirect("/onboarding");
 
+  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
+
   const { data: personalData } = await supabase
     .from("personal_templates")
     .select("*")
@@ -28,7 +31,7 @@ export default async function MyPlanPage() {
     .maybeSingle();
 
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name}>
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-1">My own plan</h1>
         <p className="text-sm text-slate-400 mb-6">
