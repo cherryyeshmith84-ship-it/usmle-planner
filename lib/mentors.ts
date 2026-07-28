@@ -44,9 +44,10 @@ export function formatSlotTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, TIME_FMT);
 }
 
-/** Groups slots by calendar date (local time) for a day-by-day list view. */
-export function groupSlotsByDate(slots: MentorSlot[]): { date: string; slots: MentorSlot[] }[] {
-  const map = new Map<string, MentorSlot[]>();
+/** Groups slots by calendar date (local time) for a day-by-day list view. Generic so callers
+ *  that pass an extended slot type (e.g. with a joined booker profile) don't lose that typing. */
+export function groupSlotsByDate<T extends MentorSlot>(slots: T[]): { date: string; slots: T[] }[] {
+  const map = new Map<string, T[]>();
   for (const s of slots) {
     const key = formatSlotDate(s.start_time);
     const list = map.get(key) ?? [];
