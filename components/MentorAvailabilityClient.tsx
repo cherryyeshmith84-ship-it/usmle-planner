@@ -1,166 +1,144 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
 
-interface NavItem {
-  href: string;
-  label: string;
-}
-
-interface NavGroup {
-  title: string;
-  items: NavItem[];
-}
-
-const GROUPS: NavGroup[] = [
-  {
-    title: "Learn",
-    items: [
-      { href: "/qbank", label: "Question Bank" },
-      { href: "/assessments", label: "Self Assessments" },
-    ],
-  },
-  {
-    title: "Improve",
-    items: [
-      { href: "/master-grid", label: "Master Grid" },
-      { href: "/anki", label: "Anki" },
-      { href: "/error-notes", label: "Error Notes" },
-      { href: "/visual-lab", label: "Visual Lab" },
-    ],
-  },
-  {
-    title: "Plan",
-    items: [
-      { href: "/planner", label: "Study Planner" },
-      // "Performance" absorbs what used to be the standalone History page -
-      // detailed day-by-day history lives here now, not as its own nav item.
-      { href: "/history", label: "Performance" },
-    ],
-  },
-  {
-    title: "Mentorship",
-    // Same link for everyone - app/mentorship/page.tsx decides server-side
-    // whether the signed-in email belongs to a mentor (shows their
-    // availability manager) or a student (shows the mentor directory).
-    items: [{ href: "/mentorship", label: "Mentorship" }],
-  },
-];
-
-// Groups hidden from students until the admin flips the global publish
-// switch on. "Plan" (Study Planner/Performance) is intentionally left out -
-// that's always visible.
-const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
-
-function isActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-function initials(name: string | null | undefined) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
-  return (first + last).toUpperCase() || "?";
-}
-
-export default function NavBar({
-  isAdmin,
-  userName,
-  streak,
-  contentPublished = true,
+/** Mentor's own availability manager - add/remove open time slots, see which are booked. */
+export default function MentorAvailabilityClient({
+  mentor,
+  initialSlots,
 }: {
-  isAdmin?: boolean;
-  // Optional - pages that haven't been updated to pass these yet just won't
-  // show the streak badge / real name in the profile block below.
-  userName?: string | null;
-  streak?: number;
-  // Whether the coach has published student content yet. Defaults to true
-  // so any caller that hasn't been updated to pass this (or admins, who
-  // should never be gated) still sees the full nav.
-  contentPublished?: boolean;
+  mentor: Mentor;
+  initialSlots: MentorSlot[];
 }) {
-  const pathname = usePathname();
-  const visibleGroups = GROUPS.filter(
-    (group) => isAdmin || contentPublished || !GATED_GROUP_TITLES.has(group.title)
-  );
+  const router = useRouter();
+  const slots = initialSlots;
 
-  function linkClass(href: string) {
-    const active = isActive(pathname, href);
-    return `text-sm font-medium px-3 py-2.5 rounded-lg transition ${
-      active ? "bg-brand-900/40 text-brand-300" : "text-slate-300 hover:bg-slate-800"
-    }`;
+  const [date, setDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function addSlot() {
+    if (!date || !startTime || !endTime) {
+      setError("Pick a date, start time, and end time.");
+      return;
+    }
+    const start = new Date(`${date}T${startTime}`);
+    const end = new Date(`${date}T${endTime}`);
+    if (end <= start) {
+      setError("End time has to be after the start time.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: insertError } = await supabase.from("mentor_slots").insert({
+      mentor_id: mentor.id,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+    });
+    setSaving(false);
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+    setDate("");
+    setStartTime("");
+    setEndTime("");
+    router.refresh();
   }
 
+  async function removeSlot(id: string) {
+    if (!confirm("Remove this open slot?")) return;
+    setBusyId(id);
+    const supabase = createClient();
+    await supabase.from("mentor_slots").delete().eq("id", id);
+    setBusyId(null);
+    router.refresh();
+  }
+
+  const now = new Date().toISOString();
+  const upcoming = slots.filter((s) => s.end_time >= now);
+  const past = slots.filter((s) => s.end_time < now);
+  const grouped = groupSlotsByDate(upcoming);
+
   return (
-    <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
-      <div className="px-5 py-6">
-        <span className="font-bold text-brand-300 block">Master Grid</span>
-        {typeof streak === "number" && streak > 0 && (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 mt-1">
-            🔥 {streak} day{streak === 1 ? "" : "s"}
-          </span>
-        )}
-      </div>
-
-      <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
-        <Link href="/dashboard" className={linkClass("/dashboard")}>
-          Home
-        </Link>
-
-        {visibleGroups.map((group) => (
-          <div key={group.title}>
-            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              {group.title}
-            </p>
-            <div className="flex flex-col gap-1">
-              {group.items.map((item) => (
-                <Link key={item.href} href={item.href} className={linkClass(item.href)}>
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        {isAdmin && (
+    <div className="space-y-6">
+      <div className="card">
+        <p className="text-sm font-semibold mb-3">Add an open slot</p>
+        <div className="grid sm:grid-cols-3 gap-3 mb-3">
           <div>
-            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Admin
-            </p>
-            <div className="flex flex-col gap-1">
-              <Link href="/lab-values" className={linkClass("/lab-values")}>
-                Lab Values
-              </Link>
-              <Link
-                href="/admin"
-                className="text-sm font-medium px-3 py-2.5 rounded-lg text-brand-300 bg-brand-900/40 hover:bg-brand-900/40"
-              >
-                Admin
-              </Link>
-            </div>
+            <label className="label">Date</label>
+            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Start time</label>
+            <input type="time" className="input" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">End time</label>
+            <input type="time" className="input" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
+        <button type="button" onClick={addSlot} disabled={saving} className="btn-primary text-sm">
+          {saving ? "Adding..." : "Add slot"}
+        </button>
+      </div>
+
+      <div>
+        <p className="text-sm font-semibold mb-3">Your upcoming slots</p>
+        {grouped.length === 0 ? (
+          <p className="text-sm text-slate-400">No upcoming slots yet - add one above.</p>
+        ) : (
+          <div className="space-y-4">
+            {grouped.map(({ date, slots }) => (
+              <div key={date}>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
+                <div className="space-y-2">
+                  {slots.map((s) => (
+                    <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                      <p className="text-sm">
+                        {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
+                            s.is_booked ? "bg-green-900/40 text-green-400" : "bg-slate-800 text-slate-300"
+                          }`}
+                        >
+                          {s.is_booked ? "Booked" : "Open"}
+                        </span>
+                        {!s.is_booked && (
+                          <button
+                            type="button"
+                            onClick={() => removeSlot(s.id)}
+                            disabled={busyId === s.id}
+                            className="text-xs text-red-400 hover:text-red-300"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
-      </nav>
-
-      <div className="px-3 pb-6 pt-3 border-t border-slate-800">
-        <Link href="/settings" className={linkClass("/settings")}>
-          Settings
-        </Link>
-        <div className="flex items-center gap-2.5 px-3 py-2.5 mt-1">
-          <span className="w-7 h-7 rounded-full bg-brand-900/50 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
-            {initials(userName)}
-          </span>
-          <span className="text-sm text-slate-300 truncate">{userName || "Your profile"}</span>
-        </div>
-        <form action="/auth/signout" method="post">
-          <button className="w-full text-left text-sm font-medium px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-800 hover:text-slate-300">
-            Sign out
-          </button>
-        </form>
       </div>
-    </aside>
+
+      {past.length > 0 && (
+        <p className="text-xs text-slate-600">
+          {past.length} past slot{past.length === 1 ? "" : "s"} not shown.
+        </p>
+      )}
+    </div>
   );
 }
