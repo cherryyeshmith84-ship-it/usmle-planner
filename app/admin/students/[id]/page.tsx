@@ -9,8 +9,12 @@ import type {
   ScheduleTemplate,
 } from "@/lib/types";
 import { buildRoadmap, computePlanProgress, getTemplateDays, type PlanProgress } from "@/lib/templateDays";
+import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import type { ScoreReport } from "@/lib/scoreReports";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
+import PlannerGridClient from "@/components/PlannerGridClient";
+import PerformanceClient from "@/components/PerformanceClient";
 
 export const dynamic = "force-dynamic";
 
@@ -23,19 +27,23 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
 
   // None of these six queries depend on each other's results - only on the
   // student id from the URL - so run them all at once instead of one by one.
-  const [studentRes, logsRes, templatesRes, messagesRes, scoreRes, personalRes] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", params.id).single(),
-    supabase
-      .from("daily_logs")
-      .select("*")
-      .eq("user_id", params.id)
-      .order("log_date", { ascending: false })
-      .limit(14),
-    supabase.from("schedule_templates").select("*").order("stage", { ascending: true }).order("name", { ascending: true }),
-    supabase.from("messages").select("*").eq("student_id", params.id).order("created_at", { ascending: true }),
-    supabase.from("daily_logs").select("block_scores").eq("user_id", params.id),
-    supabase.from("personal_templates").select("*").eq("user_id", params.id).maybeSingle(),
-  ]);
+  const [studentRes, logsRes, templatesRes, messagesRes, scoreRes, personalRes, plannerColumnsRes, plannerEntriesRes, scoreReportsRes] =
+    await Promise.all([
+      supabase.from("profiles").select("*").eq("id", params.id).single(),
+      supabase
+        .from("daily_logs")
+        .select("*")
+        .eq("user_id", params.id)
+        .order("log_date", { ascending: false })
+        .limit(14),
+      supabase.from("schedule_templates").select("*").order("stage", { ascending: true }).order("name", { ascending: true }),
+      supabase.from("messages").select("*").eq("student_id", params.id).order("created_at", { ascending: true }),
+      supabase.from("daily_logs").select("block_scores").eq("user_id", params.id),
+      supabase.from("personal_templates").select("*").eq("user_id", params.id).maybeSingle(),
+      supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
+      supabase.from("planner_entries").select("*").eq("user_id", params.id),
+      supabase.from("score_reports").select("*").eq("user_id", params.id).order("taken_date", { ascending: false }),
+    ]);
 
   if (!studentRes.data) notFound();
   const student = studentRes.data as Profile;
@@ -46,6 +54,9 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
   const personalTemplate = (personalRes.data as PersonalTemplate) ?? null;
+  const plannerColumns = (plannerColumnsRes.data ?? []) as PlannerColumn[];
+  const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
+  const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
 
   // Full day-by-day roadmap for whatever this student is currently using -
   // their coach-assigned plan, or their own self-built one - so the coach
@@ -88,6 +99,23 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
           activeSource={activeSource}
           hasOwnPlan={!!personalTemplate}
         />
+
+        <div className="mt-8">
+          <h2 className="text-lg font-bold mb-1">Study Planner</h2>
+          <p className="text-sm text-slate-400 mb-3">
+            Same day-by-day grid the student sees and edits themselves - you can fill in "Planned
+            system" ahead of time or correct anything here.
+          </p>
+          <PlannerGridClient targetUserId={params.id} columns={plannerColumns} initialEntries={plannerEntries} />
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-lg font-bold mb-1">Performance</h2>
+          <p className="text-sm text-slate-400 mb-3">
+            Score reports this student has uploaded, plus their weak/strong systems and AI suggestions.
+          </p>
+          <PerformanceClient userId={params.id} initialReports={scoreReports} />
+        </div>
       </main>
     </div>
   );
