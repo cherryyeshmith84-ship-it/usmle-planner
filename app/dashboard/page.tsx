@@ -13,6 +13,7 @@ import type {
 import type { QBankQuestion } from "@/lib/qbankTypes";
 import { computePlanProgress, dayNumberFor, getTemplateDays, tasksForDay, type PlanProgress } from "@/lib/templateDays";
 import { computeDashboardInsights, type QBankAnswerEvent } from "@/lib/masteryDashboard";
+import { getContentPublished } from "@/lib/platformSettings";
 import DashboardClient from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +78,7 @@ export default async function DashboardPage() {
     qbankQuestionsRes,
     assessmentAttemptsRes,
     assessmentsRes,
+    contentPublished,
   ] = await Promise.all([
     supabase
       .from("daily_logs")
@@ -104,6 +106,7 @@ export default async function DashboardPage() {
       .eq("user_id", user.id)
       .not("submitted_at", "is", null),
     supabase.from("assessments").select("id, questions"),
+    profile.is_admin ? Promise.resolve(true) : getContentPublished(supabase),
   ]);
 
   const logs = (logsRes.data ?? []) as DailyLog[];
@@ -215,6 +218,7 @@ export default async function DashboardPage() {
       insights={insights}
       questionsAnsweredToday={questionsAnsweredToday}
       dailyQuestionGoal={dailyQuestionGoal}
+      contentPublished={contentPublished}
     />
   );
 }
