@@ -46,9 +46,11 @@ export default async function MentorshipPage() {
   const myMentorRecord = findMentorByEmail(mentors, user.email);
 
   if (myMentorRecord) {
+    // Join the booking student's profile so the mentor can see who booked
+    // each slot and when, not just an "Open/Booked" badge.
     const { data: slotsData } = await supabase
       .from("mentor_slots")
-      .select("*")
+      .select("*, booked_by_profile:booked_by(full_name, email)")
       .eq("mentor_id", myMentorRecord.id)
       .order("start_time", { ascending: true });
     const slots = (slotsData ?? []) as MentorSlot[];
