@@ -11,7 +11,15 @@ import {
   type Mentor,
   type MentorSlot,
 } from "@/lib/mentors";
+import { easternWeekStart } from "@/lib/timezone";
 import MentorChatPanel from "./MentorChatPanel";
+
+const PREP_STAGES = [
+  "Pre-dedicated / early prep",
+  "Dedicated period",
+  "Final review (last 2-3 weeks)",
+  "Retaking Step 1",
+];
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
@@ -38,11 +46,13 @@ export default function MentorBrowseClient({
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [bookError, setBookError] = useState<string | null>(null);
   const [bookedMsg, setBookedMsg] = useState<string | null>(null);
-  // Free-text note the student can leave when booking - e.g. where they are
-  // in their prep or what they want to talk about - so the mentor isn't
-  // walking in blind. One shared field, applied to whichever slot they book.
-  const [note, setNote] = useState("");
+  // Mandatory before any slot can be booked - the mentor needs to know where
+  // a student actually is before the session, not walk in blind. Both are
+  // required; the Book buttons stay disabled until both are filled in.
+  const [stage, setStage] = useState("");
+  const [currentPrep, setCurrentPrep] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const readyToBook = stage.trim().length > 0 && currentPrep.trim().length > 0;
 
   useEffect(() => {
     const supabase = createClient();
@@ -69,21 +79,44 @@ export default function MentorBrowseClient({
     setLoadingSlots(false);
   }
 
+  // A slot clashes if the student already holds a booking somewhere in the
+  // same Eastern-time Mon-Sun week - the one-booking-per-week limit is
+  // per student, not per mentor, so it has to look across ALL of their
+  // bookings, not just ones with this mentor.
+  function hasBookingInWeekOf(startTime: string): boolean {
+    const week = easternWeekStart(startTime);
+    return myBookings.some((b) => easternWeekStart(b.start_time) === week);
+  }
+
   async function book(slotId: string) {
+    if (!readyToBook) {
+      setBookError("Fill in your prep stage and what you're currently using/doing before booking.");
+      return;
+    }
+    const targetSlot = slots.find((s) => s.id === slotId);
+    if (targetSlot && hasBookingInWeekOf(targetSlot.start_time)) {
+      setBookError(
+        "You already have a mentor session booked this week (Mon-Sun, Eastern Time). Only one booking per week is allowed."
+      );
+      return;
+    }
     setBookingId(slotId);
     setBookError(null);
     const supabase = createClient();
     // Conditional update: only succeeds if the slot is still unbooked at the
     // moment this statement runs - the WHERE clause is checked and applied
     // atomically by Postgres, so a slot can't be double-booked by two
-    // students clicking at nearly the same time.
+    // students clicking at nearly the same time. A database trigger also
+    // enforces the one-per-week limit server-side (see the
+    // mentor_booking_weekly_limit migration) as the authoritative check,
+    // since this client-side check alone could be bypassed.
     const { data, error } = await supabase
       .from("mentor_slots")
       .update({
         is_booked: true,
         booked_by: (await supabase.auth.getUser()).data.user?.id,
         booked_at: new Date().toISOString(),
-        student_note: note.trim() || null,
+        student_note: `Stage: ${stage} | Currently: ${currentPrep.trim()}`,
       })
       .eq("id", slotId)
       .eq("is_booked", false)
@@ -100,7 +133,6 @@ export default function MentorBrowseClient({
     }
     setSlots((prev) => prev.filter((s) => s.id !== slotId));
     setBookedMsg("Booked! You'll see it under \"My upcoming sessions\" after the page refreshes.");
-    setNote("");
 
     // Let the mentor know by email - best-effort, doesn't block the UI and
     // a failure here shouldn't make it look like the booking itself failed.
@@ -149,6 +181,40 @@ export default function MentorBrowseClient({
         </div>
       )}
 
+      <div className="card">
+        <p className="text-sm font-semibold mb-1">Before you book</p>
+        <p className="text-xs text-slate-500 mb-3">
+          Required so your mentor knows where you're at before the session - fill this in once, it
+          applies to whichever slot you book below.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Stage of prep</label>
+            <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
+              <option value="">Select one...</option>
+              {PREP_STAGES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">What are you currently using / doing?</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="e.g. UWorld 2nd pass, Sketchy Micro, Anki"
+              value={currentPrep}
+              onChange={(e) => setCurrentPrep(e.target.value)}
+            />
+          </div>
+        </div>
+        {!readyToBook && (
+          <p className="text-xs text-amber-400 mt-2">Both fields are required before you can book a slot.</p>
+        )}
+      </div>
+
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="space-y-3">
           <p className="text-sm font-semibold">Mentors</p>
@@ -192,18 +258,6 @@ export default function MentorBrowseClient({
           {selected && !loadingSlots && (
             <>
               {selected.bio && <p className="text-sm text-slate-300 mb-4">{selected.bio}</p>}
-              {slots.length > 0 && (
-                <div className="mb-4">
-                  <label className="label">Your status / what you'd like to discuss (optional)</label>
-                  <textarea
-                    className="input min-h-[70px]"
-                    placeholder="e.g. Mid-dedicated, struggling with Cardio and Renal - want to talk study plan."
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Applied to whichever slot you book below.</p>
-                </div>
-              )}
               {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
               {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
               {slots.length === 0 ? (
@@ -214,21 +268,29 @@ export default function MentorBrowseClient({
                     <div key={date}>
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
                       <div className="space-y-2">
-                        {slots.map((s) => (
-                          <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                            <p className="text-sm">
-                              {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => book(s.id)}
-                              disabled={bookingId === s.id}
-                              className="btn-primary text-xs"
-                            >
-                              {bookingId === s.id ? "Booking..." : "Book"}
-                            </button>
-                          </div>
-                        ))}
+                        {slots.map((s) => {
+                          const weekClash = hasBookingInWeekOf(s.start_time);
+                          return (
+                            <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                              <p className="text-sm">
+                                {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                              </p>
+                              {weekClash ? (
+                                <span className="text-xs text-slate-500">Already booked this week</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => book(s.id)}
+                                  disabled={bookingId === s.id || !readyToBook}
+                                  className="btn-primary text-xs"
+                                  title={!readyToBook ? "Fill in the required fields above first" : undefined}
+                                >
+                                  {bookingId === s.id ? "Booking..." : "Book"}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
