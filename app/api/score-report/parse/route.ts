@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { STEP1_SYSTEMS } from "@/lib/qbankTypes";
+import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import type { ParsedScoreReport } from "@/lib/scoreReports";
 
 /**
@@ -52,6 +52,7 @@ export async function POST(req: Request) {
   }
 
   const systemListText = STEP1_SYSTEMS.map((s, i) => `${i + 1}. ${s}`).join("\n");
+  const disciplineListText = STEP1_SUBJECTS.map((s, i) => `${i + 1}. ${s}`).join("\n");
 
   const multiFileNote =
     files.length > 1
@@ -151,6 +152,43 @@ matching row/number exists anywhere in the document (or, for Social
 Sciences on a UWorld report specifically, because UWorld genuinely doesn't
 test it).
 
+Separately from System, most of these reports ALSO break performance down
+by "Discipline" (NBME's term) or "Subject" (UWorld's term) - the basic
+science subject a question is drawn from, rather than the organ system it's
+about. Look for a second table on the page (often titled "Performance By
+Discipline" or "Performance By Subject") and map it onto these 15 discipline
+categories:
+${disciplineListText}
+
+UWorld's "Performance By Subject" table almost matches this list directly -
+map each of its rows to the identically or near-identically named category
+above (its "Behavioral Science" -> #2 Behavioral Health; its "Social
+Sciences" -> #15 Social Sciences (Ethics/Legal/Communication); its "Cell
+Biology" -> combine with #7 Histology & Cell Biology; everything else
+matches by name).
+
+NBME/UWSA "Performance By Discipline" tables use broader, combined category
+names - map each one to EVERY discipline above it covers, reusing the same
+percent for each (do not split or guess a different number per discipline):
+  "Behavioral Sciences" -> #2 Behavioral Health
+  "Biochemistry, Genetics & Nutrition" (or similar combined wording) -> both
+    #3 Biochemistry & Nutrition AND #6 Genetics
+  "Gross Anatomy & Embryology" -> both #1 Anatomy AND #5 Embryology
+  "Histology & Cell Biology" -> #7 Histology & Cell Biology
+  "Microbiology & Immunology" -> both #9 Microbiology AND #8 Immunology
+  "Pathology" -> #11 Pathology
+  "Pharmacology" -> #13 Pharmacology
+  "Physiology" -> #14 Physiology
+NBME's Discipline table typically does NOT include Biostatistics &
+Epidemiology (#4), Molecular Biology (#10), Pathophysiology, or Social
+Sciences (#15) as their own discipline rows - leave those null unless you
+actually see a matching row for them specifically (they usually only show
+up under that report's System table instead, which you've already handled
+above).
+
+If a report only has a System table and no separate Discipline/Subject
+table at all, return discipline_breakdown as {} rather than guessing.
+
 Respond with ONLY JSON in exactly this shape, no extra commentary:
 
 {
@@ -162,16 +200,25 @@ Respond with ONLY JSON in exactly this shape, no extra commentary:
   "overall_percent": number 0-100 if an overall percent-correct is shown or can be
     computed, otherwise null,
   "system_breakdown": an object mapping the exact system names from the numbered
-    list above to a percent-correct number (0-100) - include every one you found a
-    value for anywhere in the document, do not invent numbers for ones you didn't
-    find.
+    system list above to a percent-correct number (0-100) - include every one you
+    found a value for anywhere in the document, do not invent numbers for ones you
+    didn't find.
+  "discipline_breakdown": an object mapping the exact discipline names from the
+    numbered discipline list above to a percent-correct number (0-100), following
+    the mapping rules above - include only the ones you actually found a value
+    for.
 }
 
 If you genuinely cannot read the document or it isn't a score report, return every
-field as null (system_breakdown as {}).
+field as null (system_breakdown and discipline_breakdown as {}).
 `.trim();
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  // gemini-2.0-flash was fully shut down by Google on June 1, 2026 - calls to
+  // it now fail outright, which is what was actually behind the persistent
+  // "AI request failed" errors here (not just occasional high demand).
+  // Defaulting to the current GA model instead, matching
+  // generate-practice-question's route, which already had this right.
+  const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
   function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -280,6 +327,14 @@ field as null (system_breakdown as {}).
           ? Object.fromEntries(
               Object.entries(parsed.system_breakdown).filter(
                 ([k, v]) => (STEP1_SYSTEMS as readonly string[]).includes(k) && typeof v === "number"
+              )
+            )
+          : {},
+      discipline_breakdown:
+        parsed.discipline_breakdown && typeof parsed.discipline_breakdown === "object"
+          ? Object.fromEntries(
+              Object.entries(parsed.discipline_breakdown).filter(
+                ([k, v]) => (STEP1_SUBJECTS as readonly string[]).includes(k) && typeof v === "number"
               )
             )
           : {},
