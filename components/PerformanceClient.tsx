@@ -9,7 +9,23 @@ import {
   systemTrends,
   type ScoreReport,
 } from "@/lib/scoreReports";
+import { compareContentBreakdowns, type ContentAreaStat } from "@/lib/questionLevelReports";
 import ScoreReportUpload from "./ScoreReportUpload";
+import QuestionLevelReportUpload from "./QuestionLevelReportUpload";
+
+/** Finds the most recent OTHER question-level report before this one (by
+ *  taken_date), for the "vs. your last question-level upload" comparison -
+ *  falls back to whichever other one exists if dates are missing/tied. */
+function previousQuestionLevelReport(all: ScoreReport[], current: ScoreReport): ScoreReport | null {
+  const others = all.filter(
+    (r) => r.exam_type === "question_level" && r.id !== current.id && r.content_breakdown
+  );
+  if (others.length === 0) return null;
+  const sorted = [...others].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
+  const currentDate = current.taken_date ?? "";
+  const before = sorted.filter((r) => (r.taken_date ?? "") < currentDate);
+  return before.length > 0 ? before[before.length - 1] : sorted[sorted.length - 1];
+}
 
 function scoreBadgeClass(pct: number | null) {
   if (pct === null) return "bg-slate-800 text-slate-300";
@@ -116,6 +132,7 @@ export default function PerformanceClient({
   return (
     <div className="space-y-6">
       <ScoreReportUpload userId={userId} />
+      <QuestionLevelReportUpload userId={userId} />
 
       {reports.length === 0 ? (
         <div className="card">
@@ -259,19 +276,86 @@ export default function PerformanceClient({
                     </div>
                   </div>
                   {expanded && (
-                    <div className="mt-3 grid sm:grid-cols-2 gap-1.5">
-                      {Object.entries(r.system_breakdown ?? {}).length === 0 ? (
-                        <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
-                      ) : (
-                        Object.entries(r.system_breakdown).map(([system, pct]) => (
-                          <div key={system} className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-slate-400 truncate">{system}</span>
-                            <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
-                              {pct}%
-                            </span>
-                          </div>
-                        ))
-                      )}
+                    <div className="mt-3 space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-1.5">
+                        {Object.entries(r.system_breakdown ?? {}).length === 0 ? (
+                          <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
+                        ) : (
+                          Object.entries(r.system_breakdown).map(([system, pct]) => (
+                            <div key={system} className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-slate-400 truncate">{system}</span>
+                              <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
+                                {pct}%
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {r.exam_type === "question_level" &&
+                        r.content_breakdown &&
+                        Object.keys(r.content_breakdown).length > 0 &&
+                        (() => {
+                          const entries = Object.entries(r.content_breakdown) as [string, ContentAreaStat][];
+                          const weakestTopics = [...entries].sort((a, b) => a[1].percent - b[1].percent).slice(0, 6);
+                          const prev = previousQuestionLevelReport(reports, r);
+                          const comparison =
+                            prev?.content_breakdown && r.content_breakdown
+                              ? compareContentBreakdowns(prev.content_breakdown, r.content_breakdown)
+                              : null;
+                          const improved = comparison?.filter((c) => c.delta > 0) ?? [];
+                          const declined = comparison?.filter((c) => c.delta < 0) ?? [];
+
+                          return (
+                            <div className="pt-3 border-t border-slate-800 space-y-3">
+                              <div>
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                                  Specific weak topics
+                                </p>
+                                <div className="space-y-1">
+                                  {weakestTopics.map(([key, stat]) => (
+                                    <div key={key} className="flex items-center justify-between gap-2">
+                                      <span className="text-xs text-slate-400 truncate" title={key}>
+                                        {stat.subtopic}
+                                        {stat.system ? ` (${stat.system})` : ""}
+                                      </span>
+                                      <span
+                                        className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(stat.percent)}`}
+                                      >
+                                        {stat.correct}/{stat.total}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {comparison && comparison.length > 0 && prev && (
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
+                                    Vs. {prev.exam_name} ({prev.taken_date ?? "no date"})
+                                  </p>
+                                  <p className="text-xs text-slate-500 mb-1.5">
+                                    {improved.length} topic{improved.length === 1 ? "" : "s"} improved,{" "}
+                                    {declined.length} declined (matched by exact topic name).
+                                  </p>
+                                  {declined.slice(0, 3).map((c) => (
+                                    <p key={c.key} className="text-xs text-red-400">
+                                      &darr; {c.subtopic}: {c.previousPercent}% &rarr; {c.currentPercent}%
+                                    </p>
+                                  ))}
+                                  {[...improved]
+                                    .reverse()
+                                    .slice(0, 3)
+                                    .map((c) => (
+                                      <p key={c.key} className="text-xs text-green-400">
+                                        &uarr; {c.subtopic}: {c.previousPercent}% &rarr; {c.currentPercent}%
+                                      </p>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                     </div>
                   )}
                 </div>
