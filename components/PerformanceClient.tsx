@@ -99,6 +99,13 @@ export default function PerformanceClient({
     () => sortedReports.filter((r) => r.exam_type === "question_level"),
     [sortedReports]
   );
+  // Same reports, oldest first - column order for the "Progress by topic"
+  // table below, matching the left-to-right convention of the other
+  // progress tables.
+  const questionLevelColumns = useMemo(
+    () => [...questionLevelReportsList].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")),
+    [questionLevelReportsList]
+  );
   // Every REGULAR (non-question-level) report, oldest first, for the
   // "Progress by system" table - previously this included question-level
   // reports too and was capped to the last 8 with .slice(-8) (why only 8 of
@@ -565,6 +572,60 @@ export default function PerformanceClient({
                         );
                       })}
                     </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {questionLevelColumns.length > 0 && (
+            <div className="card overflow-x-auto">
+              <p className="text-sm font-semibold mb-1">Progress by topic (question-level reports)</p>
+              <p className="text-xs text-slate-500 mb-3">
+                Separate from the system table above - grouped by system, but broken down to the exact
+                subtopic from your question-level uploads instead of one number per system.
+              </p>
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="pr-3 py-1">Topic</th>
+                    {questionLevelColumns.map((r) => (
+                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                        {r.taken_date ?? "?"}
+                        <br />
+                        <span className="text-slate-600">{r.exam_name}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {questionLevelTopicGroups.map((group) => (
+                    <Fragment key={group.system}>
+                      <tr className="border-t border-slate-800">
+                        <td colSpan={questionLevelColumns.length + 1} className="pt-3 pb-1 text-slate-300 font-semibold">
+                          {group.system}
+                        </td>
+                      </tr>
+                      {group.topics.map((topic) => (
+                        <tr key={topic.key} className="border-t border-slate-900">
+                          <td className="pr-3 py-1.5 text-slate-400 max-w-xs truncate" title={topic.key}>
+                            {topic.subtopic}
+                          </td>
+                          {questionLevelColumns.map((r) => {
+                            const pct = topic.percents[r.id];
+                            return (
+                              <td key={r.id} className="px-2 py-1.5 text-center">
+                                {typeof pct === "number" ? (
+                                  <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                                ) : (
+                                  <span className="text-slate-700">-</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
