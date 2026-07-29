@@ -60,7 +60,6 @@ export default function MentorBrowseClient({
   }, []);
 
   const now = new Date().toISOString();
-  const upcomingBookings = myBookings.filter((b) => b.end_time >= now);
 
   async function selectMentor(m: Mentor) {
     setSelected(m);
@@ -132,7 +131,7 @@ export default function MentorBrowseClient({
       return;
     }
     setSlots((prev) => prev.filter((s) => s.id !== slotId));
-    setBookedMsg("Booked! You'll see it under \"My upcoming sessions\" after the page refreshes.");
+    setBookedMsg("Booked! You'll see it under \"Upcoming Sessions\" in the sidebar.");
 
     // Let the mentor know by email - best-effort, doesn't block the UI and
     // a failure here shouldn't make it look like the booking itself failed.
@@ -154,32 +153,13 @@ export default function MentorBrowseClient({
 
   return (
     <div className="space-y-6">
-      {upcomingBookings.length > 0 && (
-        <div>
-          <p className="text-sm font-semibold mb-2">My upcoming sessions</p>
-          <div className="space-y-2">
-            {upcomingBookings.map((b) => (
-              <div key={b.id} className="card flex items-center gap-3 py-3">
-                {b.mentors?.photo_path ? (
-                  <img
-                    src={mentorPhotoUrl(b.mentors.photo_path, SUPABASE_URL) ?? ""}
-                    alt={b.mentors.name}
-                    className="w-9 h-9 rounded-full object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-brand-900/40 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
-                    {(b.mentors?.name ?? "?").slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <p className="text-sm">
-                  <span className="font-semibold">{b.mentors?.name ?? "Mentor"}</span> &middot;{" "}
-                  {formatSlotDate(b.start_time)}, {formatSlotTime(b.start_time)}&ndash;{formatSlotTime(b.end_time)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <p className="text-xs text-slate-500">
+        Looking for sessions you've already booked? See{" "}
+        <a href="/mentorship/sessions" className="text-brand-400 hover:text-brand-300">
+          Upcoming Sessions
+        </a>{" "}
+        in the sidebar.
+      </p>
 
       <div className="card">
         <p className="text-sm font-semibold mb-1">Before you book</p>
