@@ -36,9 +36,14 @@ export default function AppShell({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex">
+    // h-screen + overflow-hidden on the outer row (instead of the old
+    // min-h-screen, which let this row grow as tall as the page content and
+    // just scroll along with it, sidebar included) means the sidebar itself
+    // never moves - only the content column on the right scrolls, via its
+    // own overflow-y-auto below.
+    <div className="h-screen flex overflow-hidden">
       <NavBar isAdmin={isAdmin} userName={userName} streak={streak} contentPublished={contentPublished} />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
         <TopHeader userName={userName} streak={streak} />
         {children}
       </div>
