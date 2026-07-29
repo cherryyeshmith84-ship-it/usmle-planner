@@ -55,6 +55,34 @@ export default async function MentorshipPage() {
       .order("start_time", { ascending: true });
     const slots = (slotsData ?? []) as MentorSlot[];
 
+    // Conversation partners = anyone who's either booked a slot with this
+    // mentor or already messaged them - a student can start a thread before
+    // ever booking (e.g. asking a question first), so messages alone aren't
+    // enough to find everyone the mentor should be able to reply to.
+    const { data: bookedByRows } = await supabase
+      .from("mentor_slots")
+      .select("booked_by")
+      .eq("mentor_id", myMentorRecord.id)
+      .not("booked_by", "is", null);
+    const { data: messageStudentRows } = await supabase
+      .from("mentor_messages")
+      .select("student_id")
+      .eq("mentor_id", myMentorRecord.id);
+    const partnerIds = Array.from(
+      new Set([
+        ...(bookedByRows ?? []).map((r: any) => r.booked_by as string),
+        ...(messageStudentRows ?? []).map((r: any) => r.student_id as string),
+      ])
+    );
+    let conversationPartners: { id: string; full_name: string | null; email: string | null }[] = [];
+    if (partnerIds.length > 0) {
+      const { data: partnerProfiles } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", partnerIds);
+      conversationPartners = (partnerProfiles ?? []) as any[];
+    }
+
     return (
       <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
         <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
@@ -63,7 +91,11 @@ export default async function MentorshipPage() {
             Add times you're free to meet. Students book straight from what you add here, and a slot
             disappears from their view the moment someone books it.
           </p>
-          <MentorAvailabilityClient mentor={myMentorRecord} initialSlots={slots} />
+          <MentorAvailabilityClient
+            mentor={myMentorRecord}
+            initialSlots={slots}
+            conversationPartners={conversationPartners}
+          />
         </main>
       </AppShell>
     );
