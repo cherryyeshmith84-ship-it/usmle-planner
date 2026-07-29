@@ -19,6 +19,18 @@ export default function MentorAdminClient({ initialMentors }: { initialMentors: 
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Edit-in-place state for an existing mentor - only one row can be in edit
+  // mode at a time. Editing lets an admin fix a typo'd name/email/bio or
+  // swap out the photo without deleting and re-adding the mentor (which
+  // would also wipe their availability slots and booking history).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   async function addMentor() {
     if (!name.trim() || !email.trim()) {
       setError("Name and email are required.");
@@ -78,6 +90,80 @@ export default function MentorAdminClient({ initialMentors }: { initialMentors: 
     router.refresh();
   }
 
+  function startEdit(m: Mentor) {
+    setEditingId(m.id);
+    setEditName(m.name);
+    setEditEmail(m.email);
+    setEditBio(m.bio || "");
+    setEditPhotoFile(null);
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+    setEditEmail("");
+    setEditBio("");
+    setEditPhotoFile(null);
+    setEditError(null);
+  }
+
+  async function saveEdit(m: Mentor) {
+    if (!editName.trim() || !editEmail.trim()) {
+      setEditError("Name and email are required.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    const supabase = createClient();
+
+    // Keep the existing photo unless a new file was chosen - swapping in a
+    // new one uploads it first, then the mentors row is pointed at the new
+    // path. The old file is removed afterward on a best-effort basis so
+    // storage doesn't quietly accumulate replaced photos; if that cleanup
+    // fails it's not treated as an error since the mentor record itself is
+    // already correct at that point.
+    let photoPath = m.photo_path;
+    const oldPhotoPath = m.photo_path;
+    if (editPhotoFile) {
+      const ext = editPhotoFile.name.split(".").pop() || "jpg";
+      const path = `${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("mentor-photos").upload(path, editPhotoFile, {
+        upsert: false,
+      });
+      if (uploadError) {
+        setEditSaving(false);
+        setEditError(uploadError.message);
+        return;
+      }
+      photoPath = path;
+    }
+
+    const { error: updateError } = await supabase
+      .from("mentors")
+      .update({
+        name: editName.trim(),
+        email: editEmail.trim().toLowerCase(),
+        bio: editBio.trim() || null,
+        photo_path: photoPath,
+      })
+      .eq("id", m.id);
+
+    if (updateError) {
+      setEditSaving(false);
+      setEditError(updateError.message);
+      return;
+    }
+
+    if (editPhotoFile && oldPhotoPath) {
+      await supabase.storage.from("mentor-photos").remove([oldPhotoPath]).catch(() => {});
+    }
+
+    setEditSaving(false);
+    cancelEdit();
+    router.refresh();
+  }
+
   return (
     <div className="space-y-6">
       <div className="card">
@@ -123,6 +209,79 @@ export default function MentorAdminClient({ initialMentors }: { initialMentors: 
         {mentors.length === 0 && <p className="text-sm text-slate-400">No mentors added yet.</p>}
         {mentors.map((m) => {
           const photoUrl = mentorPhotoUrl(m.photo_path, SUPABASE_URL);
+
+          if (editingId === m.id) {
+            return (
+              <div key={m.id} className="card space-y-3">
+                <p className="text-sm font-semibold">Editing {m.name}</p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Name</label>
+                    <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Email</label>
+                    <input
+                      type="email"
+                      className="input"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Details / bio</label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={editBio}
+                    onChange={(e) => setEditBio(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Photo</label>
+                  <div className="flex items-center gap-3">
+                    {photoUrl ? (
+                      <img src={photoUrl} alt={m.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
+                        {m.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setEditPhotoFile(e.target.files?.[0] ?? null)}
+                      className="text-sm text-slate-300"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Current photo shown on the left. Choose a file to replace it, or leave blank to keep it.
+                  </p>
+                </div>
+                {editError && <p className="text-xs text-red-400">{editError}</p>}
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => saveEdit(m)}
+                    disabled={editSaving}
+                    className="btn-primary text-sm"
+                  >
+                    {editSaving ? "Saving..." : "Save changes"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    disabled={editSaving}
+                    className="btn-secondary text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div key={m.id} className="card flex items-center gap-4">
               {photoUrl ? (
@@ -141,6 +300,14 @@ export default function MentorAdminClient({ initialMentors }: { initialMentors: 
                 {m.bio && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{m.bio}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => startEdit(m)}
+                  disabled={busyId === m.id}
+                  className="btn-secondary text-xs"
+                >
+                  Edit
+                </button>
                 <button
                   type="button"
                   onClick={() => toggleActive(m)}
