@@ -79,6 +79,17 @@ export default function PerformanceClient({
     () => [...reports].sort((a, b) => (b.taken_date ?? "").localeCompare(a.taken_date ?? "")),
     [reports]
   );
+  // Question-level reports (per-question feedback PDFs) are a different
+  // kind of upload from a regular single-table score report, so they get
+  // their own list in the history section instead of being mixed in.
+  const regularReports = useMemo(
+    () => sortedReports.filter((r) => r.exam_type !== "question_level"),
+    [sortedReports]
+  );
+  const questionLevelReportsList = useMemo(
+    () => sortedReports.filter((r) => r.exam_type === "question_level"),
+    [sortedReports]
+  );
   const comparisonReports = useMemo(
     () => [...reports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")).slice(-8),
     [reports]
@@ -127,6 +138,175 @@ export default function PerformanceClient({
     const supabase = createClient();
     await supabase.from("score_reports").delete().eq("id", id);
     router.refresh();
+  }
+
+  /**
+   * Renders one report card (used for both the regular score-report list
+   * and the separate question-level-report list below it). For
+   * question-level reports, shows BOTH specific weak topics (any exact
+   * content-description with at least one wrong answer) and specific
+   * strong topics (every question on that exact topic answered correctly)
+   * - each row already names the system it's under, so a weak system can
+   * be traced down to the exact question topic causing it.
+   */
+  function renderReportCard(r: ScoreReport) {
+    const expanded = expandedId === r.id;
+    return (
+      <div key={r.id} className="card">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold">
+              {r.exam_name}{" "}
+              <span className="text-xs font-normal text-slate-500">
+                &middot; {EXAM_TYPE_LABEL[r.exam_type]}
+              </span>
+            </p>
+            <p className="text-xs text-slate-400">{r.taken_date ?? "No date"}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {(r.overall_percent !== null || r.overall_score !== null) && (
+              <span className={`text-sm font-semibold rounded-full px-3 py-1 ${scoreBadgeClass(r.overall_percent)}`}>
+                {r.overall_percent !== null ? `${r.overall_percent}%` : r.overall_score}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpandedId(expanded ? null : r.id)}
+              className="text-xs text-brand-400 hover:text-brand-300 font-medium"
+            >
+              {expanded ? "Hide" : "Systems"}
+            </button>
+            <button
+              type="button"
+              onClick={() => deleteReport(r.id)}
+              className="text-xs text-red-400 hover:text-red-300"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+        {expanded && (
+          <div className="mt-3 space-y-4">
+            <div className="grid sm:grid-cols-2 gap-1.5">
+              {Object.entries(r.system_breakdown ?? {}).length === 0 ? (
+                <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
+              ) : (
+                Object.entries(r.system_breakdown).map(([system, pct]) => (
+                  <div key={system} className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-400 truncate">{system}</span>
+                    <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
+                      {pct}%
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {r.exam_type === "question_level" &&
+              r.content_breakdown &&
+              Object.keys(r.content_breakdown).length > 0 &&
+              (() => {
+                const entries = Object.entries(r.content_breakdown) as [string, ContentAreaStat][];
+                const sortedByPercent = [...entries].sort((a, b) => a[1].percent - b[1].percent);
+                // "Weak" = at least one question missed on this exact topic;
+                // "strong" = every question filed under this exact topic was
+                // correct. Most content-description rows only have 1-2
+                // questions behind them, so in practice this reads close to
+                // a per-question right/wrong list, not just a broad average.
+                const weakTopics = sortedByPercent.filter(([, s]) => s.percent < 100);
+                const strongTopics = [...sortedByPercent].reverse().filter(([, s]) => s.percent === 100);
+                const prev = previousQuestionLevelReport(reports, r);
+                const comparison =
+                  prev?.content_breakdown && r.content_breakdown
+                    ? compareContentBreakdowns(prev.content_breakdown, r.content_breakdown)
+                    : null;
+                const improved = comparison?.filter((c) => c.delta > 0) ?? [];
+                const declined = comparison?.filter((c) => c.delta < 0) ?? [];
+
+                return (
+                  <div className="pt-3 border-t border-slate-800 space-y-3">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-1.5">
+                          Specific weak topics ({weakTopics.length})
+                        </p>
+                        <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                          {weakTopics.length === 0 ? (
+                            <p className="text-xs text-slate-500">No missed topics - nice work.</p>
+                          ) : (
+                            weakTopics.map(([key, stat]) => (
+                              <div key={key} className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-slate-400 truncate" title={key}>
+                                  {stat.subtopic}
+                                  {stat.system ? ` (${stat.system})` : ""}
+                                </span>
+                                <span
+                                  className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(stat.percent)}`}
+                                >
+                                  {stat.correct}/{stat.total}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-green-400 uppercase tracking-wide mb-1.5">
+                          Specific strong topics ({strongTopics.length})
+                        </p>
+                        <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                          {strongTopics.length === 0 ? (
+                            <p className="text-xs text-slate-500">None yet.</p>
+                          ) : (
+                            strongTopics.map(([key, stat]) => (
+                              <div key={key} className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-slate-400 truncate" title={key}>
+                                  {stat.subtopic}
+                                  {stat.system ? ` (${stat.system})` : ""}
+                                </span>
+                                <span
+                                  className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(stat.percent)}`}
+                                >
+                                  {stat.correct}/{stat.total}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {comparison && comparison.length > 0 && prev && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
+                          Vs. {prev.exam_name} ({prev.taken_date ?? "no date"})
+                        </p>
+                        <p className="text-xs text-slate-500 mb-1.5">
+                          {improved.length} topic{improved.length === 1 ? "" : "s"} improved,{" "}
+                          {declined.length} declined (matched by exact topic name).
+                        </p>
+                        {declined.slice(0, 3).map((c) => (
+                          <p key={c.key} className="text-xs text-red-400">
+                            &darr; {c.subtopic}: {c.previousPercent}% &rarr; {c.currentPercent}%
+                          </p>
+                        ))}
+                        {[...improved]
+                          .reverse()
+                          .slice(0, 3)
+                          .map((c) => (
+                            <p key={c.key} className="text-xs text-green-400">
+                              &uarr; {c.subtopic}: {c.previousPercent}% &rarr; {c.currentPercent}%
+                            </p>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -239,128 +419,20 @@ export default function PerformanceClient({
 
           <div className="space-y-2">
             <p className="text-sm font-semibold">Score report history</p>
-            {sortedReports.map((r) => {
-              const expanded = expandedId === r.id;
-              return (
-                <div key={r.id} className="card">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {r.exam_name}{" "}
-                        <span className="text-xs font-normal text-slate-500">
-                          &middot; {EXAM_TYPE_LABEL[r.exam_type]}
-                        </span>
-                      </p>
-                      <p className="text-xs text-slate-400">{r.taken_date ?? "No date"}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {(r.overall_percent !== null || r.overall_score !== null) && (
-                        <span className={`text-sm font-semibold rounded-full px-3 py-1 ${scoreBadgeClass(r.overall_percent)}`}>
-                          {r.overall_percent !== null ? `${r.overall_percent}%` : r.overall_score}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setExpandedId(expanded ? null : r.id)}
-                        className="text-xs text-brand-400 hover:text-brand-300 font-medium"
-                      >
-                        {expanded ? "Hide" : "Systems"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteReport(r.id)}
-                        className="text-xs text-red-400 hover:text-red-300"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  {expanded && (
-                    <div className="mt-3 space-y-4">
-                      <div className="grid sm:grid-cols-2 gap-1.5">
-                        {Object.entries(r.system_breakdown ?? {}).length === 0 ? (
-                          <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
-                        ) : (
-                          Object.entries(r.system_breakdown).map(([system, pct]) => (
-                            <div key={system} className="flex items-center justify-between gap-2">
-                              <span className="text-xs text-slate-400 truncate">{system}</span>
-                              <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
-                                {pct}%
-                              </span>
-                            </div>
-                          ))
-                        )}
-                      </div>
+            {regularReports.length === 0 ? (
+              <p className="text-xs text-slate-500">No score reports yet.</p>
+            ) : (
+              regularReports.map((r) => renderReportCard(r))
+            )}
+          </div>
 
-                      {r.exam_type === "question_level" &&
-                        r.content_breakdown &&
-                        Object.keys(r.content_breakdown).length > 0 &&
-                        (() => {
-                          const entries = Object.entries(r.content_breakdown) as [string, ContentAreaStat][];
-                          const weakestTopics = [...entries].sort((a, b) => a[1].percent - b[1].percent).slice(0, 6);
-                          const prev = previousQuestionLevelReport(reports, r);
-                          const comparison =
-                            prev?.content_breakdown && r.content_breakdown
-                              ? compareContentBreakdowns(prev.content_breakdown, r.content_breakdown)
-                              : null;
-                          const improved = comparison?.filter((c) => c.delta > 0) ?? [];
-                          const declined = comparison?.filter((c) => c.delta < 0) ?? [];
-
-                          return (
-                            <div className="pt-3 border-t border-slate-800 space-y-3">
-                              <div>
-                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                                  Specific weak topics
-                                </p>
-                                <div className="space-y-1">
-                                  {weakestTopics.map(([key, stat]) => (
-                                    <div key={key} className="flex items-center justify-between gap-2">
-                                      <span className="text-xs text-slate-400 truncate" title={key}>
-                                        {stat.subtopic}
-                                        {stat.system ? ` (${stat.system})` : ""}
-                                      </span>
-                                      <span
-                                        className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(stat.percent)}`}
-                                      >
-                                        {stat.correct}/{stat.total}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-
-                              {comparison && comparison.length > 0 && prev && (
-                                <div>
-                                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
-                                    Vs. {prev.exam_name} ({prev.taken_date ?? "no date"})
-                                  </p>
-                                  <p className="text-xs text-slate-500 mb-1.5">
-                                    {improved.length} topic{improved.length === 1 ? "" : "s"} improved,{" "}
-                                    {declined.length} declined (matched by exact topic name).
-                                  </p>
-                                  {declined.slice(0, 3).map((c) => (
-                                    <p key={c.key} className="text-xs text-red-400">
-                                      &darr; {c.subtopic}: {c.previousPercent}% &rarr; {c.currentPercent}%
-                                    </p>
-                                  ))}
-                                  {[...improved]
-                                    .reverse()
-                                    .slice(0, 3)
-                                    .map((c) => (
-                                      <p key={c.key} className="text-xs text-green-400">
-                                        &uarr; {c.subtopic}: {c.previousPercent}% &rarr; {c.currentPercent}%
-                                      </p>
-                                    ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Question-level report history</p>
+            {questionLevelReportsList.length === 0 ? (
+              <p className="text-xs text-slate-500">No question-level reports yet.</p>
+            ) : (
+              questionLevelReportsList.map((r) => renderReportCard(r))
+            )}
           </div>
         </>
       )}
