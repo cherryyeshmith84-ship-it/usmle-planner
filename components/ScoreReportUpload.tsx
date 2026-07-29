@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { STEP1_SYSTEMS } from "@/lib/qbankTypes";
+import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import { EXAM_TYPE_LABEL, type ParsedScoreReport, type ScoreReportExamType } from "@/lib/scoreReports";
 
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
@@ -148,6 +148,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
           overall_score: null,
           overall_percent: null,
           system_breakdown: {},
+          discipline_breakdown: {},
         });
       } else {
         setDraft(json.result as ParsedScoreReport);
@@ -161,6 +162,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         overall_score: null,
         overall_percent: null,
         system_breakdown: {},
+        discipline_breakdown: {},
       });
     }
     setStage("review");
@@ -180,6 +182,19 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         next[system] = Math.max(0, Math.min(100, Number(value)));
       }
       return { ...prev, system_breakdown: next };
+    });
+  }
+
+  function updateDisciplinePct(discipline: string, value: string) {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = { ...(prev.discipline_breakdown ?? {}) };
+      if (value === "") {
+        delete next[discipline];
+      } else {
+        next[discipline] = Math.max(0, Math.min(100, Number(value)));
+      }
+      return { ...prev, discipline_breakdown: next };
     });
   }
 
@@ -220,6 +235,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       overall_score: draft.overall_score,
       overall_percent: draft.overall_percent,
       system_breakdown: draft.system_breakdown,
+      discipline_breakdown: draft.discipline_breakdown ?? {},
       image_paths: imagePaths,
     });
     if (insertError) {
@@ -415,6 +431,32 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
                 max={100}
                 value={draft.system_breakdown[system] ?? ""}
                 onChange={(e) => updateSystemPct(system, e.target.value)}
+                className="input text-xs py-1 px-2 w-16 shrink-0"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="label mb-1">Discipline breakdown (% correct)</p>
+        <p className="text-xs text-slate-500 mb-2">
+          The other axis these reports usually show alongside System - Anatomy, Pathology,
+          Pharmacology, etc. Leave a box blank if this report didn't break performance down this way.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {STEP1_SUBJECTS.map((discipline) => (
+            <div
+              key={discipline}
+              className="flex items-center justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5"
+            >
+              <span className="text-xs text-slate-300">{discipline}</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={draft.discipline_breakdown?.[discipline] ?? ""}
+                onChange={(e) => updateDisciplinePct(discipline, e.target.value)}
                 className="input text-xs py-1 px-2 w-16 shrink-0"
               />
             </div>
