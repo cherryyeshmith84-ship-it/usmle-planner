@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -68,11 +68,32 @@ export default function PerformanceClient({
     [reports]
   );
 
-  async function getSuggestion() {
+  // On load, just check whether we already have a cached suggestion for
+  // this student - this is a plain DB read, it never calls the (shared,
+  // quota-limited) Gemini API, so it's free to run automatically.
+  useEffect(() => {
+    if (reports.length === 0) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/score-report/suggestions");
+        const json = await res.json();
+        if (res.ok && json.suggestion) setSuggestion(json.suggestion);
+      } catch {
+        // Silent - the button is still there if this fails.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function getSuggestion(force = false) {
     setLoadingSuggestion(true);
     setSuggestionError(null);
     try {
-      const res = await fetch("/api/score-report/suggestions", { method: "POST" });
+      const res = await fetch("/api/score-report/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
       const json = await res.json();
       if (!res.ok) {
         setSuggestionError(json.error || "Couldn't generate a suggestion.");
@@ -142,7 +163,7 @@ export default function PerformanceClient({
               <p className="text-sm font-semibold">AI suggestions</p>
               <button
                 type="button"
-                onClick={getSuggestion}
+                onClick={() => getSuggestion(!!suggestion)}
                 disabled={loadingSuggestion}
                 className="btn-secondary text-xs"
               >
@@ -153,7 +174,9 @@ export default function PerformanceClient({
             {suggestion && <p className="text-sm text-slate-300 whitespace-pre-line">{suggestion}</p>}
             {!suggestion && !suggestionError && (
               <p className="text-xs text-slate-500">
-                Generates a short note on what to prioritize based on your score history.
+                Generates a short note on what to prioritize based on your score history. Reused
+                automatically until you add a new report or hit Refresh, so it doesn't burn through
+                the shared AI quota.
               </p>
             )}
           </div>
