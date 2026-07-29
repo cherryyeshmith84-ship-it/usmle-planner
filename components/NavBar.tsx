@@ -37,6 +37,7 @@ const GROUPS: NavGroup[] = [
       // whether the signed-in email belongs to a mentor (shows their
       // availability manager) or a student (shows the mentor directory).
       { href: "/mentorship", label: "Mentorship" },
+      { href: "/mentorship/sessions", label: "Upcoming Sessions" },
       { href: "/planner", label: "Study Planner" },
       // "Analysis" (was "Performance") absorbs what used to be the
       // standalone History page - detailed day-by-day history lives here
@@ -52,7 +53,11 @@ const GROUPS: NavGroup[] = [
 const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
 
 function isActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
+  // Exact-match only for routes that now have their own sub-route (e.g.
+  // "/mentorship/sessions" nested under "/mentorship") - otherwise the
+  // parent nav item would light up alongside the child's on every one of
+  // its sub-pages, since a plain startsWith would match both.
+  if (href === "/dashboard" || href === "/mentorship") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
