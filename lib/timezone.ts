@@ -66,3 +66,30 @@ export function easternDateStringNow(): string {
   });
   return fmt.format(new Date()); // en-CA formats as YYYY-MM-DD
 }
+
+/**
+ * Returns the Monday date ("YYYY-MM-DD") that starts the Eastern-time
+ * calendar week (Mon-Sun) containing the given instant. Two timestamps are
+ * "in the same Eastern week" exactly when this returns the same string for
+ * both - that's how the one-booking-per-week limit decides whether a new
+ * slot would clash with something the student already booked. This mirrors
+ * `date_trunc('week', ...)` used server-side in the booking trigger, so the
+ * client-side check and the database's authoritative check always agree.
+ */
+export function easternWeekStart(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: EASTERN_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date(iso))
+    .split("-")
+    .map(Number);
+  const [y, m, d] = parts;
+  const asUtc = new Date(Date.UTC(y, m - 1, d));
+  const dow = asUtc.getUTCDay(); // 0=Sun, 1=Mon, ... 6=Sat
+  const diffToMonday = dow === 0 ? -6 : 1 - dow;
+  asUtc.setUTCDate(asUtc.getUTCDate() + diffToMonday);
+  return asUtc.toISOString().slice(0, 10);
+}
