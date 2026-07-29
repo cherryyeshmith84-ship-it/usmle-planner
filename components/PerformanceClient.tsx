@@ -90,8 +90,12 @@ export default function PerformanceClient({
     () => sortedReports.filter((r) => r.exam_type === "question_level"),
     [sortedReports]
   );
+  // Every report, oldest first - previously capped to the last 8 with
+  // .slice(-8), which is why only 8 of 13 submitted reports showed up in
+  // "Progress by system". The table scrolls horizontally (overflow-x-auto
+  // on its wrapper) so there's no need to cut any off.
   const comparisonReports = useMemo(
-    () => [...reports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")).slice(-8),
+    () => [...reports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")),
     [reports]
   );
 
