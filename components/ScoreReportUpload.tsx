@@ -25,13 +25,32 @@ function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }>
  * parse is only ever a draft - nothing is saved to score_reports until the
  * student confirms the review form, so a misread number can always be
  * fixed before it affects the weakness/strength analysis.
+ *
+ * When more than one file is selected, the student is asked whether those
+ * files are pages of the SAME report (e.g. a scrolled screenshot, or one
+ * image per table - the original combine behavior) or separate reports.
+ * "Separate" processes the files one at a time - upload, AI-read, review,
+ * save - automatically moving to the next file after each save, so
+ * uploading 6 different score reports produces 6 rows in the history
+ * instead of one merged result.
  */
 export default function ScoreReportUpload({ userId }: { userId: string }) {
   const router = useRouter();
-  const [stage, setStage] = useState<"idle" | "uploading" | "parsing" | "review" | "saving">("idle");
+  const [stage, setStage] = useState<
+    "idle" | "choosingMode" | "uploading" | "parsing" | "review" | "saving"
+  >("idle");
   const [error, setError] = useState<string | null>(null);
+  const [doneMsg, setDoneMsg] = useState<string | null>(null);
   const [imagePaths, setImagePaths] = useState<string[]>([]);
   const [draft, setDraft] = useState<ParsedScoreReport | null>(null);
+
+  // Multi-file batch handling.
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [mode, setMode] = useState<"same" | "separate" | null>(null);
+  const [queue, setQueue] = useState<File[]>([]); // files still left to process in "separate" mode
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queuePosition, setQueuePosition] = useState(0); // 1-based index of the report being read/reviewed now
+  const [savedCount, setSavedCount] = useState(0);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const fileList = e.target.files;
@@ -56,11 +75,41 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     }
 
     setError(null);
+    setDoneMsg(null);
+
+    if (files.length === 1) {
+      void startBatch(files, "same");
+    } else {
+      setPendingFiles(files);
+      setStage("choosingMode");
+    }
+  }
+
+  async function startBatch(files: File[], chosenMode: "same" | "separate") {
+    setMode(chosenMode);
+    setSavedCount(0);
+    if (chosenMode === "same") {
+      setQueueTotal(1);
+      setQueuePosition(1);
+      setQueue([]);
+      await processOne(files);
+    } else {
+      setQueueTotal(files.length);
+      setQueuePosition(1);
+      const [first, ...rest] = files;
+      setQueue(rest);
+      await processOne([first]);
+    }
+  }
+
+  /** Uploads + AI-reads exactly one "report" worth of files (the whole
+   *  combined set in "same" mode, or a single file in "separate" mode). */
+  async function processOne(filesForThisReport: File[]) {
     setStage("uploading");
     const supabase = createClient();
 
     const paths: string[] = [];
-    for (const file of files) {
+    for (const file of filesForThisReport) {
       const ext = file.name.split(".").pop() || "png";
       const path = `${userId}/${crypto.randomUUID()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from("score-reports").upload(path, file, {
@@ -69,6 +118,10 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       if (uploadError) {
         setStage("idle");
         setError(uploadError.message);
+        setMode(null);
+        setQueue([]);
+        setQueueTotal(0);
+        setQueuePosition(0);
         return;
       }
       paths.push(path);
@@ -77,7 +130,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
 
     setStage("parsing");
     try {
-      const encoded = await Promise.all(files.map((f) => fileToBase64(f)));
+      const encoded = await Promise.all(filesForThisReport.map((f) => fileToBase64(f)));
       const res = await fetch("/api/score-report/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,6 +183,30 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     });
   }
 
+  async function advanceOrFinish(nextSavedCount: number) {
+    if (mode === "separate" && queue.length > 0) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      setQueuePosition((p) => p + 1);
+      setSavedCount(nextSavedCount);
+      await processOne([next]);
+    } else {
+      setStage("idle");
+      setDoneMsg(
+        nextSavedCount > 0
+          ? `Saved ${nextSavedCount} score report${nextSavedCount === 1 ? "" : "s"}.`
+          : null
+      );
+      setSavedCount(0);
+      setMode(null);
+      setQueue([]);
+      setQueueTotal(0);
+      setQueuePosition(0);
+      setPendingFiles([]);
+      router.refresh();
+    }
+  }
+
   async function save() {
     if (!draft) return;
     setStage("saving");
@@ -150,10 +227,17 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       setError(insertError.message);
       return;
     }
-    setStage("idle");
     setDraft(null);
     setImagePaths([]);
-    router.refresh();
+    await advanceOrFinish(savedCount + 1);
+  }
+
+  /** Separate-mode only: skip this file without saving it, move to the next. */
+  async function skipCurrent() {
+    setDraft(null);
+    setImagePaths([]);
+    setError(null);
+    await advanceOrFinish(savedCount);
   }
 
   function cancel() {
@@ -161,6 +245,13 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     setDraft(null);
     setImagePaths([]);
     setError(null);
+    setMode(null);
+    setQueue([]);
+    setQueueTotal(0);
+    setQueuePosition(0);
+    setSavedCount(0);
+    setPendingFiles([]);
+    router.refresh();
   }
 
   if (stage === "idle") {
@@ -169,9 +260,9 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         <p className="text-sm font-semibold mb-1">Upload a score report</p>
         <p className="text-xs text-slate-400 mb-3">
           Screenshots, photos, or PDFs of an NBME, UWSA, Free 120, UWorld, or any other platform's
-          self-assessment result - from any platform. You can select several files at once (e.g. one
-          image per table, or a few scrolled screenshots of the same report) and the AI will read and
-          combine all of them into one result. You'll get to check everything before it's saved.
+          self-assessment result - from any platform. Select several files at once if you have more
+          than one to add - you'll be asked whether they're pages of the same report or separate
+          reports, and separate ones are read and saved one by one automatically.
         </p>
         <input
           type="file"
@@ -181,18 +272,51 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
           className="text-sm text-slate-300"
         />
         <p className="text-xs text-slate-600 mt-1">Up to 6 files per report.</p>
+        {doneMsg && <p className="text-xs text-green-400 mt-2">{doneMsg}</p>}
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
       </div>
     );
   }
 
+  if (stage === "choosingMode") {
+    return (
+      <div className="card space-y-3">
+        <p className="text-sm font-semibold">You selected {pendingFiles.length} files</p>
+        <p className="text-xs text-slate-400">
+          Are these all pieces of the SAME score report (e.g. a scrolled screenshot, or one image per
+          table), or {pendingFiles.length} separate score reports?
+        </p>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            className="btn-primary text-sm text-left"
+            onClick={() => startBatch(pendingFiles, "separate")}
+          >
+            {pendingFiles.length} separate reports - read and save each one on its own
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-sm text-left"
+            onClick={() => startBatch(pendingFiles, "same")}
+          >
+            One report - combine all {pendingFiles.length} files into a single result
+          </button>
+        </div>
+        <button type="button" className="text-xs text-slate-500 hover:text-slate-400" onClick={cancel}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
   if (stage === "uploading" || stage === "parsing") {
+    const progressLabel =
+      mode === "separate" && queueTotal > 1 ? ` (report ${queuePosition} of ${queueTotal})` : "";
     return (
       <div className="card">
         <p className="text-sm text-slate-400">
-          {stage === "uploading"
-            ? `Uploading file${imagePaths.length > 1 ? "s" : ""}...`
-            : "Reading your score report with AI..."}
+          {stage === "uploading" ? "Uploading..." : "Reading your score report with AI..."}
+          {progressLabel}
         </p>
       </div>
     );
@@ -203,10 +327,13 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
   return (
     <div className="card space-y-4">
       <div>
-        <p className="text-sm font-semibold">Check what the AI read</p>
+        <p className="text-sm font-semibold">
+          Check what the AI read
+          {mode === "separate" && queueTotal > 1 && ` - report ${queuePosition} of ${queueTotal}`}
+        </p>
         <p className="text-xs text-slate-400">
           Fix anything that's wrong before saving.
-          {imagePaths.length > 1 && ` Combined from ${imagePaths.length} files you uploaded.`}
+          {mode === "same" && imagePaths.length > 1 && ` Combined from ${imagePaths.length} files you uploaded.`}
         </p>
         {error && <p className="text-xs text-amber-400 mt-1">{error}</p>}
       </div>
@@ -290,12 +417,21 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <button type="button" onClick={save} disabled={stage === "saving"} className="btn-primary text-sm">
-          {stage === "saving" ? "Saving..." : "Save score report"}
+          {stage === "saving"
+            ? "Saving..."
+            : mode === "separate" && queue.length > 0
+              ? "Save & continue to next"
+              : "Save score report"}
         </button>
+        {mode === "separate" && (
+          <button type="button" onClick={skipCurrent} disabled={stage === "saving"} className="btn-secondary text-sm">
+            Skip this one
+          </button>
+        )}
         <button type="button" onClick={cancel} disabled={stage === "saving"} className="btn-secondary text-sm">
-          Cancel
+          {mode === "separate" && queueTotal > 1 ? "Cancel remaining" : "Cancel"}
         </button>
       </div>
     </div>
