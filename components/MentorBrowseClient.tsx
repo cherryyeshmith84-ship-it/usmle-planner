@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -11,6 +11,7 @@ import {
   type Mentor,
   type MentorSlot,
 } from "@/lib/mentors";
+import MentorChatPanel from "./MentorChatPanel";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
@@ -41,6 +42,12 @@ export default function MentorBrowseClient({
   // in their prep or what they want to talk about - so the mentor isn't
   // walking in blind. One shared field, applied to whichever slot they book.
   const [note, setNote] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
 
   const now = new Date().toISOString();
   const upcomingBookings = myBookings.filter((b) => b.end_time >= now);
@@ -231,6 +238,10 @@ export default function MentorBrowseClient({
           )}
         </div>
       </div>
+
+      {selected && currentUserId && (
+        <MentorChatPanel mentorId={selected.id} studentId={currentUserId} otherPartyLabel={selected.name} />
+      )}
     </div>
   );
 }
