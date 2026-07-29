@@ -94,6 +94,22 @@ export default function MentorBrowseClient({
     setSlots((prev) => prev.filter((s) => s.id !== slotId));
     setBookedMsg("Booked! You'll see it under \"My upcoming sessions\" after the page refreshes.");
     setNote("");
+
+    // Let the mentor know by email - best-effort, doesn't block the UI and
+    // a failure here shouldn't make it look like the booking itself failed.
+    const bookedSlot = slots.find((s) => s.id === slotId);
+    if (bookedSlot) {
+      fetch("/api/mentorship/notify-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slotId,
+          dateLabel: formatSlotDate(bookedSlot.start_time),
+          timeLabel: `${formatSlotTime(bookedSlot.start_time)} - ${formatSlotTime(bookedSlot.end_time)}`,
+        }),
+      }).catch(() => {});
+    }
+
     router.refresh();
   }
 
