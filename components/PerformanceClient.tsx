@@ -70,6 +70,13 @@ export default function PerformanceClient({
   const [loadingSuggestion, setLoadingSuggestion] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Maximize/minimize toggles for the three "Progress by ..." tables below -
+  // each defaults open, but with 13+ reports as columns these can get wide
+  // and tall, so a student can collapse the ones they're not looking at
+  // right now without losing their place on the page.
+  const [systemTableOpen, setSystemTableOpen] = useState(true);
+  const [disciplineTableOpen, setDisciplineTableOpen] = useState(true);
+  const [topicTableOpen, setTopicTableOpen] = useState(true);
 
   const reports = initialReports;
   const strengths = useMemo(() => computeSystemStrengths(reports), [reports]);
@@ -443,7 +450,16 @@ export default function PerformanceClient({
             </div>
           </div>
 
-          {disciplineStrengths.length > 0 && (
+          {disciplineStrengths.length === 0 ? (
+            <div className="card">
+              <p className="text-sm font-semibold mb-1">Disciplines</p>
+              <p className="text-xs text-slate-500">
+                No discipline data yet - fill in the "Discipline breakdown" section (Anatomy, Pathology,
+                Pharmacology, etc.) when you upload a score report, or let the AI read it off a report
+                that shows it, to see your weakest/strongest disciplines here.
+              </p>
+            </div>
+          ) : (
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="card">
                 <p className="text-sm font-semibold mb-3">Weakest disciplines right now</p>
@@ -502,117 +518,93 @@ export default function PerformanceClient({
 
           {comparisonReports.length > 1 && (
             <div className="card overflow-x-auto">
-              <p className="text-sm font-semibold mb-3">Progress by system</p>
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-3 py-1">System</th>
-                    {comparisonReports.map((r) => (
-                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
-                        {r.taken_date ?? "?"}
-                        <br />
-                        <span className="text-slate-600">{r.exam_name}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {regularStrengths.map((s) => (
-                    <tr key={s.system} className="border-t border-slate-800">
-                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
-                      {comparisonReports.map((r) => {
-                        const pct = r.system_breakdown?.[s.system];
-                        return (
-                          <td key={r.id} className="px-2 py-1.5 text-center">
-                            {typeof pct === "number" ? (
-                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
-                            ) : (
-                              <span className="text-slate-700">-</span>
-                            )}
-                          </td>
-                        );
-                      })}
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold">Progress by system</p>
+                <button
+                  type="button"
+                  onClick={() => setSystemTableOpen((v) => !v)}
+                  className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0"
+                >
+                  {systemTableOpen ? "Minimize" : "Maximize"}
+                </button>
+              </div>
+              {systemTableOpen && (
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="pr-3 py-1">System</th>
+                      {comparisonReports.map((r) => (
+                        <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                          {r.taken_date ?? "?"}
+                          <br />
+                          <span className="text-slate-600">{r.exam_name}</span>
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {comparisonReports.length > 1 && regularDisciplineStrengths.length > 0 && (
-            <div className="card overflow-x-auto">
-              <p className="text-sm font-semibold mb-3">Progress by discipline</p>
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-3 py-1">Discipline</th>
-                    {comparisonReports.map((r) => (
-                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
-                        {r.taken_date ?? "?"}
-                        <br />
-                        <span className="text-slate-600">{r.exam_name}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {regularDisciplineStrengths.map((s) => (
-                    <tr key={s.system} className="border-t border-slate-800">
-                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
-                      {comparisonReports.map((r) => {
-                        const pct = r.discipline_breakdown?.[s.system];
-                        return (
-                          <td key={r.id} className="px-2 py-1.5 text-center">
-                            {typeof pct === "number" ? (
-                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
-                            ) : (
-                              <span className="text-slate-700">-</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {questionLevelColumns.length > 0 && (
-            <div className="card overflow-x-auto">
-              <p className="text-sm font-semibold mb-1">Progress by topic (question-level reports)</p>
-              <p className="text-xs text-slate-500 mb-3">
-                Separate from the system table above - grouped by system, but broken down to the exact
-                subtopic from your question-level uploads instead of one number per system.
-              </p>
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-3 py-1">Topic</th>
-                    {questionLevelColumns.map((r) => (
-                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
-                        {r.taken_date ?? "?"}
-                        <br />
-                        <span className="text-slate-600">{r.exam_name}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {questionLevelTopicGroups.map((group) => (
-                    <Fragment key={group.system}>
-                      <tr className="border-t border-slate-800">
-                        <td colSpan={questionLevelColumns.length + 1} className="pt-3 pb-1 text-slate-300 font-semibold">
-                          {group.system}
-                        </td>
+                  </thead>
+                  <tbody>
+                    {regularStrengths.map((s) => (
+                      <tr key={s.system} className="border-t border-slate-800">
+                        <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                        {comparisonReports.map((r) => {
+                          const pct = r.system_breakdown?.[s.system];
+                          return (
+                            <td key={r.id} className="px-2 py-1.5 text-center">
+                              {typeof pct === "number" ? (
+                                <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                              ) : (
+                                <span className="text-slate-700">-</span>
+                              )}
+                            </td>
+                          );
+                        })}
                       </tr>
-                      {group.topics.map((topic) => (
-                        <tr key={topic.key} className="border-t border-slate-900">
-                          <td className="pr-3 py-1.5 text-slate-400 max-w-xs truncate" title={topic.key}>
-                            {topic.subtopic}
-                          </td>
-                          {questionLevelColumns.map((r) => {
-                            const pct = topic.percents[r.id];
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {comparisonReports.length > 1 && (
+            <div className="card overflow-x-auto">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold">Progress by discipline</p>
+                <button
+                  type="button"
+                  onClick={() => setDisciplineTableOpen((v) => !v)}
+                  className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0"
+                >
+                  {disciplineTableOpen ? "Minimize" : "Maximize"}
+                </button>
+              </div>
+              {regularDisciplineStrengths.length === 0 ? (
+                <p className="text-xs text-slate-500 mt-2">
+                  No discipline data yet - this comes from the "Discipline breakdown" section on the score
+                  report upload form (Anatomy, Pathology, Pharmacology, etc.). Fill that in (or let the AI
+                  read it off a report that shows it) and it'll start showing up here.
+                </p>
+              ) : (
+                disciplineTableOpen && (
+                  <table className="min-w-full text-xs mt-2">
+                    <thead>
+                      <tr className="text-left text-slate-500">
+                        <th className="pr-3 py-1">Discipline</th>
+                        {comparisonReports.map((r) => (
+                          <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                            {r.taken_date ?? "?"}
+                            <br />
+                            <span className="text-slate-600">{r.exam_name}</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {regularDisciplineStrengths.map((s) => (
+                        <tr key={s.system} className="border-t border-slate-800">
+                          <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                          {comparisonReports.map((r) => {
+                            const pct = r.discipline_breakdown?.[s.system];
                             return (
                               <td key={r.id} className="px-2 py-1.5 text-center">
                                 {typeof pct === "number" ? (
@@ -625,10 +617,75 @@ export default function PerformanceClient({
                           })}
                         </tr>
                       ))}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
+                    </tbody>
+                  </table>
+                )
+              )}
+            </div>
+          )}
+
+          {questionLevelColumns.length > 0 && (
+            <div className="card overflow-x-auto">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold">Progress by topic (question-level reports)</p>
+                <button
+                  type="button"
+                  onClick={() => setTopicTableOpen((v) => !v)}
+                  className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0"
+                >
+                  {topicTableOpen ? "Minimize" : "Maximize"}
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Separate from the system table above - grouped by system, but broken down to the exact
+                subtopic from your question-level uploads instead of one number per system.
+              </p>
+              {topicTableOpen && (
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="pr-3 py-1">Topic</th>
+                      {questionLevelColumns.map((r) => (
+                        <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                          {r.taken_date ?? "?"}
+                          <br />
+                          <span className="text-slate-600">{r.exam_name}</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {questionLevelTopicGroups.map((group) => (
+                      <Fragment key={group.system}>
+                        <tr className="border-t border-slate-800">
+                          <td colSpan={questionLevelColumns.length + 1} className="pt-3 pb-1 text-slate-300 font-semibold">
+                            {group.system}
+                          </td>
+                        </tr>
+                        {group.topics.map((topic) => (
+                          <tr key={topic.key} className="border-t border-slate-900">
+                            <td className="pr-3 py-1.5 text-slate-400 max-w-xs truncate" title={topic.key}>
+                              {topic.subtopic}
+                            </td>
+                            {questionLevelColumns.map((r) => {
+                              const pct = topic.percents[r.id];
+                              return (
+                                <td key={r.id} className="px-2 py-1.5 text-center">
+                                  {typeof pct === "number" ? (
+                                    <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                                  ) : (
+                                    <span className="text-slate-700">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 
