@@ -1,69 +1,178 @@
-export interface Mentor {
-  id: string;
-  name: string;
-  email: string;
-  bio: string | null;
-  photo_path: string | null;
-  active: boolean;
-  created_by?: string | null;
-  created_at?: string;
-}
+"use client";
 
-export interface MentorSlot {
-  id: string;
-  mentor_id: string;
-  start_time: string;
-  end_time: string;
-  is_booked: boolean;
-  booked_by: string | null;
-  booked_at: string | null;
-  student_note: string | null;
-  created_at?: string;
-}
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { formatSlotDate, formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
+import { nyWallTimeToUtcIso } from "@/lib/timezone";
 
-/** Public URL for a photo stored in the mentor-photos bucket (bucket is public - no signing needed). */
-export function mentorPhotoUrl(photoPath: string | null, supabaseUrl: string): string | null {
-  if (!photoPath) return null;
-  return `${supabaseUrl}/storage/v1/object/public/mentor-photos/${photoPath}`;
-}
-
-/** Checks (case-insensitively) whether an email belongs to an active mentor. */
-export function findMentorByEmail(mentors: Mentor[], email: string | null | undefined): Mentor | null {
-  if (!email) return null;
-  const lower = email.toLowerCase();
-  return mentors.find((m) => m.email.toLowerCase() === lower) ?? null;
-}
-
-const DATE_FMT: Intl.DateTimeFormatOptions = {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  year: "numeric",
+type SlotWithBooker = MentorSlot & {
+  booked_by_profile?: { full_name: string | null; email: string | null } | null;
 };
-const TIME_FMT: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
 
-export function formatSlotDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, DATE_FMT);
-}
+/** Mentor's own availability manager - add/remove open time slots, see which are booked. */
+export default function MentorAvailabilityClient({
+  mentor,
+  initialSlots,
+}: {
+  mentor: Mentor;
+  initialSlots: SlotWithBooker[];
+}) {
+  const router = useRouter();
+  const slots = initialSlots;
 
-export function formatSlotTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, TIME_FMT);
-}
+  const [date, setDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-/** Groups slots by calendar date (local time) for a day-by-day list view. Generic so callers
- *  that pass an extended slot type (e.g. with a joined booker profile) don't lose that typing. */
-export function groupSlotsByDate<T extends MentorSlot>(slots: T[]): { date: string; slots: T[] }[] {
-  const map = new Map<string, T[]>();
-  for (const s of slots) {
-    const key = formatSlotDate(s.start_time);
-    const list = map.get(key) ?? [];
-    list.push(s);
-    map.set(key, list);
+  async function addSlot() {
+    if (!date || !startTime || !endTime) {
+      setError("Pick a date, start time, and end time.");
+      return;
+    }
+    // Times you type here are treated as Eastern Time (ET), not whatever
+    // timezone your own browser happens to be in - that's what keeps a
+    // slot meaning the same instant for you and for the student who books
+    // it, no matter where either of you actually are.
+    const start = new Date(nyWallTimeToUtcIso(date, startTime));
+    const end = new Date(nyWallTimeToUtcIso(date, endTime));
+    if (end <= start) {
+      setError("End time has to be after the start time.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: insertError } = await supabase.from("mentor_slots").insert({
+      mentor_id: mentor.id,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+    });
+    setSaving(false);
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+    setDate("");
+    setStartTime("");
+    setEndTime("");
+    router.refresh();
   }
-  return Array.from(map.entries())
-    .map(([date, slots]) => ({
-      date,
-      slots: slots.sort((a, b) => a.start_time.localeCompare(b.start_time)),
-    }))
-    .sort((a, b) => a.slots[0].start_time.localeCompare(b.slots[0].start_time));
+
+  async function removeSlot(id: string) {
+    if (!confirm("Remove this open slot?")) return;
+    setBusyId(id);
+    const supabase = createClient();
+    await supabase.from("mentor_slots").delete().eq("id", id);
+    setBusyId(null);
+    router.refresh();
+  }
+
+  const now = new Date().toISOString();
+  const upcoming = slots.filter((s) => s.end_time >= now);
+  const past = slots.filter((s) => s.end_time < now);
+  const grouped = groupSlotsByDate(upcoming);
+
+  return (
+    <div className="space-y-6">
+      <div className="card">
+        <p className="text-sm font-semibold mb-1">Add an open slot</p>
+        <p className="text-xs text-slate-500 mb-3">
+          All times on Master Grid, including the ones you set here, are Eastern Time (ET) - shown
+          as EST or EDT depending on the time of year.
+        </p>
+        <div className="grid sm:grid-cols-3 gap-3 mb-3">
+          <div>
+            <label className="label">Date</label>
+            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Start time</label>
+            <input type="time" className="input" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">End time</label>
+            <input type="time" className="input" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
+        <button type="button" onClick={addSlot} disabled={saving} className="btn-primary text-sm">
+          {saving ? "Adding..." : "Add slot"}
+        </button>
+      </div>
+
+      <div>
+        <p className="text-sm font-semibold mb-3">Your upcoming slots</p>
+        {grouped.length === 0 ? (
+          <p className="text-sm text-slate-400">No upcoming slots yet - add one above.</p>
+        ) : (
+          <div className="space-y-4">
+            {grouped.map(({ date, slots }) => (
+              <div key={date}>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
+                <div className="space-y-2">
+                  {slots.map((s) => (
+                    <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                      <div>
+                        <p className="text-sm">
+                          {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                        </p>
+                        {s.is_booked && (
+                          <>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Booked by{" "}
+                              <span className="font-medium text-slate-300">
+                                {s.booked_by_profile?.full_name || s.booked_by_profile?.email || "a student"}
+                              </span>
+                              {s.booked_at && (
+                                <>
+                                  {" "}
+                                  on {formatSlotDate(s.booked_at)} at {formatSlotTime(s.booked_at)}
+                                </>
+                              )}
+                            </p>
+                            {s.student_note && (
+                              <p className="text-xs text-slate-300 mt-1 italic">&ldquo;{s.student_note}&rdquo;</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span
+                          className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
+                            s.is_booked ? "bg-green-900/40 text-green-400" : "bg-slate-800 text-slate-300"
+                          }`}
+                        >
+                          {s.is_booked ? "Booked" : "Open"}
+                        </span>
+                        {!s.is_booked && (
+                          <button
+                            type="button"
+                            onClick={() => removeSlot(s.id)}
+                            disabled={busyId === s.id}
+                            className="text-xs text-red-400 hover:text-red-300"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {past.length > 0 && (
+        <p className="text-xs text-slate-600">
+          {past.length} past slot{past.length === 1 ? "" : "s"} not shown.
+        </p>
+      )}
+    </div>
+  );
 }
