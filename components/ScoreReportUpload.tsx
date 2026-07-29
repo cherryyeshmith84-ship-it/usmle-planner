@@ -346,11 +346,16 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
             onChange={(e) => updateDraft({ exam_type: e.target.value as ScoreReportExamType })}
             className="input"
           >
-            {(Object.keys(EXAM_TYPE_LABEL) as ScoreReportExamType[]).map((t) => (
-              <option key={t} value={t}>
-                {EXAM_TYPE_LABEL[t]}
-              </option>
-            ))}
+            {(Object.keys(EXAM_TYPE_LABEL) as ScoreReportExamType[])
+              // "question_level" is only ever set by QuestionLevelReportUpload -
+              // it needs content_breakdown populated, which this form doesn't
+              // compute, so it's left out of this dropdown to avoid confusion.
+              .filter((t) => t !== "question_level")
+              .map((t) => (
+                <option key={t} value={t}>
+                  {EXAM_TYPE_LABEL[t]}
+                </option>
+              ))}
           </select>
         </div>
         <div>
