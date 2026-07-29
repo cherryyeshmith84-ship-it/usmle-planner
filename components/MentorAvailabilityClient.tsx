@@ -5,18 +5,23 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatSlotDate, formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
 import { nyWallTimeToUtcIso } from "@/lib/timezone";
+import MentorChatPanel from "./MentorChatPanel";
 
 type SlotWithBooker = MentorSlot & {
   booked_by_profile?: { full_name: string | null; email: string | null } | null;
 };
 
+type ConversationPartner = { id: string; full_name: string | null; email: string | null };
+
 /** Mentor's own availability manager - add/remove open time slots, see which are booked. */
 export default function MentorAvailabilityClient({
   mentor,
   initialSlots,
+  conversationPartners,
 }: {
   mentor: Mentor;
   initialSlots: SlotWithBooker[];
+  conversationPartners: ConversationPartner[];
 }) {
   const router = useRouter();
   const slots = initialSlots;
@@ -27,6 +32,7 @@ export default function MentorAvailabilityClient({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [selectedPartner, setSelectedPartner] = useState<ConversationPartner | null>(null);
 
   async function addSlot() {
     if (!date || !startTime || !endTime) {
@@ -125,8 +131,11 @@ export default function MentorAvailabilityClient({
                             <p className="text-xs text-slate-400 mt-1">
                               Booked by{" "}
                               <span className="font-medium text-slate-300">
-                                {s.booked_by_profile?.full_name || s.booked_by_profile?.email || "a student"}
+                                {s.booked_by_profile?.full_name || "a student"}
                               </span>
+                              {s.booked_by_profile?.email && (
+                                <span className="text-slate-500"> ({s.booked_by_profile.email})</span>
+                              )}
                               {s.booked_at && (
                                 <>
                                   {" "}
@@ -136,6 +145,21 @@ export default function MentorAvailabilityClient({
                             </p>
                             {s.student_note && (
                               <p className="text-xs text-slate-300 mt-1 italic">&ldquo;{s.student_note}&rdquo;</p>
+                            )}
+                            {s.booked_by && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedPartner({
+                                    id: s.booked_by as string,
+                                    full_name: s.booked_by_profile?.full_name ?? null,
+                                    email: s.booked_by_profile?.email ?? null,
+                                  })
+                                }
+                                className="text-xs text-brand-400 hover:text-brand-300 mt-1"
+                              >
+                                Message this student &rarr;
+                              </button>
                             )}
                           </>
                         )}
@@ -173,6 +197,47 @@ export default function MentorAvailabilityClient({
           {past.length} past slot{past.length === 1 ? "" : "s"} not shown.
         </p>
       )}
+
+      <div>
+        <p className="text-sm font-semibold mb-3">Messages</p>
+        {conversationPartners.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            No students to message yet - this fills in once someone books a slot or messages you.
+          </p>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              {conversationPartners.map((p) => {
+                const active = selectedPartner?.id === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setSelectedPartner(p)}
+                    className={`card w-full text-left transition ${
+                      active ? "border-brand-500" : "hover:border-brand-500/50"
+                    }`}
+                  >
+                    <p className="text-sm font-semibold">{p.full_name || "A student"}</p>
+                    {p.email && <p className="text-xs text-slate-500">{p.email}</p>}
+                  </button>
+                );
+              })}
+            </div>
+            <div>
+              {selectedPartner ? (
+                <MentorChatPanel
+                  mentorId={mentor.id}
+                  studentId={selectedPartner.id}
+                  otherPartyLabel={selectedPartner.full_name || selectedPartner.email || "this student"}
+                />
+              ) : (
+                <p className="text-sm text-slate-400">Pick a student on the left to see or send messages.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
