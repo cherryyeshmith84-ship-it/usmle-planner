@@ -1,4 +1,4 @@
-import { STEP1_SYSTEMS } from "./qbankTypes";
+import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "./qbankTypes";
 import type { ContentBreakdown } from "./questionLevelReports";
 
 export type ScoreReportExamType =
@@ -32,6 +32,11 @@ export interface ScoreReport {
   overall_percent: number | null;
   // Keyed by lib/qbankTypes.ts STEP1_SYSTEMS labels -> percent correct (0-100).
   system_breakdown: Record<string, number>;
+  // Keyed by lib/qbankTypes.ts STEP1_SUBJECTS labels (Anatomy, Pathology,
+  // Pharmacology, etc.) -> percent correct (0-100). This is the other axis
+  // NBME/UWSA reports usually break performance down by, alongside System -
+  // optional since reports saved before this existed won't have it.
+  discipline_breakdown?: Record<string, number>;
   // Only set for exam_type "question_level" - percent correct per exact
   // named topic (finer-grained than system_breakdown), keyed by the
   // verbatim content-description string. See lib/questionLevelReports.ts.
@@ -51,6 +56,7 @@ export interface ParsedScoreReport {
   overall_score: number | null;
   overall_percent: number | null;
   system_breakdown: Record<string, number>;
+  discipline_breakdown: Record<string, number>;
 }
 
 export interface SystemTrendPoint {
@@ -60,20 +66,44 @@ export interface SystemTrendPoint {
   percent: number;
 }
 
-/** Per-system history across every score report, oldest first, for trend/comparison views. */
-export function systemTrends(reports: ScoreReport[]): Record<string, SystemTrendPoint[]> {
+/**
+ * Shared implementation behind systemTrends/disciplineTrends below - walks
+ * every report oldest-first and, for each category in the given canonical
+ * list, collects every data point found via `breakdown(report)[category]`.
+ * Kept generic so the System axis (STEP1_SYSTEMS/system_breakdown) and the
+ * Discipline axis (STEP1_SUBJECTS/discipline_breakdown - Anatomy, Pathology,
+ * Pharmacology, etc., the other axis NBME/UWSA reports usually break
+ * performance down by) share one implementation instead of two copies that
+ * could drift apart.
+ */
+function buildCategoryTrends(
+  reports: ScoreReport[],
+  categories: readonly string[],
+  breakdown: (r: ScoreReport) => Record<string, number> | null | undefined
+): Record<string, SystemTrendPoint[]> {
   const sorted = [...reports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
-  const bySystem: Record<string, SystemTrendPoint[]> = {};
-  for (const system of STEP1_SYSTEMS) {
-    bySystem[system] = [];
+  const byCategory: Record<string, SystemTrendPoint[]> = {};
+  for (const category of categories) {
+    byCategory[category] = [];
     for (const r of sorted) {
-      const pct = r.system_breakdown?.[system];
+      const pct = breakdown(r)?.[category];
       if (typeof pct === "number") {
-        bySystem[system].push({ reportId: r.id, examName: r.exam_name, takenDate: r.taken_date, percent: pct });
+        byCategory[category].push({ reportId: r.id, examName: r.exam_name, takenDate: r.taken_date, percent: pct });
       }
     }
   }
-  return bySystem;
+  return byCategory;
+}
+
+/** Per-system history across every score report, oldest first, for trend/comparison views. */
+export function systemTrends(reports: ScoreReport[]): Record<string, SystemTrendPoint[]> {
+  return buildCategoryTrends(reports, STEP1_SYSTEMS, (r) => r.system_breakdown);
+}
+
+/** Same idea as systemTrends, but for the Discipline axis (Anatomy,
+ *  Pathology, Pharmacology, etc.) instead of organ System. */
+export function disciplineTrends(reports: ScoreReport[]): Record<string, SystemTrendPoint[]> {
+  return buildCategoryTrends(reports, STEP1_SUBJECTS, (r) => r.discipline_breakdown);
 }
 
 export interface SystemStrength {
@@ -85,16 +115,19 @@ export interface SystemStrength {
 }
 
 /**
- * Ranks every system by recent performance - average of the last 3
- * data points per system, plus a simple trend read (first vs last of those
- * same points) so "consistently low" and "used to be weak, now fine" don't
- * look the same.
+ * Ranks every category by recent performance - average of the last 3
+ * data points per category, plus a simple trend read (first vs last of
+ * those same points) so "consistently low" and "used to be weak, now fine"
+ * don't look the same. Shared by computeSystemStrengths/
+ * computeDisciplineStrengths below.
  */
-export function computeSystemStrengths(reports: ScoreReport[]): SystemStrength[] {
-  const trends = systemTrends(reports);
+function buildCategoryStrengths(
+  categories: readonly string[],
+  trends: Record<string, SystemTrendPoint[]>
+): SystemStrength[] {
   const out: SystemStrength[] = [];
-  for (const system of STEP1_SYSTEMS) {
-    const points = trends[system];
+  for (const category of categories) {
+    const points = trends[category];
     if (!points || points.length === 0) continue;
     const recent = points.slice(-3);
     const avg = Math.round(recent.reduce((s, p) => s + p.percent, 0) / recent.length);
@@ -104,7 +137,17 @@ export function computeSystemStrengths(reports: ScoreReport[]): SystemStrength[]
       const delta = recent[recent.length - 1].percent - recent[0].percent;
       trend = delta > 5 ? "improving" : delta < -5 ? "declining" : "flat";
     }
-    out.push({ system, averagePercent: avg, latestPercent: latest, reportCount: points.length, trend });
+    out.push({ system: category, averagePercent: avg, latestPercent: latest, reportCount: points.length, trend });
   }
   return out.sort((a, b) => a.averagePercent - b.averagePercent);
+}
+
+export function computeSystemStrengths(reports: ScoreReport[]): SystemStrength[] {
+  return buildCategoryStrengths(STEP1_SYSTEMS, systemTrends(reports));
+}
+
+/** Same idea as computeSystemStrengths, but ranking Disciplines (Anatomy,
+ *  Pathology, Pharmacology, etc.) instead of organ Systems. */
+export function computeDisciplineStrengths(reports: ScoreReport[]): SystemStrength[] {
+  return buildCategoryStrengths(STEP1_SUBJECTS, disciplineTrends(reports));
 }
