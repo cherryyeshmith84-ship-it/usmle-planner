@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   EXAM_TYPE_LABEL,
+  computeDisciplineStrengths,
   computeSystemStrengths,
   systemTrends,
   type ScoreReport,
 } from "@/lib/scoreReports";
 import { compareContentBreakdowns, type ContentAreaStat } from "@/lib/questionLevelReports";
+import { STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import ScoreReportUpload from "./ScoreReportUpload";
 import QuestionLevelReportUpload from "./QuestionLevelReportUpload";
 
@@ -75,6 +77,13 @@ export default function PerformanceClient({
   const weakest = strengths.slice(0, 5);
   const strongest = [...strengths].reverse().slice(0, 3);
 
+  // Same idea as strengths/weakest/strongest above, but ranking Disciplines
+  // (Anatomy, Pathology, Pharmacology, etc.) - the other axis reports break
+  // performance down by, alongside System.
+  const disciplineStrengths = useMemo(() => computeDisciplineStrengths(reports), [reports]);
+  const weakestDisciplines = disciplineStrengths.slice(0, 5);
+  const strongestDisciplines = [...disciplineStrengths].reverse().slice(0, 3);
+
   const sortedReports = useMemo(
     () => [...reports].sort((a, b) => (b.taken_date ?? "").localeCompare(a.taken_date ?? "")),
     [reports]
@@ -90,14 +99,63 @@ export default function PerformanceClient({
     () => sortedReports.filter((r) => r.exam_type === "question_level"),
     [sortedReports]
   );
-  // Every report, oldest first - previously capped to the last 8 with
-  // .slice(-8), which is why only 8 of 13 submitted reports showed up in
-  // "Progress by system". The table scrolls horizontally (overflow-x-auto
-  // on its wrapper) so there's no need to cut any off.
+  // Every REGULAR (non-question-level) report, oldest first, for the
+  // "Progress by system" table - previously this included question-level
+  // reports too and was capped to the last 8 with .slice(-8) (why only 8 of
+  // 13 submitted reports ever showed up). Question-level reports get their
+  // own separate topic-level table below instead of being mixed into this
+  // one, since a single system percent from a question-level report is a
+  // coarser rollup of the same data that table already shows per-topic.
   const comparisonReports = useMemo(
-    () => [...reports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")),
-    [reports]
+    () =>
+      [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")),
+    [regularReports]
   );
+  // Row list for that same table - system strengths computed from regular
+  // reports only, so a system that only ever appeared in a question-level
+  // upload doesn't show up as an all-dashes row here.
+  const regularStrengths = useMemo(() => computeSystemStrengths(regularReports), [regularReports]);
+  // Same, but for the "Progress by discipline" table below it.
+  const regularDisciplineStrengths = useMemo(
+    () => computeDisciplineStrengths(regularReports),
+    [regularReports]
+  );
+
+  interface TopicRow {
+    key: string;
+    subtopic: string;
+    percents: Record<string, number>;
+  }
+  // Groups every specific topic (content_breakdown entry) across every
+  // question-level report upload, by canonical system, for a dedicated
+  // topic-level progress table - the score-reports table above only ever
+  // has one number per system, so this is the "in that subtopic there
+  // should be topics" breakdown instead.
+  const questionLevelTopicGroups = useMemo(() => {
+    const bySystem: Record<string, Record<string, TopicRow>> = {};
+    for (const r of questionLevelReportsList) {
+      if (!r.content_breakdown) continue;
+      for (const [key, stat] of Object.entries(r.content_breakdown)) {
+        const system = stat.system ?? "Unmapped";
+        bySystem[system] ??= {};
+        bySystem[system][key] ??= { key, subtopic: stat.subtopic, percents: {} };
+        bySystem[system][key].percents[r.id] = stat.percent;
+      }
+    }
+    const systemOrder = [...STEP1_SYSTEMS, "Unmapped"];
+    return systemOrder
+      .filter((sys) => bySystem[sys])
+      .map((sys) => {
+        const topics = Object.values(bySystem[sys]).sort((a, b) => {
+          const aVals = Object.values(a.percents);
+          const bVals = Object.values(b.percents);
+          const aLast = aVals[aVals.length - 1] ?? 100;
+          const bLast = bVals[bVals.length - 1] ?? 100;
+          return aLast - bLast;
+        });
+        return { system: sys, topics };
+      });
+  }, [questionLevelReportsList]);
 
   // On load, just check whether we already have a cached suggestion for
   // this student - this is a plain DB read, it never calls the (shared,
@@ -191,20 +249,39 @@ export default function PerformanceClient({
         </div>
         {expanded && (
           <div className="mt-3 space-y-4">
-            <div className="grid sm:grid-cols-2 gap-1.5">
-              {Object.entries(r.system_breakdown ?? {}).length === 0 ? (
-                <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
-              ) : (
-                Object.entries(r.system_breakdown).map(([system, pct]) => (
-                  <div key={system} className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-400 truncate">{system}</span>
-                    <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
-                      {pct}%
-                    </span>
-                  </div>
-                ))
-              )}
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Systems</p>
+              <div className="grid sm:grid-cols-2 gap-1.5">
+                {Object.entries(r.system_breakdown ?? {}).length === 0 ? (
+                  <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
+                ) : (
+                  Object.entries(r.system_breakdown).map(([system, pct]) => (
+                    <div key={system} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400 truncate">{system}</span>
+                      <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
+                        {pct}%
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
+
+            {r.discipline_breakdown && Object.keys(r.discipline_breakdown).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Disciplines</p>
+                <div className="grid sm:grid-cols-2 gap-1.5">
+                  {Object.entries(r.discipline_breakdown).map(([discipline, pct]) => (
+                    <div key={discipline} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400 truncate">{discipline}</span>
+                      <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
+                        {pct}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {r.exam_type === "question_level" &&
               r.content_breakdown &&
@@ -359,6 +436,40 @@ export default function PerformanceClient({
             </div>
           </div>
 
+          {disciplineStrengths.length > 0 && (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="card">
+                <p className="text-sm font-semibold mb-3">Weakest disciplines right now</p>
+                <div className="space-y-2">
+                  {weakestDisciplines.map((s) => (
+                    <div key={s.system} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-300 truncate">{s.system}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-xs ${TREND_CLASS[s.trend]}`}>{TREND_LABEL[s.trend]}</span>
+                        <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${scoreBadgeClass(s.averagePercent)}`}>
+                          {s.averagePercent}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="card">
+                <p className="text-sm font-semibold mb-3">Strongest disciplines</p>
+                <div className="space-y-2">
+                  {strongestDisciplines.map((s) => (
+                    <div key={s.system} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-300 truncate">{s.system}</span>
+                      <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${scoreBadgeClass(s.averagePercent)}`}>
+                        {s.averagePercent}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-semibold">AI suggestions</p>
@@ -399,11 +510,50 @@ export default function PerformanceClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {strengths.map((s) => (
+                  {regularStrengths.map((s) => (
                     <tr key={s.system} className="border-t border-slate-800">
                       <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
                       {comparisonReports.map((r) => {
                         const pct = r.system_breakdown?.[s.system];
+                        return (
+                          <td key={r.id} className="px-2 py-1.5 text-center">
+                            {typeof pct === "number" ? (
+                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                            ) : (
+                              <span className="text-slate-700">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {comparisonReports.length > 1 && regularDisciplineStrengths.length > 0 && (
+            <div className="card overflow-x-auto">
+              <p className="text-sm font-semibold mb-3">Progress by discipline</p>
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="pr-3 py-1">Discipline</th>
+                    {comparisonReports.map((r) => (
+                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                        {r.taken_date ?? "?"}
+                        <br />
+                        <span className="text-slate-600">{r.exam_name}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {regularDisciplineStrengths.map((s) => (
+                    <tr key={s.system} className="border-t border-slate-800">
+                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                      {comparisonReports.map((r) => {
+                        const pct = r.discipline_breakdown?.[s.system];
                         return (
                           <td key={r.id} className="px-2 py-1.5 text-center">
                             {typeof pct === "number" ? (
