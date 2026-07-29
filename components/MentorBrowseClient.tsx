@@ -161,40 +161,6 @@ export default function MentorBrowseClient({
         in the sidebar.
       </p>
 
-      <div className="card">
-        <p className="text-sm font-semibold mb-1">Before you book</p>
-        <p className="text-xs text-slate-500 mb-3">
-          Required so your mentor knows where you're at before the session - fill this in once, it
-          applies to whichever slot you book below.
-        </p>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="label">Stage of prep</label>
-            <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
-              <option value="">Select one...</option>
-              {PREP_STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">What are you currently using / doing?</label>
-            <input
-              type="text"
-              className="input"
-              placeholder="e.g. UWorld 2nd pass, Sketchy Micro, Anki"
-              value={currentPrep}
-              onChange={(e) => setCurrentPrep(e.target.value)}
-            />
-          </div>
-        </div>
-        {!readyToBook && (
-          <p className="text-xs text-amber-400 mt-2">Both fields are required before you can book a slot.</p>
-        )}
-      </div>
-
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="space-y-3">
           <p className="text-sm font-semibold">Mentors</p>
@@ -238,43 +204,80 @@ export default function MentorBrowseClient({
           {selected && !loadingSlots && (
             <>
               {selected.bio && <p className="text-sm text-slate-300 mb-4">{selected.bio}</p>}
-              {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
-              {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
-              {slots.length === 0 ? (
-                <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
-              ) : (
-                <div className="space-y-4">
-                  {groupSlotsByDate(slots).map(({ date, slots }) => (
-                    <div key={date}>
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
-                      <div className="space-y-2">
-                        {slots.map((s) => {
-                          const weekClash = hasBookingInWeekOf(s.start_time);
-                          return (
-                            <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                              <p className="text-sm">
-                                {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                              </p>
-                              {weekClash ? (
-                                <span className="text-xs text-slate-500">Already booked this week</span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => book(s.id)}
-                                  disabled={bookingId === s.id || !readyToBook}
-                                  className="btn-primary text-xs"
-                                  title={!readyToBook ? "Fill in the required fields above first" : undefined}
-                                >
-                                  {bookingId === s.id ? "Booking..." : "Book"}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+              {!readyToBook ? (
+                <div className="card">
+                  <p className="text-sm font-semibold mb-1">Before you see {selected.name}'s availability</p>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Required so your mentor knows where you're at before the session - fill this in
+                    once, it applies to whichever slot you book.
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="label">Stage of prep</label>
+                      <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
+                        <option value="">Select one...</option>
+                        {PREP_STAGES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  ))}
+                    <div>
+                      <label className="label">What are you currently using / doing?</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="e.g. UWorld 2nd pass, Sketchy Micro, Anki"
+                        value={currentPrep}
+                        onChange={(e) => setCurrentPrep(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-amber-400 mt-2">
+                    Fill in both fields to unlock {selected.name}'s availability.
+                  </p>
                 </div>
+              ) : (
+                <>
+                  {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
+                  {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
+                  {slots.length === 0 ? (
+                    <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {groupSlotsByDate(slots).map(({ date, slots }) => (
+                        <div key={date}>
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
+                          <div className="space-y-2">
+                            {slots.map((s) => {
+                              const weekClash = hasBookingInWeekOf(s.start_time);
+                              return (
+                                <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                                  <p className="text-sm">
+                                    {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                                  </p>
+                                  {weekClash ? (
+                                    <span className="text-xs text-slate-500">Already booked this week</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => book(s.id)}
+                                      disabled={bookingId === s.id}
+                                      className="btn-primary text-xs"
+                                    >
+                                      {bookingId === s.id ? "Booking..." : "Book"}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
