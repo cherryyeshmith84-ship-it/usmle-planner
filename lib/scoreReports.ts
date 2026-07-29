@@ -1,12 +1,24 @@
 import { STEP1_SYSTEMS } from "./qbankTypes";
+import type { ContentBreakdown } from "./questionLevelReports";
 
-export type ScoreReportExamType = "nbme" | "uwsa" | "free120" | "uworld_self_assessment" | "other";
+export type ScoreReportExamType =
+  | "nbme"
+  | "uwsa"
+  | "free120"
+  | "uworld_self_assessment"
+  | "question_level"
+  | "other";
 
 export const EXAM_TYPE_LABEL: Record<ScoreReportExamType, string> = {
   nbme: "NBME",
   uwsa: "UWSA",
   free120: "Free 120",
   uworld_self_assessment: "UWorld Self-Assessment",
+  // A per-question feedback PDF (e.g. NBME CBSE/CCSE "Examinee Question-Level
+  // Feedback Report") rather than a single per-system percent table - only
+  // ever set by QuestionLevelReportUpload.tsx, which is also what populates
+  // content_breakdown below.
+  question_level: "Question-Level Report",
   other: "Other",
 };
 
@@ -20,6 +32,10 @@ export interface ScoreReport {
   overall_percent: number | null;
   // Keyed by lib/qbankTypes.ts STEP1_SYSTEMS labels -> percent correct (0-100).
   system_breakdown: Record<string, number>;
+  // Only set for exam_type "question_level" - percent correct per exact
+  // named topic (finer-grained than system_breakdown), keyed by the
+  // verbatim content-description string. See lib/questionLevelReports.ts.
+  content_breakdown?: ContentBreakdown | null;
   // One score report can be built from several screenshots (e.g. a System
   // table + a Subject table, or a scrolled multi-part capture) - all of
   // them are stored and read together.
