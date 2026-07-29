@@ -173,35 +173,60 @@ field as null (system_breakdown as {}).
 
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
+  function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: prompt },
-                ...files.map((f) => ({ inlineData: { mimeType: f.mimeType, data: f.base64 } })),
-              ],
+    // Gemini occasionally returns 503 "model is currently experiencing high
+    // demand" - Google's own message says this is usually temporary, so
+    // retry a couple of times with a short, increasing delay before giving
+    // up. This matters more now that a report can be one of several files
+    // processed back-to-back in the same upload batch, where hitting one
+    // transient overload used to force a manual re-upload of that file.
+    let res: Response | null = null;
+    let lastErrText = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: prompt },
+                  ...files.map((f) => ({ inlineData: { mimeType: f.mimeType, data: f.base64 } })),
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+              maxOutputTokens: 4096,
             },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-            maxOutputTokens: 4096,
-          },
-        }),
-      }
-    );
+          }),
+        }
+      );
+      if (res.ok || res.status !== 503) break;
+      lastErrText = await res.text();
+      if (attempt < 2) await sleep(1500 * (attempt + 1)); // 1.5s, then 3s
+    }
+
+    if (!res) {
+      return NextResponse.json({ error: "AI request failed: no response from Gemini." }, { status: 502 });
+    }
 
     if (!res.ok) {
-      const errText = await res.text();
+      const errText = res.status === 503 ? lastErrText : await res.text();
+      const hint =
+        res.status === 503
+          ? " The AI model is overloaded right now even after retrying - this is on Google's end and usually clears up within a few minutes, so try this file again shortly."
+          : "";
       return NextResponse.json(
-        { error: `AI request failed: ${errText.slice(0, 300)}` },
+        { error: `AI request failed: ${errText.slice(0, 300)}${hint}` },
         { status: 502 }
       );
     }
