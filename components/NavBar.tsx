@@ -98,7 +98,16 @@ export default function NavBar({
   }
 
   return (
-    <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] min-h-screen sticky top-0 flex flex-col">
+    // h-screen (not min-h-screen + sticky) - the old "min-h-screen sticky
+    // top-0" relied on this aside staying pinned via CSS sticky while the
+    // whole page scrolled around it, but the parent flex row stretching this
+    // aside to match the (much taller) content column's height made that
+    // unreliable in practice - the sidebar scrolled away with everything
+    // else instead of staying put. Now AppShell makes only the content
+    // column scroll, so this just needs to be exactly one viewport tall and
+    // never move at all. The nav below still scrolls internally
+    // (overflow-y-auto) if there are ever more links than fit.
+    <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] h-screen flex flex-col">
       <div className="px-5 py-6">
         <span className="font-bold text-brand-300 block">Master Grid</span>
         {typeof streak === "number" && streak > 0 && (
