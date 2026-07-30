@@ -74,6 +74,7 @@ export default async function UpcomingSessionsPage() {
       note: s.student_note,
       meetingLink: myMentorRecord.meeting_link ?? null,
       sessionNote: notesBySlotId.get(s.id) ?? null,
+      studentId: s.booked_by,
     }));
 
     return (
@@ -125,3 +126,4 @@ export default async function UpcomingSessionsPage() {
     </AppShell>
   );
 }
+
