@@ -3,7 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { formatSlotDate, formatSlotTime, getSlotStatus, type MentorSlot, type SessionNote } from "@/lib/mentors";
+import {
+  formatSlotDate,
+  formatSlotTime,
+  getSlotStatus,
+  type MentorSlot,
+  type SessionNote,
+  type SessionFeedback,
+} from "@/lib/mentors";
 
 /**
  * One row's worth of display data, pre-computed server-side so this
@@ -28,6 +35,9 @@ export type SessionRow = {
   // (app/mentorship/student/[studentId]) so a mentor can check a student's
   // score reports, planner, and history before/after a session.
   studentId?: string | null;
+  // The student's rating/feedback for this slot, if one already exists -
+  // students can write/edit their own, mentors can only view it.
+  feedback?: SessionFeedback | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -189,6 +199,177 @@ function NotesSection({
   );
 }
 
+/**
+ * Post-session feedback for one completed session - a student can rate it
+ * 1-5 stars, say whether they'd recommend the mentor, and leave an optional
+ * comment. Only the student can write it (RLS: "Student manages own
+ * feedback"); the mentor it's about can only ever view it ("Mentor views
+ * own session feedback"). One row per slot, upserted on slot_id, same
+ * pattern as NotesSection above.
+ */
+function FeedbackSection({
+  slot,
+  role,
+  initialFeedback,
+}: {
+  slot: MentorSlot;
+  role: "mentor" | "student";
+  initialFeedback: SessionFeedback | null;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [feedback, setFeedback] = useState(initialFeedback);
+  const [rating, setRating] = useState(initialFeedback?.rating || 0);
+  const [helpful, setHelpful] = useState<boolean | null>(initialFeedback?.helpful ?? null);
+  const [comment, setComment] = useState(initialFeedback?.comment || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (role === "mentor" && !initialFeedback) return null;
+
+  async function save() {
+    if (rating < 1) {
+      setError("Please pick a star rating.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const { data, error: upsertError } = await supabase
+      .from("mentor_session_feedback")
+      .upsert(
+        {
+          slot_id: slot.id,
+          mentor_id: slot.mentor_id,
+          student_id: user?.id,
+          rating,
+          helpful,
+          comment: comment.trim() || null,
+        },
+        { onConflict: "slot_id" }
+      )
+      .select()
+      .single();
+    setSaving(false);
+    if (upsertError) {
+      setError(upsertError.message);
+      return;
+    }
+    setFeedback(data as SessionFeedback);
+    setEditing(false);
+    setOpen(true);
+    router.refresh();
+  }
+
+  return (
+    <div className="mt-3 pl-12">
+      {!open ? (
+        <button type="button" onClick={() => setOpen(true)} className="text-xs text-brand-400 hover:text-brand-300">
+          {feedback
+            ? role === "mentor"
+              ? "View student feedback"
+              : "View your rating"
+            : role === "student"
+            ? "Rate this session"
+            : ""}
+        </button>
+      ) : (
+        <div className="card bg-slate-900/60 space-y-2">
+          {role === "student" && editing ? (
+            <>
+              <div>
+                <label className="label">How helpful was this session?</label>
+                <div className="flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setRating(n)}
+                      className={`text-xl leading-none ${n <= rating ? "text-yellow-400" : "text-slate-700"}`}
+                      aria-label={`${n} star${n > 1 ? "s" : ""}`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="label">Would you recommend this mentor?</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHelpful(true)}
+                    className={helpful === true ? "btn-primary text-xs" : "btn-secondary text-xs"}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHelpful(false)}
+                    className={helpful === false ? "btn-primary text-xs" : "btn-secondary text-xs"}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="label">Comments (optional)</label>
+                <textarea className="input" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
+              </div>
+              {error && <p className="text-xs text-red-400">{error}</p>}
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
+                  {saving ? "Saving..." : "Submit feedback"}
+                </button>
+                <button type="button" onClick={() => setEditing(false)} className="btn-secondary text-xs">
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {feedback ? (
+                <div className="space-y-1 text-sm">
+                  <p>
+                    <span className="text-slate-500">Rating:</span> {"★".repeat(feedback.rating)}
+                    {"☆".repeat(5 - feedback.rating)}
+                  </p>
+                  {feedback.helpful != null && (
+                    <p>
+                      <span className="text-slate-500">Would recommend:</span> {feedback.helpful ? "Yes" : "No"}
+                    </p>
+                  )}
+                  {feedback.comment && (
+                    <p>
+                      <span className="text-slate-500">Comment:</span> {feedback.comment}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">No feedback submitted yet.</p>
+              )}
+              <div className="flex items-center gap-3">
+                {role === "student" && (
+                  <button type="button" onClick={() => setEditing(true)} className="btn-secondary text-xs">
+                    {feedback ? "Edit rating" : "Rate this session"}
+                  </button>
+                )}
+                <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:text-slate-300">
+                  Close
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SessionsListClient({
   rows,
   role,
@@ -285,7 +466,10 @@ export default function SessionsListClient({
           </div>
         )}
         {status === "completed" && (
-          <NotesSection slot={row.slot} role={role} initialNote={row.sessionNote ?? null} />
+          <>
+            <NotesSection slot={row.slot} role={role} initialNote={row.sessionNote ?? null} />
+            <FeedbackSection slot={row.slot} role={role} initialFeedback={row.feedback ?? null} />
+          </>
         )}
         {errorId?.id === row.slot.id && (
           <p className="text-xs text-red-400 mt-2 pl-12">{errorId.message}</p>
