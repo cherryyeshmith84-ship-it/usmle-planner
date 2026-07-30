@@ -128,7 +128,7 @@ function easternDateStringOffset(dateStr: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-async function runSameDayReminders(supabase: ReturnType<typeof createClient>, todayEastern: string) {
+async function runSameDayReminders(supabase: any, todayEastern: string) {
   const tomorrowEastern = easternDateStringOffset(todayEastern, 1);
   const startOfDayUtc = nyWallTimeToUtcIso(todayEastern, "00:00");
   const endOfDayUtc = nyWallTimeToUtcIso(tomorrowEastern, "00:00");
@@ -165,7 +165,7 @@ async function runSameDayReminders(supabase: ReturnType<typeof createClient>, to
   return { checked: slots.length, sent: sentCount };
 }
 
-async function run24hReminders(supabase: ReturnType<typeof createClient>, todayEastern: string) {
+async function run24hReminders(supabase: any, todayEastern: string) {
   const tomorrowEastern = easternDateStringOffset(todayEastern, 1);
   const dayAfterEastern = easternDateStringOffset(todayEastern, 2);
   const startUtc = nyWallTimeToUtcIso(tomorrowEastern, "00:00");
@@ -203,7 +203,7 @@ async function run24hReminders(supabase: ReturnType<typeof createClient>, todayE
 /** Sessions that ended "yesterday" ET - prompts the student to leave
  *  feedback and the mentor to add session notes, both linking back to the
  *  sessions page where those forms live. */
-async function runCompletionNotices(supabase: ReturnType<typeof createClient>, todayEastern: string) {
+async function runCompletionNotices(supabase: any, todayEastern: string) {
   const yesterdayEastern = easternDateStringOffset(todayEastern, -1);
   const startUtc = nyWallTimeToUtcIso(yesterdayEastern, "00:00");
   const endUtc = nyWallTimeToUtcIso(todayEastern, "00:00");
