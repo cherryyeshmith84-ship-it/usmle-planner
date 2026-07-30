@@ -405,11 +405,21 @@ field as null (system_breakdown and discipline_breakdown as {}).
         : 0;
     let warning: string | null = null;
     if (rawSystemCount > 0 && Object.keys(result.system_breakdown).length === 0) {
-      warning =
-        "The AI found system data in this file but none of its labels matched - please fill in the System boxes manually below.";
+      // Includes the actual raw labels Gemini returned right in the warning
+      // text (not just a generic "didn't match" message) - this is the
+      // fastest way to actually diagnose a persistent mismatch: it shows up
+      // directly on the review screen, so a screenshot of it is enough to
+      // see exactly what needs to be added to normalizeLabel/coerceBreakdown,
+      // no server log access needed.
+      const rawKeys = Object.keys(parsed.system_breakdown as Record<string, unknown>);
+      warning = `The AI found system data but none of its labels matched ours - raw labels it used: ${rawKeys
+        .map((k) => `"${k}"`)
+        .join(", ")}. Please fill in the System boxes manually below.`;
     } else if (rawDisciplineCount > 0 && Object.keys(result.discipline_breakdown).length === 0) {
-      warning =
-        "The AI found discipline data in this file but none of its labels matched - please fill in the Discipline boxes manually below.";
+      const rawKeys = Object.keys(parsed.discipline_breakdown as Record<string, unknown>);
+      warning = `The AI found discipline data but none of its labels matched ours - raw labels it used: ${rawKeys
+        .map((k) => `"${k}"`)
+        .join(", ")}. Please fill in the Discipline boxes manually below.`;
     }
 
     return NextResponse.json({ result, warning, raw: json });
