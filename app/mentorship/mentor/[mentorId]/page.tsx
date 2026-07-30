@@ -1,7 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
-import type { Mentor, MentorSlot } from "@/lib/mentors";
+import type { Mentor, MentorSlot, SessionFeedback } from "@/lib/mentors";
+import { averageRating } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import MentorProfileClient from "@/components/MentorProfileClient";
@@ -64,6 +65,19 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
   const { data: myBookingsData } = await supabase.from("mentor_slots").select("*").eq("booked_by", user.id);
   const myBookings = (myBookingsData ?? []) as MentorSlot[];
 
+  // Public reviews - needs the "Authenticated can view mentor feedback" RLS
+  // policy (mentor_feedback_public_read_for_profiles migration), since
+  // feedback used to be readable only by the mentor themselves or the
+  // student who wrote it. Comments are shown without the student's name -
+  // this is a public profile, not a private dashboard.
+  const { data: feedbackData } = await supabase
+    .from("mentor_session_feedback")
+    .select("*")
+    .eq("mentor_id", mentor.id)
+    .order("created_at", { ascending: false });
+  const reviews = (feedbackData ?? []) as SessionFeedback[];
+  const avgRating = averageRating(reviews);
+
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
@@ -73,6 +87,8 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
           helpedCount={helpedCount}
           myBookings={myBookings}
           currentUserId={user.id}
+          avgRating={avgRating}
+          reviews={reviews}
         />
       </main>
     </AppShell>
