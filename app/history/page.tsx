@@ -65,6 +65,19 @@ export default async function HistoryPage() {
     myMentor = { id: mentorId, name: mentorRow?.name ?? null };
   }
 
+  // Mentor-authored study plan, if this student's mentor has written one -
+  // see mentor_study_plans_table migration + StudyPlanEditor.tsx. When this
+  // is null, PerformanceClient falls back to computing a default plan from
+  // the AI Exam Review's priorityAreas/estimatedHours instead.
+  const { data: studyPlanRow } = await supabase
+    .from("mentor_study_plans")
+    .select("content, updated_at")
+    .eq("student_id", user.id)
+    .maybeSingle();
+  const mentorStudyPlan = studyPlanRow
+    ? { content: studyPlanRow.content as string, updatedAt: studyPlanRow.updated_at as string, mentorName: myMentor?.name ?? null }
+    : null;
+
   return (
     <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
@@ -73,7 +86,12 @@ export default async function HistoryPage() {
           Upload your NBME, UWSA, Free 120, and UWorld self-assessment results to track your weak and
           strong systems over time.
         </p>
-        <PerformanceClient userId={user.id} initialReports={reports} myMentor={myMentor} />
+        <PerformanceClient
+          userId={user.id}
+          initialReports={reports}
+          myMentor={myMentor}
+          mentorStudyPlan={mentorStudyPlan}
+        />
       </main>
     </AppShell>
   );
