@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   EXAM_TYPE_LABEL,
+  SYSTEM_TARGET_PERCENT,
   computeDisciplineStrengths,
   computeImmediateExamReview,
   computeSystemStrengths,
@@ -644,14 +645,34 @@ export default function PerformanceClient({
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="card">
               <p className="text-sm font-semibold mb-3">Weakest systems right now</p>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {weakest.map((s) => (
-                  <div key={s.system} className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-300 truncate">{s.system}</span>
-                    <div className="flex items-center gap-2 shrink-0">
+                  <div key={s.system} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-300 truncate">{s.system}</span>
                       <span className={`text-xs ${TREND_CLASS[s.trend]}`}>{TREND_LABEL[s.trend]}</span>
-                      <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${scoreBadgeClass(s.averagePercent)}`}>
-                        {s.averagePercent}%
+                    </div>
+                    {/* Row detail - Last Exam / Average / Target %, so a
+                        student can see at a glance whether a system is
+                        already close to goal or still far off, not just its
+                        rolling average. Target is a fixed 70% default (see
+                        SYSTEM_TARGET_PERCENT) - there's no per-student
+                        customizable goal yet. */}
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <span>
+                        Last{" "}
+                        <span className={`font-semibold rounded-full px-1.5 py-0.5 ${scoreBadgeClass(s.latestPercent)}`}>
+                          {s.latestPercent}%
+                        </span>
+                      </span>
+                      <span>
+                        Avg{" "}
+                        <span className={`font-semibold rounded-full px-1.5 py-0.5 ${scoreBadgeClass(s.averagePercent)}`}>
+                          {s.averagePercent}%
+                        </span>
+                      </span>
+                      <span>
+                        Target <span className="font-semibold text-slate-400">{SYSTEM_TARGET_PERCENT}%</span>
                       </span>
                     </div>
                   </div>
