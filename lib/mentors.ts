@@ -66,6 +66,24 @@ export const HELP_AREA_OPTIONS = [
   "Resource selection",
 ] as const;
 
+/** A mentor's write-up after a completed session - always readable by the
+ *  student it's about, so they never have to re-explain their situation
+ *  next time (see mentor_session_notes table + its RLS policies). One row
+ *  per slot, upserted on slot_id. */
+export interface SessionNote {
+  id?: string;
+  slot_id: string;
+  mentor_id: string;
+  student_id: string;
+  discussion: string | null;
+  strengths: string | null;
+  weaknesses: string | null;
+  study_plan: string | null;
+  goals: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type SlotStatus = "upcoming" | "completed" | "cancelled";
 
 /** A session's lifecycle status, derived rather than stored: cancelled
