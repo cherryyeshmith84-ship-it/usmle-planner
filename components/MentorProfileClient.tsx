@@ -12,6 +12,7 @@ import {
   mentorPhotoUrl,
   type Mentor,
   type MentorSlot,
+  type SessionFeedback,
 } from "@/lib/mentors";
 import { easternWeekStart } from "@/lib/timezone";
 import MentorChatPanel from "./MentorChatPanel";
@@ -31,12 +32,16 @@ export default function MentorProfileClient({
   helpedCount,
   myBookings,
   currentUserId,
+  avgRating,
+  reviews,
 }: {
   mentor: Mentor;
   openSlots: MentorSlot[];
   helpedCount: number;
   myBookings: MentorSlot[];
   currentUserId: string;
+  avgRating: number | null;
+  reviews: SessionFeedback[];
 }) {
   const router = useRouter();
   const [slots, setSlots] = useState(openSlots);
@@ -147,6 +152,11 @@ export default function MentorProfileClient({
             <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-green-900/40 text-green-400">
               ✓ Passed USMLE Step 1
             </span>
+            {reviews.length > 0 && (
+              <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-yellow-900/30 text-yellow-400">
+                ★ {avgRating} ({reviews.length} review{reviews.length === 1 ? "" : "s"})
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-1">
             Helped {helpedCount} student{helpedCount === 1 ? "" : "s"}
@@ -191,6 +201,32 @@ export default function MentorProfileClient({
               </p>
             ))}
           </div>
+        </div>
+      )}
+
+      {reviews.length > 0 && (
+        <div className="card">
+          <p className="text-sm font-semibold mb-2">
+            Reviews <span className="text-slate-500 font-normal">&middot; ★ {avgRating} average from {reviews.length} student{reviews.length === 1 ? "" : "s"}</span>
+          </p>
+          {reviews.filter((r) => r.comment).length === 0 ? (
+            <p className="text-sm text-slate-500">No written reviews yet - just star ratings so far.</p>
+          ) : (
+            <div className="space-y-3">
+              {reviews
+                .filter((r) => r.comment)
+                .slice(0, 10)
+                .map((r) => (
+                  <div key={r.id} className="border-t border-slate-800 pt-3 first:border-0 first:pt-0">
+                    <p className="text-xs text-yellow-400 mb-1">
+                      {"★".repeat(r.rating)}
+                      {"☆".repeat(5 - r.rating)}
+                    </p>
+                    <p className="text-sm text-slate-300">&ldquo;{r.comment}&rdquo;</p>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
