@@ -151,3 +151,83 @@ export function computeSystemStrengths(reports: ScoreReport[]): SystemStrength[]
 export function computeDisciplineStrengths(reports: ScoreReport[]): SystemStrength[] {
   return buildCategoryStrengths(STEP1_SUBJECTS, disciplineTrends(reports));
 }
+
+export interface ImmediateExamReview {
+  latest: ScoreReport;
+  previous: ScoreReport | null;
+  overallDelta: number | null;
+  biggestImprovement: { system: string; delta: number } | null;
+  biggestDecline: { system: string; delta: number } | null;
+  summarySentences: string[];
+  readinessNote: string;
+}
+
+/**
+ * A student should be able to read this in ~30 seconds, right after
+ * uploading - so it's built entirely from arithmetic on the two most recent
+ * REGULAR (non-question-level) reports, no AI call, no waiting. Only ever
+ * defined once there's at least one regular report; `previous` (and
+ * everything that depends on comparing to it) is null for a student's very
+ * first upload.
+ */
+export function computeImmediateExamReview(reports: ScoreReport[]): ImmediateExamReview | null {
+  const regular = [...reports]
+    .filter((r) => r.exam_type !== "question_level")
+    .sort((a, b) => (b.taken_date ?? "").localeCompare(a.taken_date ?? ""));
+  if (regular.length === 0) return null;
+  const latest = regular[0];
+  const previous = regular[1] ?? null;
+
+  const overallDelta =
+    previous && latest.overall_percent !== null && previous.overall_percent !== null
+      ? latest.overall_percent - previous.overall_percent
+      : null;
+
+  let biggestImprovement: { system: string; delta: number } | null = null;
+  let biggestDecline: { system: string; delta: number } | null = null;
+  const strongSystems: string[] = [];
+  const decliningSystems: string[] = [];
+
+  if (previous) {
+    for (const system of STEP1_SYSTEMS) {
+      const latestPct = latest.system_breakdown?.[system];
+      const prevPct = previous.system_breakdown?.[system];
+      if (typeof latestPct !== "number" || typeof prevPct !== "number") continue;
+      const delta = latestPct - prevPct;
+      if (!biggestImprovement || delta > biggestImprovement.delta) biggestImprovement = { system, delta };
+      if (!biggestDecline || delta < biggestDecline.delta) biggestDecline = { system, delta };
+      if (latestPct >= 70 && prevPct >= 70) strongSystems.push(system);
+      if (delta <= -5) decliningSystems.push(system);
+    }
+  }
+
+  const summarySentences: string[] = [];
+  if (!previous) {
+    summarySentences.push("This is your first uploaded exam - future uploads will show how you're trending.");
+  } else if (overallDelta !== null) {
+    if (overallDelta > 0) summarySentences.push(`You improved overall (up ${overallDelta}% from your previous exam).`);
+    else if (overallDelta < 0) summarySentences.push(`Your overall score dropped ${Math.abs(overallDelta)}% from your previous exam.`);
+    else summarySentences.push("Your overall score held steady from your previous exam.");
+  }
+  if (strongSystems.length > 0) {
+    summarySentences.push(`${strongSystems.slice(0, 2).join(" and ")} remained strong.`);
+  }
+  if (decliningSystems.length > 0) {
+    const others = decliningSystems.filter((s) => s !== biggestDecline?.system);
+    summarySentences.push(
+      `${biggestDecline?.system}${others.length > 0 ? ` and ${others[0]}` : ""} dropped compared with your previous exam.`
+    );
+  }
+
+  const weakCount = STEP1_SYSTEMS.filter((s) => (latest.system_breakdown?.[s] ?? 100) < 60).length;
+  const readinessNote =
+    weakCount >= 3
+      ? "Continue strengthening weak systems before your next exam."
+      : weakCount > 0
+        ? "You're close - tighten up your remaining weak systems before your next exam."
+        : latest.overall_percent !== null && latest.overall_percent >= 75
+          ? "Strong showing across the board - keep up steady review to stay sharp."
+          : "Keep building a consistent review routine heading into your next exam.";
+
+  return { latest, previous, overallDelta, biggestImprovement, biggestDecline, summarySentences, readinessNote };
+}
