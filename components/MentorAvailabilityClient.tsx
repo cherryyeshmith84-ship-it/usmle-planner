@@ -8,6 +8,7 @@ import {
   formatSlotTime,
   groupSlotsByDate,
   mentorPhotoUrl,
+  HELP_AREA_OPTIONS,
   type Mentor,
   type MentorSlot,
 } from "@/lib/mentors";
@@ -43,24 +44,51 @@ export default function MentorAvailabilityClient({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<ConversationPartner | null>(null);
 
-  // Profile editing - name/bio/photo only. Email and active status are
-  // intentionally left out here (and are blocked server-side too, even if
-  // someone tried to force them through): email is tied to how this mentor
-  // logs in, and active is an admin-only visibility switch.
+  // Profile editing. Email and active status are intentionally left out
+  // here (and are blocked server-side too, even if someone tried to force
+  // them through): email is tied to how this mentor logs in, and active is
+  // an admin-only visibility switch. Everything else here is what shows up
+  // on the student-facing directory card and profile page.
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileName, setProfileName] = useState(mentor.name);
   const [profileBio, setProfileBio] = useState(mentor.bio || "");
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
+  const [profileMedSchool, setProfileMedSchool] = useState(mentor.med_school || "");
+  const [profileStep1Experience, setProfileStep1Experience] = useState(mentor.step1_experience || "");
+  const [profileWhyMentor, setProfileWhyMentor] = useState(mentor.why_mentor || "");
+  const [profileLanguages, setProfileLanguages] = useState((mentor.languages || []).join(", "));
+  const [profileHelpAreas, setProfileHelpAreas] = useState<string[]>(mentor.help_areas || []);
+  const [profileMeetingLink, setProfileMeetingLink] = useState(mentor.meeting_link || "");
+  const [profileResponseTime, setProfileResponseTime] = useState(mentor.response_time_note || "");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+
   const [photoPath, setPhotoPath] = useState(mentor.photo_path);
   const [displayName, setDisplayName] = useState(mentor.name);
   const [displayBio, setDisplayBio] = useState(mentor.bio || "");
+  const [displayMedSchool, setDisplayMedSchool] = useState(mentor.med_school || "");
+  const [displayStep1Experience, setDisplayStep1Experience] = useState(mentor.step1_experience || "");
+  const [displayWhyMentor, setDisplayWhyMentor] = useState(mentor.why_mentor || "");
+  const [displayLanguages, setDisplayLanguages] = useState(mentor.languages || []);
+  const [displayHelpAreas, setDisplayHelpAreas] = useState(mentor.help_areas || []);
+  const [displayMeetingLink, setDisplayMeetingLink] = useState(mentor.meeting_link || "");
+  const [displayResponseTime, setDisplayResponseTime] = useState(mentor.response_time_note || "");
+
+  function toggleHelpArea(area: string) {
+    setProfileHelpAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
+  }
 
   function startEditProfile() {
     setProfileName(displayName);
     setProfileBio(displayBio);
     setProfilePhotoFile(null);
+    setProfileMedSchool(displayMedSchool);
+    setProfileStep1Experience(displayStep1Experience);
+    setProfileWhyMentor(displayWhyMentor);
+    setProfileLanguages(displayLanguages.join(", "));
+    setProfileHelpAreas(displayHelpAreas);
+    setProfileMeetingLink(displayMeetingLink);
+    setProfileResponseTime(displayResponseTime);
     setProfileError(null);
     setEditingProfile(true);
   }
@@ -99,12 +127,24 @@ export default function MentorAvailabilityClient({
       newPhotoPath = path;
     }
 
+    const languagesArray = profileLanguages
+      .split(",")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
     const { error: updateError } = await supabase
       .from("mentors")
       .update({
         name: profileName.trim(),
         bio: profileBio.trim() || null,
         photo_path: newPhotoPath,
+        med_school: profileMedSchool.trim() || null,
+        step1_experience: profileStep1Experience.trim() || null,
+        why_mentor: profileWhyMentor.trim() || null,
+        languages: languagesArray,
+        help_areas: profileHelpAreas,
+        meeting_link: profileMeetingLink.trim() || null,
+        response_time_note: profileResponseTime.trim() || null,
       })
       .eq("id", mentor.id);
 
@@ -121,6 +161,13 @@ export default function MentorAvailabilityClient({
     setPhotoPath(newPhotoPath);
     setDisplayName(profileName.trim());
     setDisplayBio(profileBio.trim());
+    setDisplayMedSchool(profileMedSchool.trim());
+    setDisplayStep1Experience(profileStep1Experience.trim());
+    setDisplayWhyMentor(profileWhyMentor.trim());
+    setDisplayLanguages(languagesArray);
+    setDisplayHelpAreas(profileHelpAreas);
+    setDisplayMeetingLink(profileMeetingLink.trim());
+    setDisplayResponseTime(profileResponseTime.trim());
     setProfileSaving(false);
     setEditingProfile(false);
     router.refresh();
@@ -191,7 +238,7 @@ export default function MentorAvailabilityClient({
               <input className="input" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
             </div>
             <div>
-              <label className="label">Details / bio</label>
+              <label className="label">Details / bio (shown as a short 2-line preview on your card)</label>
               <textarea
                 className="input"
                 rows={3}
@@ -220,6 +267,81 @@ export default function MentorAvailabilityClient({
               <p className="text-xs text-slate-500 mt-1">
                 Current photo shown on the left. Choose a file to replace it, or leave blank to keep it.
               </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Medical school</label>
+                <input
+                  className="input"
+                  value={profileMedSchool}
+                  onChange={(e) => setProfileMedSchool(e.target.value)}
+                  placeholder="e.g. St. George's University"
+                />
+              </div>
+              <div>
+                <label className="label">Languages (comma separated)</label>
+                <input
+                  className="input"
+                  value={profileLanguages}
+                  onChange={(e) => setProfileLanguages(e.target.value)}
+                  placeholder="English, Telugu, Hindi"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="label">Your Step 1 experience</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={profileStep1Experience}
+                onChange={(e) => setProfileStep1Experience(e.target.value)}
+                placeholder="When you took it, your score/experience, what worked for you..."
+              />
+            </div>
+            <div>
+              <label className="label">Why you mentor</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={profileWhyMentor}
+                onChange={(e) => setProfileWhyMentor(e.target.value)}
+                placeholder="What makes you want to help students through this..."
+              />
+            </div>
+            <div>
+              <label className="label">What you'll help with</label>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {HELP_AREA_OPTIONS.map((area) => (
+                  <label key={area} className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={profileHelpAreas.includes(area)}
+                      onChange={() => toggleHelpArea(area)}
+                    />
+                    {area}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Meeting link (used for every session)</label>
+                <input
+                  className="input"
+                  value={profileMeetingLink}
+                  onChange={(e) => setProfileMeetingLink(e.target.value)}
+                  placeholder="https://meet.google.com/..."
+                />
+              </div>
+              <div>
+                <label className="label">Typical response time</label>
+                <input
+                  className="input"
+                  value={profileResponseTime}
+                  onChange={(e) => setProfileResponseTime(e.target.value)}
+                  placeholder="e.g. Usually within a few hours"
+                />
+              </div>
             </div>
             {profileError && <p className="text-xs text-red-400">{profileError}</p>}
             <div className="flex items-center gap-3">
