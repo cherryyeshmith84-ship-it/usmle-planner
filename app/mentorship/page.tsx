@@ -2,7 +2,14 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { Mentor, MentorSlot, SessionFeedback } from "@/lib/mentors";
-import { findMentorByEmail, formatSlotDate, formatSlotTime, getSlotStatus, groupSlotsByDate } from "@/lib/mentors";
+import {
+  averageRating,
+  findMentorByEmail,
+  formatSlotDate,
+  formatSlotTime,
+  getSlotStatus,
+  groupSlotsByDate,
+} from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import MentorBrowseClient from "@/components/MentorBrowseClient";
@@ -71,8 +78,7 @@ export default async function MentorshipPage() {
       .eq("mentor_id", myMentorRecord.id)
       .order("created_at", { ascending: false });
     const feedback = (feedbackData ?? []) as SessionFeedback[];
-    const avgRating =
-      feedback.length > 0 ? Math.round((feedback.reduce((s, f) => s + f.rating, 0) / feedback.length) * 10) / 10 : null;
+    const avgRating = averageRating(feedback);
 
     const todayLabel = formatSlotDate(new Date().toISOString());
     const nonCancelled = bookedSlots.filter((s) => !s.cancelled_at);
@@ -272,11 +278,34 @@ export default async function MentorshipPage() {
     }
   }
 
-  const mentorCards = mentors.map((m) => ({
-    ...m,
-    helpedCount: helpedCountByMentor.get(m.id)?.size ?? 0,
-    availableThisWeek: availableThisWeekMentorIds.has(m.id),
-  }));
+  // One batch query for every mentor's ratings, rather than N+1 - same
+  // pattern as helpedCountByMentor/availableThisWeekMentorIds above. Needs
+  // the "Authenticated can view mentor feedback" RLS policy (see migration
+  // mentor_feedback_public_read_for_profiles) since feedback used to be
+  // readable only by the mentor themselves or the student who wrote it.
+  const ratingsByMentor = new Map<string, number[]>();
+  if (mentorIds.length > 0) {
+    const { data: feedbackRows } = await supabase
+      .from("mentor_session_feedback")
+      .select("mentor_id, rating")
+      .in("mentor_id", mentorIds);
+    for (const row of (feedbackRows ?? []) as any[]) {
+      const arr = ratingsByMentor.get(row.mentor_id) ?? [];
+      arr.push(row.rating);
+      ratingsByMentor.set(row.mentor_id, arr);
+    }
+  }
+
+  const mentorCards = mentors.map((m) => {
+    const ratings = ratingsByMentor.get(m.id) ?? [];
+    return {
+      ...m,
+      helpedCount: helpedCountByMentor.get(m.id)?.size ?? 0,
+      availableThisWeek: availableThisWeekMentorIds.has(m.id),
+      avgRating: averageRating(ratings.map((rating) => ({ rating }))),
+      ratingCount: ratings.length,
+    };
+  });
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
