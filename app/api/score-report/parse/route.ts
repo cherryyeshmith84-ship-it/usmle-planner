@@ -189,6 +189,12 @@ above).
 If a report only has a System table and no separate Discipline/Subject
 table at all, return discipline_breakdown as {} rather than guessing.
 
+IMPORTANT - use the exact spelling and punctuation shown in the numbered
+lists above for every key in system_breakdown/discipline_breakdown (e.g.
+"Behavioral Health & Nervous Systems/Special Senses" with no space before
+or after the "/", exactly as printed above) - keys that don't match exactly
+are silently dropped before they ever reach the student.
+
 Respond with ONLY JSON in exactly this shape, no extra commentary:
 
 {
@@ -222,6 +228,46 @@ field as null (system_breakdown and discipline_breakdown as {}).
 
   function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Loosely normalizes a label for matching purposes only (lowercase,
+   *  collapsed whitespace, no spaces around "/" or "&", punctuation
+   *  stripped) - never used as the actual stored key. */
+  function normalizeLabel(s: string): string {
+    return s
+      .toLowerCase()
+      .replace(/\s*\/\s*/g, "/")
+      .replace(/\s*&\s*/g, " & ")
+      .replace(/[(),.]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Matches Gemini's returned breakdown keys against the canonical
+   * STEP1_SYSTEMS/STEP1_SUBJECTS list by a loosely-normalized comparison
+   * instead of requiring an exact string match. The old exact-match filter
+   * (STEP1_SYSTEMS.includes(k)) silently dropped an entire report's
+   * system_breakdown/discipline_breakdown down to {} whenever Gemini's JSON
+   * used slightly different spacing/punctuation than our canonical labels
+   * (e.g. a space before/after "/") - which read to the student as "the AI
+   * filled in my overall score but left every system/discipline box blank"
+   * even though Gemini had actually returned real numbers. This keeps the
+   * stored key exactly canonical (so everything downstream -
+   * lib/scoreReports.ts, PerformanceClient.tsx - still only ever sees the
+   * exact STEP1_SYSTEMS/STEP1_SUBJECTS strings) while being forgiving about
+   * how Gemini spelled it.
+   */
+  function coerceBreakdown(raw: unknown, canonicalList: readonly string[]): Record<string, number> {
+    if (!raw || typeof raw !== "object") return {};
+    const byNormalized = new Map(canonicalList.map((c) => [normalizeLabel(c), c] as const));
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof v !== "number" || Number.isNaN(v)) continue;
+      const canonical = byNormalized.get(normalizeLabel(k));
+      if (canonical) out[canonical] = Math.max(0, Math.min(100, Math.round(v)));
+    }
+    return out;
   }
 
   try {
@@ -322,22 +368,8 @@ field as null (system_breakdown and discipline_breakdown as {}).
       taken_date: parsed.taken_date || null,
       overall_score: typeof parsed.overall_score === "number" ? parsed.overall_score : null,
       overall_percent: typeof parsed.overall_percent === "number" ? parsed.overall_percent : null,
-      system_breakdown:
-        parsed.system_breakdown && typeof parsed.system_breakdown === "object"
-          ? Object.fromEntries(
-              Object.entries(parsed.system_breakdown).filter(
-                ([k, v]) => (STEP1_SYSTEMS as readonly string[]).includes(k) && typeof v === "number"
-              )
-            )
-          : {},
-      discipline_breakdown:
-        parsed.discipline_breakdown && typeof parsed.discipline_breakdown === "object"
-          ? Object.fromEntries(
-              Object.entries(parsed.discipline_breakdown).filter(
-                ([k, v]) => (STEP1_SUBJECTS as readonly string[]).includes(k) && typeof v === "number"
-              )
-            )
-          : {},
+      system_breakdown: coerceBreakdown(parsed.system_breakdown, STEP1_SYSTEMS),
+      discipline_breakdown: coerceBreakdown(parsed.discipline_breakdown, STEP1_SUBJECTS),
     };
 
     return NextResponse.json({ result, raw: json });
