@@ -423,15 +423,24 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         <p className="label mb-2">System breakdown (% correct)</p>
         <div className="grid sm:grid-cols-2 gap-2">
           {STEP1_SYSTEMS.map((system) => (
-            <div key={system} className="flex items-center justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-slate-300">{system}</span>
+            <div key={system} className="flex items-start justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-slate-300 flex-1 min-w-0 pt-1.5">{system}</span>
               <input
                 type="number"
                 min={0}
                 max={100}
                 value={draft.system_breakdown[system] ?? ""}
                 onChange={(e) => updateSystemPct(system, e.target.value)}
-                className="input text-xs py-1 px-2 w-16 shrink-0"
+                // The global .input class (globals.css) sets width:100% and a
+                // larger padding, and - since it's declared after Tailwind's
+                // utilities in the compiled CSS - normally wins over plain
+                // "w-16 py-1 px-2" with equal specificity, so the box tried to
+                // stretch to fill the whole row instead of staying small,
+                // colliding with long system names that wrap onto several
+                // lines (e.g. "Behavioral Health & Nervous Systems/Special
+                // Senses"). The "!" (Tailwind important) variants force this
+                // input to actually stay a small fixed-width box.
+                className="input text-xs !py-1 !px-2 !w-20 shrink-0"
               />
             </div>
           ))}
@@ -448,16 +457,20 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
           {STEP1_SUBJECTS.map((discipline) => (
             <div
               key={discipline}
-              className="flex items-center justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5"
+              className="flex items-start justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5"
             >
-              <span className="text-xs text-slate-300">{discipline}</span>
+              <span className="text-xs text-slate-300 flex-1 min-w-0 pt-1.5">{discipline}</span>
               <input
                 type="number"
                 min={0}
                 max={100}
                 value={draft.discipline_breakdown?.[discipline] ?? ""}
                 onChange={(e) => updateDisciplinePct(discipline, e.target.value)}
-                className="input text-xs py-1 px-2 w-16 shrink-0"
+                // Same fix as the System breakdown grid above - "!" forces
+                // this to actually stay a small fixed-width box instead of
+                // the global .input class's width:100% winning and colliding
+                // with long discipline names.
+                className="input text-xs !py-1 !px-2 !w-20 shrink-0"
               />
             </div>
           ))}
