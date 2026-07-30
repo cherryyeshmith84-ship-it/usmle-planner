@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   EXAM_TYPE_LABEL,
   computeDisciplineStrengths,
+  computeImmediateExamReview,
   computeSystemStrengths,
   systemTrends,
   type ScoreReport,
@@ -100,6 +101,7 @@ export default function PerformanceClient({
   const [topicTableOpen, setTopicTableOpen] = useState(true);
 
   const reports = initialReports;
+  const immediateReview = useMemo(() => computeImmediateExamReview(reports), [reports]);
   const strengths = useMemo(() => computeSystemStrengths(reports), [reports]);
   const trends = useMemo(() => systemTrends(reports), [reports]);
   const weakest = strengths.slice(0, 5);
@@ -439,6 +441,68 @@ export default function PerformanceClient({
         </div>
       ) : (
         <>
+          {/* Immediate Exam Review - deterministic, no AI call, so it's ready
+              the instant a report is saved instead of waiting on anything.
+              Always about the single most recent regular (non-question-
+              level) report, which is why it sits above every other section -
+              a student should be able to read this in about 30 seconds. */}
+          {immediateReview && (
+            <div className="card">
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+                <div>
+                  <p className="text-sm font-semibold">{immediateReview.latest.exam_name}</p>
+                  <p className="text-xs text-slate-500">{immediateReview.latest.taken_date ?? "No date"}</p>
+                </div>
+                {immediateReview.latest.overall_percent !== null && (
+                  <span className="text-2xl font-bold text-brand-300">{immediateReview.latest.overall_percent}%</span>
+                )}
+              </div>
+              {immediateReview.previous && (
+                <p className="text-xs text-slate-400 mb-3">
+                  Previous exam: {immediateReview.previous.overall_percent ?? "?"}%
+                  {immediateReview.overallDelta !== null && (
+                    <span
+                      className={`ml-2 font-semibold ${
+                        immediateReview.overallDelta > 0
+                          ? "text-green-400"
+                          : immediateReview.overallDelta < 0
+                            ? "text-red-400"
+                            : "text-slate-400"
+                      }`}
+                    >
+                      {immediateReview.overallDelta > 0 ? "↑" : immediateReview.overallDelta < 0 ? "↓" : "→"}{" "}
+                      {immediateReview.overallDelta > 0 ? "+" : ""}
+                      {immediateReview.overallDelta}%
+                    </span>
+                  )}
+                </p>
+              )}
+              <div className="space-y-1 mb-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Performance Summary</p>
+                {immediateReview.summarySentences.map((s, i) => (
+                  <p key={i} className="text-sm text-slate-300">
+                    {s}
+                  </p>
+                ))}
+              </div>
+              {immediateReview.biggestImprovement && immediateReview.biggestDecline && (
+                <div className="grid sm:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Biggest Improvement</p>
+                    <p className="text-sm font-semibold text-green-400">{immediateReview.biggestImprovement.system}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Biggest Decline</p>
+                    <p className="text-sm font-semibold text-red-400">{immediateReview.biggestDecline.system}</p>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-slate-400">
+                <span className="font-semibold text-slate-300">Exam Readiness:</span> {immediateReview.readinessNote}
+              </p>
+            </div>
+          )}
+
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="card">
               <p className="text-sm font-semibold mb-3">Weakest systems right now</p>
