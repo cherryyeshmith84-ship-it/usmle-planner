@@ -514,29 +514,6 @@ export default function PerformanceClient({
             </div>
           )}
 
-          <div className="card">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold">AI suggestions</p>
-              <button
-                type="button"
-                onClick={() => getSuggestion(!!suggestion)}
-                disabled={loadingSuggestion}
-                className="btn-secondary text-xs"
-              >
-                {loadingSuggestion ? "Thinking..." : suggestion ? "Refresh" : "Get suggestions"}
-              </button>
-            </div>
-            {suggestionError && <p className="text-xs text-red-400">{suggestionError}</p>}
-            {suggestion && <p className="text-sm text-slate-300 whitespace-pre-line">{suggestion}</p>}
-            {!suggestion && !suggestionError && (
-              <p className="text-xs text-slate-500">
-                Generates a short note on what to prioritize based on your score history. Reused
-                automatically until you add a new report or hit Refresh, so it doesn't burn through
-                the shared AI quota.
-              </p>
-            )}
-          </div>
-
           {comparisonReports.length > 1 && (
             <div className="card overflow-x-auto">
               <div className="flex items-center justify-between mb-3">
@@ -728,6 +705,32 @@ export default function PerformanceClient({
               <p className="text-xs text-slate-500">No question-level reports yet.</p>
             ) : (
               questionLevelReportsList.map((r) => renderReportCard(r))
+            )}
+          </div>
+
+          {/* Moved to the very bottom, below every table and both history
+              lists, so it reads as a closing takeaway after everything else
+              on the page rather than interrupting the data on the way down. */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold">AI suggestions</p>
+              <button
+                type="button"
+                onClick={() => getSuggestion(!!suggestion)}
+                disabled={loadingSuggestion}
+                className="btn-secondary text-xs"
+              >
+                {loadingSuggestion ? "Thinking..." : suggestion ? "Refresh" : "Get suggestions"}
+              </button>
+            </div>
+            {suggestionError && <p className="text-xs text-red-400">{suggestionError}</p>}
+            {suggestion && <p className="text-sm text-slate-300 whitespace-pre-line">{suggestion}</p>}
+            {!suggestion && !suggestionError && (
+              <p className="text-xs text-slate-500">
+                Generates a short note on what to prioritize based on your score history. Reused
+                automatically until you add a new report or hit Refresh, so it doesn't burn through
+                the shared AI quota.
+              </p>
             )}
           </div>
         </>
