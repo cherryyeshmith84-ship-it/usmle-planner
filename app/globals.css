@@ -24,6 +24,21 @@ body {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* Freezes the first column of a wide, horizontally-scrolling table (e.g.
+   "Progress by system") so the row label stays visible while scrolling
+   through report columns - needs its own solid background matching .card
+   (light-theme override included) since a plain Tailwind bg-slate-* class
+   doesn't track this app's custom card color. */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: #0d0d0d;
+}
+[data-exam-theme="light"] .sticky-col {
+  background: #ffffff;
+}
+
 .btn-primary {
   background-color: #2b5bf5;
   color: white;
