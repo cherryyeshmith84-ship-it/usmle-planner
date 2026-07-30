@@ -6,6 +6,15 @@ import { createClient } from "@/lib/supabase/client";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import { EXAM_TYPE_LABEL, type ParsedScoreReport, type ScoreReportExamType } from "@/lib/scoreReports";
 
+// Cosmetic checklist shown while the AI reads a report - there's only one
+// real network call behind this (POST /api/score-report/parse), not four
+// distinct backend steps, so this is a staged reveal rather than genuine
+// per-step progress. It ticks forward on a timer and caps at the last item
+// until the real response comes back, at which point everything (including
+// "Ready") completes at once - see the setInterval/clearInterval pair in
+// processOne() below.
+const PROCESSING_STEPS = ["Overall score extracted", "Systems analyzed", "Disciplines analyzed", "Trends updated"];
+
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -51,6 +60,8 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
   const [queueTotal, setQueueTotal] = useState(0);
   const [queuePosition, setQueuePosition] = useState(0); // 1-based index of the report being read/reviewed now
   const [savedCount, setSavedCount] = useState(0);
+  // Number of PROCESSING_STEPS fully checked off - see PROCESSING_STEPS above.
+  const [checklistStep, setChecklistStep] = useState(0);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const fileList = e.target.files;
@@ -133,6 +144,13 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     // "separate reports" batch before this one's result comes back, so an
     // old warning can't linger and look like it applies to the new file.
     setError(null);
+    // Staged checklist reveal (see PROCESSING_STEPS above) - advances on its
+    // own timer, capped one short of "done" so it never claims to finish
+    // before the real response actually has.
+    setChecklistStep(0);
+    const stepTimer = setInterval(() => {
+      setChecklistStep((s) => (s < PROCESSING_STEPS.length - 1 ? s + 1 : s));
+    }, 550);
     try {
       const encoded = await Promise.all(filesForThisReport.map((f) => fileToBase64(f)));
       const res = await fetch("/api/score-report/parse", {
@@ -175,6 +193,11 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         discipline_breakdown: {},
       });
     }
+    clearInterval(stepTimer);
+    // Snap every step (including "Ready") to done at once, then hold for a
+    // beat so the checklist doesn't flash "Ready" and vanish instantly.
+    setChecklistStep(PROCESSING_STEPS.length);
+    await new Promise((resolve) => setTimeout(resolve, 450));
     setStage("review");
   }
 
@@ -340,10 +363,36 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
       mode === "separate" && queueTotal > 1 ? ` (report ${queuePosition} of ${queueTotal})` : "";
     return (
       <div className="card">
-        <p className="text-sm text-slate-400">
-          {stage === "uploading" ? "Uploading..." : "Reading your score report with AI..."}
+        <p className="text-sm font-semibold text-slate-300 mb-3">
+          {stage === "uploading" ? "Uploading..." : "Reading report..."}
           {progressLabel}
         </p>
+        {stage === "parsing" && (
+          <div className="space-y-1.5">
+            {PROCESSING_STEPS.map((label, i) => {
+              const state = checklistStep > i ? "done" : checklistStep === i ? "active" : "pending";
+              return (
+                <p
+                  key={label}
+                  className={`text-xs flex items-center gap-2 ${
+                    state === "done" ? "text-green-400" : state === "active" ? "text-slate-300" : "text-slate-600"
+                  }`}
+                >
+                  <span className="w-3.5 shrink-0">{state === "done" ? "✓" : state === "active" ? "…" : ""}</span>
+                  {label}
+                </p>
+              );
+            })}
+            <p
+              className={`text-xs flex items-center gap-2 ${
+                checklistStep >= PROCESSING_STEPS.length ? "text-green-400 font-semibold" : "text-slate-600"
+              }`}
+            >
+              <span className="w-3.5 shrink-0">{checklistStep >= PROCESSING_STEPS.length ? "✓" : ""}</span>
+              Ready
+            </p>
+          </div>
+        )}
       </div>
     );
   }
