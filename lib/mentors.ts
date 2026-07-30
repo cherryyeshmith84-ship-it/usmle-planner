@@ -99,6 +99,15 @@ export interface SessionFeedback {
   created_at?: string;
 }
 
+/** Rounds to 1 decimal place, e.g. [5,5,4] -> 4.7. Returns null for an empty
+ *  list so callers can show "No ratings yet" instead of "0★". Shared by the
+ *  mentor's own dashboard, the public profile page, and the directory card
+ *  grid so the "X★ (Y reviews)" number is computed identically everywhere. */
+export function averageRating(feedback: { rating: number }[]): number | null {
+  if (feedback.length === 0) return null;
+  return Math.round((feedback.reduce((sum, f) => sum + f.rating, 0) / feedback.length) * 10) / 10;
+}
+
 export type SlotStatus = "upcoming" | "completed" | "cancelled";
 
 /** A session's lifecycle status, derived rather than stored: cancelled
