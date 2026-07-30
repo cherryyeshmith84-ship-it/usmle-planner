@@ -9,6 +9,15 @@ export interface Mentor {
   active: boolean;
   created_by?: string | null;
   created_at?: string;
+  // Richer profile fields - all self-editable by the mentor (see
+  // MentorAvailabilityClient's "Edit profile" card).
+  languages?: string[] | null;
+  med_school?: string | null;
+  step1_experience?: string | null;
+  why_mentor?: string | null;
+  help_areas?: string[] | null;
+  meeting_link?: string | null;
+  response_time_note?: string | null;
 }
 
 export interface MentorSlot {
@@ -21,6 +30,49 @@ export interface MentorSlot {
   booked_at: string | null;
   student_note: string | null;
   created_at?: string;
+  // Structured pre-booking questionnaire (replaces the old packed
+  // "Stage: X | Currently: Y" string in student_note).
+  current_stage?: string | null;
+  current_nbme?: string | null;
+  target_exam_date?: string | null;
+  biggest_challenge?: string | null;
+  // Cancellation - kept separate from is_booked so a cancelled session
+  // stays distinguishable from a slot that was simply never booked.
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+}
+
+/** Fixed options for the pre-booking questionnaire and mentor "help areas"
+ *  checklist - single source of truth so the booking form, mentor profile
+ *  editor, and any future admin UI all offer the exact same choices. */
+export const PREP_STAGE_OPTIONS = ["Beginning", "Dedicated", "Final Revision", "Repeat Test Taker"] as const;
+
+export const BIGGEST_CHALLENGE_OPTIONS = [
+  "Staying consistent",
+  "Low NBME",
+  "Burnout",
+  "Study plan",
+  "Unsure if ready",
+  "Other",
+] as const;
+
+export const HELP_AREA_OPTIONS = [
+  "Study planning",
+  "Accountability",
+  "Weekly check-ins",
+  "NBME strategy",
+  "Motivation",
+  "Exam readiness",
+  "Resource selection",
+] as const;
+
+export type SlotStatus = "upcoming" | "completed" | "cancelled";
+
+/** A session's lifecycle status, derived rather than stored: cancelled
+ *  always wins, otherwise it's completed once the end time has passed. */
+export function getSlotStatus(slot: Pick<MentorSlot, "end_time" | "cancelled_at">): SlotStatus {
+  if (slot.cancelled_at) return "cancelled";
+  return slot.end_time < new Date().toISOString() ? "completed" : "upcoming";
 }
 
 /** Public URL for a photo stored in the mentor-photos bucket (bucket is public - no signing needed). */
