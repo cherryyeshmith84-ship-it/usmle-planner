@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
-import type { Mentor, MentorSlot } from "@/lib/mentors";
+import type { Mentor, MentorSlot, SessionNote } from "@/lib/mentors";
 import { findMentorByEmail, mentorPhotoUrl } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
@@ -58,12 +58,22 @@ export default async function UpcomingSessionsPage() {
       .order("start_time", { ascending: true });
     const sessions = (data ?? []) as BookedByMe[];
 
+    // Pull every note this mentor has ever written, keyed by slot, so each
+    // completed row can show "Add notes" vs "Edit notes" / the saved text
+    // without a separate round trip per row.
+    const { data: notesData } = await supabase
+      .from("mentor_session_notes")
+      .select("*")
+      .eq("mentor_id", myMentorRecord.id);
+    const notesBySlotId = new Map<string, SessionNote>((notesData ?? []).map((n: any) => [n.slot_id, n]));
+
     const rows: SessionRow[] = sessions.map((s) => ({
       slot: s,
       title: s.booked_by_profile?.full_name || "A student",
       subtitle: s.booked_by_profile?.email ?? null,
       note: s.student_note,
       meetingLink: myMentorRecord.meeting_link ?? null,
+      sessionNote: notesBySlotId.get(s.id) ?? null,
     }));
 
     return (
@@ -71,9 +81,10 @@ export default async function UpcomingSessionsPage() {
         <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
           <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
           <p className="text-sm text-slate-400 mb-6">
-            Students who&apos;ve booked a slot with you, soonest first.
+            Students who&apos;ve booked a slot with you, soonest first. Once a session is marked
+            Completed, you can add notes for the student to see anytime.
           </p>
-          <SessionsListClient rows={rows} />
+          <SessionsListClient rows={rows} role="mentor" />
         </main>
       </AppShell>
     );
@@ -86,12 +97,19 @@ export default async function UpcomingSessionsPage() {
     .order("start_time", { ascending: true });
   const myBookings = (myBookingsData ?? []) as MyBooking[];
 
+  const { data: myNotesData } = await supabase
+    .from("mentor_session_notes")
+    .select("*")
+    .eq("student_id", user.id);
+  const myNotesBySlotId = new Map<string, SessionNote>((myNotesData ?? []).map((n: any) => [n.slot_id, n]));
+
   const rows: SessionRow[] = myBookings.map((b) => ({
     slot: b,
     title: b.mentors?.name ?? "Mentor",
     photoUrl: mentorPhotoUrl(b.mentors?.photo_path ?? null, SUPABASE_URL),
     meetingLink: b.mentors?.meeting_link ?? null,
     rescheduleMentorId: b.mentors?.id ?? null,
+    sessionNote: myNotesBySlotId.get(b.id) ?? null,
   }));
 
   return (
@@ -99,9 +117,10 @@ export default async function UpcomingSessionsPage() {
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
         <p className="text-sm text-slate-400 mb-6">
-          Every mentorship session you&apos;ve booked, soonest first.
+          Every mentorship session you&apos;ve booked, soonest first. Your mentor&apos;s notes from
+          completed sessions show up there too.
         </p>
-        <SessionsListClient rows={rows} />
+        <SessionsListClient rows={rows} role="student" />
       </main>
     </AppShell>
   );
