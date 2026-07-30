@@ -46,6 +46,15 @@ export interface ScoreReport {
   // them are stored and read together.
   image_paths: string[];
   created_at?: string;
+  // Mentor review status (Analysis v1 item 15 / Mentor Status banner) - set
+  // only via the mentor_mark_report_reviewed() DB function (see migration
+  // score_reports_mentor_review_status), never written directly by either
+  // side's client code. Optional since reports saved before this existed
+  // won't have them.
+  mentor_notified_at?: string | null;
+  mentor_reviewed_at?: string | null;
+  mentor_reviewed_by?: string | null;
+  next_checkin_date?: string | null;
 }
 
 /** What the AI-parse endpoint returns before the student reviews/confirms it. */
