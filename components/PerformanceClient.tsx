@@ -51,6 +51,27 @@ const TREND_CLASS: Record<string, string> = {
   unknown: "text-slate-500",
 };
 
+/** Small up/down chevron for the maximize/minimize buttons on the "Progress
+ *  by ..." tables - points up (^) when the table is open (click to
+ *  collapse), rotates to point down when it's collapsed (click to expand). */
+function ChevronToggle({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      className={`w-4 h-4 transition-transform duration-150 ${open ? "" : "rotate-180"}`}
+    >
+      <path
+        d="M5 12l5-5 5 5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * Replaces the old plain daily-log list on the Performance page. Built
  * entirely from score_reports (NBME/UWSA/Free120/UWorld self-assessment
@@ -523,9 +544,10 @@ export default function PerformanceClient({
                 <button
                   type="button"
                   onClick={() => setSystemTableOpen((v) => !v)}
-                  className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0"
+                  aria-label={systemTableOpen ? "Minimize" : "Maximize"}
+                  className="text-slate-400 hover:text-slate-200 shrink-0 p-1 rounded hover:bg-slate-800 transition"
                 >
-                  {systemTableOpen ? "Minimize" : "Maximize"}
+                  <ChevronToggle open={systemTableOpen} />
                 </button>
               </div>
               {systemTableOpen && (
@@ -573,9 +595,10 @@ export default function PerformanceClient({
                 <button
                   type="button"
                   onClick={() => setDisciplineTableOpen((v) => !v)}
-                  className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0"
+                  aria-label={disciplineTableOpen ? "Minimize" : "Maximize"}
+                  className="text-slate-400 hover:text-slate-200 shrink-0 p-1 rounded hover:bg-slate-800 transition"
                 >
-                  {disciplineTableOpen ? "Minimize" : "Maximize"}
+                  <ChevronToggle open={disciplineTableOpen} />
                 </button>
               </div>
               {regularDisciplineStrengths.length === 0 ? (
@@ -631,9 +654,10 @@ export default function PerformanceClient({
                 <button
                   type="button"
                   onClick={() => setTopicTableOpen((v) => !v)}
-                  className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0"
+                  aria-label={topicTableOpen ? "Minimize" : "Maximize"}
+                  className="text-slate-400 hover:text-slate-200 shrink-0 p-1 rounded hover:bg-slate-800 transition"
                 >
-                  {topicTableOpen ? "Minimize" : "Maximize"}
+                  <ChevronToggle open={topicTableOpen} />
                 </button>
               </div>
               <p className="text-xs text-slate-500 mb-3">
