@@ -1247,6 +1247,24 @@ export default function PerformanceClient({
             </div>
           )}
 
+          {/* Score Report History - moved ahead of the question-level
+              tables below (Progress by topic / Question-level report
+              history) so the page order matches the intended flow: ...
+              Compare Exams -> Score Report History -> Question-Level
+              Analysis, rather than interleaving the two question-level
+              pieces around it. */}
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Score report history</p>
+            {regularReports.length === 0 ? (
+              <p className="text-xs text-slate-500">No score reports yet.</p>
+            ) : (
+              regularReports.map((r) => renderReportCard(r))
+            )}
+          </div>
+
+          {/* Question-Level Analysis - the topic-level progress table and
+              the individual question-level report history now sit together
+              as one final section, matching the flow diagram's last step. */}
           {questionLevelColumns.length > 0 && (
             <div className="card overflow-x-auto">
               <div className="flex items-center justify-between mb-1">
@@ -1312,15 +1330,6 @@ export default function PerformanceClient({
               )}
             </div>
           )}
-
-          <div className="space-y-2">
-            <p className="text-sm font-semibold">Score report history</p>
-            {regularReports.length === 0 ? (
-              <p className="text-xs text-slate-500">No score reports yet.</p>
-            ) : (
-              regularReports.map((r) => renderReportCard(r))
-            )}
-          </div>
 
           <div className="space-y-2">
             <p className="text-sm font-semibold">Question-level report history</p>
