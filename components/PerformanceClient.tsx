@@ -84,9 +84,15 @@ function ChevronToggle({ open }: { open: boolean }) {
 export default function PerformanceClient({
   userId,
   initialReports,
+  myMentor,
 }: {
   userId: string;
   initialReports: ScoreReport[];
+  // The student's own mentor, resolved server-side (app/history/page.tsx)
+  // from an existing booked session or message thread - null if the student
+  // has no mentor relationship yet, in which case "Discuss With Mentor"
+  // routes to the mentor directory instead of a specific profile.
+  myMentor?: { id: string; name: string | null } | null;
 }) {
   const router = useRouter();
   const [aiReview, setAiReview] = useState<AiExamReview | null>(null);
@@ -561,6 +567,28 @@ export default function PerformanceClient({
                 </p>
               )
             )}
+          </div>
+
+          {/* Mentor Recommendation - what makes this different from a plain
+              analytics page: nudges the student to loop a mentor in on this
+              exact report before diving into the next study block, instead
+              of just leaving them alone with the numbers above. Routes to
+              the student's own mentor (myMentor, resolved server-side from
+              an existing booked session or message thread) if one exists,
+              otherwise to the mentor directory to find one. */}
+          <div className="card">
+            <p className="text-sm font-semibold mb-1">Mentor Recommendation</p>
+            <p className="text-xs text-slate-400 mb-3">
+              Your AI analysis has generated a default study recommendation. Before starting your next
+              study block, discuss this report with your mentor - they can help turn these numbers into a
+              concrete plan.
+            </p>
+            <a
+              href={myMentor ? `/mentorship/mentor/${myMentor.id}` : "/mentorship"}
+              className="btn-secondary text-xs inline-block"
+            >
+              {myMentor ? `Discuss With ${myMentor.name ?? "Your Mentor"} →` : "Find a Mentor to Discuss →"}
+            </a>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
