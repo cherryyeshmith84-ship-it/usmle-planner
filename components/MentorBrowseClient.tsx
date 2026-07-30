@@ -1,291 +1,80 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import {
-  formatSlotDate,
-  formatSlotTime,
-  groupSlotsByDate,
-  mentorPhotoUrl,
-  type Mentor,
-  type MentorSlot,
-} from "@/lib/mentors";
-import { easternWeekStart } from "@/lib/timezone";
-import MentorChatPanel from "./MentorChatPanel";
-
-const PREP_STAGES = [
-  "Pre-dedicated / early prep",
-  "Dedicated period",
-  "Final review (last 2-3 weeks)",
-  "Retaking Step 1",
-];
+import { mentorPhotoUrl, type Mentor } from "@/lib/mentors";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
-type MyBooking = MentorSlot & { mentors?: { name: string; photo_path: string | null } | null };
+export type MentorCardData = Mentor & {
+  helpedCount: number;
+  availableThisWeek: boolean;
+};
 
 /**
- * Student-facing mentor directory: pick a mentor to load their open,
- * upcoming slots, then book one. Booking is a conditional update
- * (`is_booked=false -> true` in the same statement) so if two students
- * click at the same moment, only one write actually matches a row -
- * the loser just gets refreshed with that slot already gone.
+ * Student-facing mentor directory - a grid of summary cards. Clicking
+ * "View Profile" takes the student to a dedicated per-mentor page
+ * (app/mentorship/mentor/[mentorId]/page.tsx + MentorProfileClient) where
+ * the actual bio/help-areas/availability/booking flow lives. This component
+ * used to also handle picking a mentor + booking inline; that's been split
+ * out so the directory itself stays a simple, scannable list of cards.
  */
-export default function MentorBrowseClient({
-  mentors,
-  myBookings,
-}: {
-  mentors: Mentor[];
-  myBookings: MyBooking[];
-}) {
-  const router = useRouter();
-  const [selected, setSelected] = useState<Mentor | null>(null);
-  const [slots, setSlots] = useState<MentorSlot[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [bookingId, setBookingId] = useState<string | null>(null);
-  const [bookError, setBookError] = useState<string | null>(null);
-  const [bookedMsg, setBookedMsg] = useState<string | null>(null);
-  // Mandatory before any slot can be booked - the mentor needs to know where
-  // a student actually is before the session, not walk in blind. Both are
-  // required; the Book buttons stay disabled until both are filled in.
-  const [stage, setStage] = useState("");
-  const [currentPrep, setCurrentPrep] = useState("");
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const readyToBook = stage.trim().length > 0 && currentPrep.trim().length > 0;
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
-  }, []);
-
-  const now = new Date().toISOString();
-
-  async function selectMentor(m: Mentor) {
-    setSelected(m);
-    setBookError(null);
-    setBookedMsg(null);
-    setLoadingSlots(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("mentor_slots")
-      .select("*")
-      .eq("mentor_id", m.id)
-      .eq("is_booked", false)
-      .gte("end_time", now)
-      .order("start_time", { ascending: true });
-    setSlots((data ?? []) as MentorSlot[]);
-    setLoadingSlots(false);
-  }
-
-  // A slot clashes if the student already holds a booking somewhere in the
-  // same Eastern-time Mon-Sun week - the one-booking-per-week limit is
-  // per student, not per mentor, so it has to look across ALL of their
-  // bookings, not just ones with this mentor.
-  function hasBookingInWeekOf(startTime: string): boolean {
-    const week = easternWeekStart(startTime);
-    return myBookings.some((b) => easternWeekStart(b.start_time) === week);
-  }
-
-  async function book(slotId: string) {
-    if (!readyToBook) {
-      setBookError("Fill in your prep stage and what you're currently using/doing before booking.");
-      return;
-    }
-    const targetSlot = slots.find((s) => s.id === slotId);
-    if (targetSlot && hasBookingInWeekOf(targetSlot.start_time)) {
-      setBookError(
-        "You already have a mentor session booked this week (Mon-Sun, Eastern Time). Only one booking per week is allowed."
-      );
-      return;
-    }
-    setBookingId(slotId);
-    setBookError(null);
-    const supabase = createClient();
-    // Conditional update: only succeeds if the slot is still unbooked at the
-    // moment this statement runs - the WHERE clause is checked and applied
-    // atomically by Postgres, so a slot can't be double-booked by two
-    // students clicking at nearly the same time. A database trigger also
-    // enforces the one-per-week limit server-side (see the
-    // mentor_booking_weekly_limit migration) as the authoritative check,
-    // since this client-side check alone could be bypassed.
-    const { data, error } = await supabase
-      .from("mentor_slots")
-      .update({
-        is_booked: true,
-        booked_by: (await supabase.auth.getUser()).data.user?.id,
-        booked_at: new Date().toISOString(),
-        student_note: `Stage: ${stage} | Currently: ${currentPrep.trim()}`,
-      })
-      .eq("id", slotId)
-      .eq("is_booked", false)
-      .select();
-    setBookingId(null);
-    if (error) {
-      setBookError(error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      setBookError("Someone just booked that slot - pick another.");
-      setSlots((prev) => prev.filter((s) => s.id !== slotId));
-      return;
-    }
-    setSlots((prev) => prev.filter((s) => s.id !== slotId));
-    setBookedMsg("Booked! You'll see it under \"Upcoming Sessions\" in the sidebar.");
-
-    // Let the mentor know by email - best-effort, doesn't block the UI and
-    // a failure here shouldn't make it look like the booking itself failed.
-    const bookedSlot = slots.find((s) => s.id === slotId);
-    if (bookedSlot) {
-      fetch("/api/mentorship/notify-booking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slotId,
-          dateLabel: formatSlotDate(bookedSlot.start_time),
-          timeLabel: `${formatSlotTime(bookedSlot.start_time)} - ${formatSlotTime(bookedSlot.end_time)}`,
-        }),
-      }).catch(() => {});
-    }
-
-    router.refresh();
-  }
-
+export default function MentorBrowseClient({ mentors }: { mentors: MentorCardData[] }) {
   return (
     <div className="space-y-6">
       <p className="text-xs text-slate-500">
-        Looking for sessions you've already booked? See{" "}
+        Looking for sessions you&apos;ve already booked? See{" "}
         <a href="/mentorship/sessions" className="text-brand-400 hover:text-brand-300">
           Upcoming Sessions
         </a>{" "}
         in the sidebar.
       </p>
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <p className="text-sm font-semibold">Mentors</p>
-          {mentors.length === 0 && <p className="text-sm text-slate-400">No mentors are listed yet.</p>}
+      {mentors.length === 0 ? (
+        <p className="text-sm text-slate-400">No mentors are listed yet.</p>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {mentors.map((m) => {
             const photoUrl = mentorPhotoUrl(m.photo_path, SUPABASE_URL);
-            const active = selected?.id === m.id;
+            const languages = m.languages || [];
             return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => selectMentor(m)}
-                className={`card w-full text-left flex items-center gap-3 transition ${
-                  active ? "border-brand-500" : "hover:border-brand-500/50"
-                }`}
-              >
-                {photoUrl ? (
-                  <img src={photoUrl} alt={m.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
-                    {m.name.slice(0, 1).toUpperCase()}
+              <div key={m.id} className="card flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                  {photoUrl ? (
+                    <img src={photoUrl} alt={m.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
+                      {m.name.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{m.name}</p>
+                    <span className="text-[11px] font-semibold text-green-400">✓ Passed USMLE Step 1</span>
                   </div>
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{m.name}</p>
-                  {m.bio && <p className="text-xs text-slate-400 line-clamp-2">{m.bio}</p>}
                 </div>
-              </button>
+
+                {m.bio && <p className="text-xs text-slate-400 line-clamp-2">{m.bio}</p>}
+
+                <div className="text-xs text-slate-500 space-y-1">
+                  <p>Helped {m.helpedCount} student{m.helpedCount === 1 ? "" : "s"}</p>
+                  {languages.length > 0 && <p>Speaks {languages.join(", ")}</p>}
+                  {m.response_time_note && <p>Typically responds {m.response_time_note}</p>}
+                </div>
+
+                <div className="flex items-center justify-between mt-auto pt-2">
+                  {m.availableThisWeek ? (
+                    <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-green-900/40 text-green-400">
+                      Available this week
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">No open slots this week</span>
+                  )}
+                  <a href={`/mentorship/mentor/${m.id}`} className="btn-primary text-xs">
+                    View Profile
+                  </a>
+                </div>
+              </div>
             );
           })}
         </div>
-
-        <div>
-          <p className="text-sm font-semibold mb-3">
-            {selected ? `${selected.name}'s availability` : "Pick a mentor to see availability"}
-          </p>
-          {!selected && (
-            <p className="text-sm text-slate-400">Click a mentor on the left to see their open slots.</p>
-          )}
-          {selected && loadingSlots && <p className="text-sm text-slate-400">Loading...</p>}
-          {selected && !loadingSlots && (
-            <>
-              {selected.bio && <p className="text-sm text-slate-300 mb-4">{selected.bio}</p>}
-              {!readyToBook ? (
-                <div className="card">
-                  <p className="text-sm font-semibold mb-1">Before you see {selected.name}'s availability</p>
-                  <p className="text-xs text-slate-500 mb-3">
-                    Required so your mentor knows where you're at before the session - fill this in
-                    once, it applies to whichever slot you book.
-                  </p>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="label">Stage of prep</label>
-                      <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
-                        <option value="">Select one...</option>
-                        {PREP_STAGES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="label">What are you currently using / doing?</label>
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="e.g. UWorld 2nd pass, Sketchy Micro, Anki"
-                        value={currentPrep}
-                        onChange={(e) => setCurrentPrep(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-amber-400 mt-2">
-                    Fill in both fields to unlock {selected.name}'s availability.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
-                  {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
-                  {slots.length === 0 ? (
-                    <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {groupSlotsByDate(slots).map(({ date, slots }) => (
-                        <div key={date}>
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
-                          <div className="space-y-2">
-                            {slots.map((s) => {
-                              const weekClash = hasBookingInWeekOf(s.start_time);
-                              return (
-                                <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                                  <p className="text-sm">
-                                    {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                                  </p>
-                                  {weekClash ? (
-                                    <span className="text-xs text-slate-500">Already booked this week</span>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => book(s.id)}
-                                      disabled={bookingId === s.id}
-                                      className="btn-primary text-xs"
-                                    >
-                                      {bookingId === s.id ? "Booking..." : "Book"}
-                                    </button>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {selected && currentUserId && (
-        <MentorChatPanel mentorId={selected.id} studentId={currentUserId} otherPartyLabel={selected.name} />
       )}
     </div>
   );
