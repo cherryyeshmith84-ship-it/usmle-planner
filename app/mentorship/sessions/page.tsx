@@ -1,147 +1,108 @@
-"use client";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import type { Profile } from "@/lib/types";
+import type { Mentor, MentorSlot } from "@/lib/mentors";
+import { findMentorByEmail, mentorPhotoUrl } from "@/lib/mentors";
+import { getContentPublished } from "@/lib/platformSettings";
+import AppShell from "@/components/AppShell";
+import SessionsListClient, { type SessionRow } from "@/components/SessionsListClient";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { formatSlotDate, formatSlotTime, getSlotStatus, type MentorSlot } from "@/lib/mentors";
+export const dynamic = "force-dynamic";
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+type MyBooking = MentorSlot & {
+  mentors?: { id: string; name: string; photo_path: string | null; meeting_link: string | null } | null;
+};
+type BookedByMe = MentorSlot & {
+  booked_by_profile?: { full_name: string | null; email: string | null } | null;
+};
 
 /**
- * One row's worth of display data, pre-computed server-side so this
- * component doesn't need to know whether it's rendering a mentor's list
- * (of students who booked them) or a student's list (of mentors they
- * booked) - both shapes get flattened into this before reaching here.
+ * Dedicated "Upcoming sessions" page under the Mentorship nav group - now
+ * split into Upcoming / Past (Completed or Cancelled) via SessionsListClient,
+ * with Join Meeting / Reschedule / Cancel actions on upcoming rows. Same
+ * mentor-vs-student branching as app/mentorship/page.tsx: a mentor sees who's
+ * booked time with them, a student sees every session they've booked across
+ * every mentor.
  */
-export type SessionRow = {
-  slot: MentorSlot;
-  title: string;
-  subtitle?: string | null;
-  note?: string | null;
-  photoUrl?: string | null;
-  meetingLink?: string | null;
-  // Only student rows get a reschedule option, pointed at that specific
-  // mentor's profile page to pick a new slot.
-  rescheduleMentorId?: string | null;
-};
+export default async function UpcomingSessionsPage() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-const STATUS_STYLES: Record<string, string> = {
-  upcoming: "bg-brand-900/40 text-brand-300",
-  completed: "bg-green-900/40 text-green-400",
-  cancelled: "bg-red-900/40 text-red-400",
-};
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("is_admin, full_name")
+    .eq("id", user.id)
+    .single();
+  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
+  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
-const STATUS_LABELS: Record<string, string> = {
-  upcoming: "Upcoming",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
+  const { data: mentorsData } = await supabase.from("mentors").select("*").eq("active", true);
+  const mentors = (mentorsData ?? []) as Mentor[];
+  const myMentorRecord = findMentorByEmail(mentors, user.email);
 
-export default function SessionsListClient({ rows }: { rows: SessionRow[] }) {
-  const router = useRouter();
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [errorId, setErrorId] = useState<{ id: string; message: string } | null>(null);
-
-  async function cancelSession(slotId: string) {
-    if (!confirm("Cancel this session? This can't be undone.")) return;
-    setBusyId(slotId);
-    setErrorId(null);
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const { error } = await supabase
+  if (myMentorRecord) {
+    // No end_time/is_booked-only cutoff here anymore (that used to hide
+    // completed and cancelled sessions entirely) - every booked slot is
+    // fetched and SessionsListClient buckets it into Upcoming vs Past based
+    // on getSlotStatus().
+    const { data } = await supabase
       .from("mentor_slots")
-      .update({ cancelled_at: new Date().toISOString(), cancelled_by: user?.id ?? null })
-      .eq("id", slotId);
-    setBusyId(null);
-    if (error) {
-      setErrorId({ id: slotId, message: error.message });
-      return;
-    }
-    router.refresh();
-  }
+      .select("*, booked_by_profile:booked_by(full_name, email)")
+      .eq("mentor_id", myMentorRecord.id)
+      .eq("is_booked", true)
+      .order("start_time", { ascending: true });
+    const sessions = (data ?? []) as BookedByMe[];
 
-  const upcoming = rows.filter((r) => getSlotStatus(r.slot) === "upcoming");
-  const past = rows
-    .filter((r) => getSlotStatus(r.slot) !== "upcoming")
-    .sort((a, b) => b.slot.start_time.localeCompare(a.slot.start_time));
+    const rows: SessionRow[] = sessions.map((s) => ({
+      slot: s,
+      title: s.booked_by_profile?.full_name || "A student",
+      subtitle: s.booked_by_profile?.email ?? null,
+      note: s.student_note,
+      meetingLink: myMentorRecord.meeting_link ?? null,
+    }));
 
-  function renderRow(row: SessionRow) {
-    const status = getSlotStatus(row.slot);
     return (
-      <div key={row.slot.id} className="card py-3">
-        <div className="flex items-center gap-3">
-          {row.photoUrl ? (
-            <img src={row.photoUrl} alt={row.title} className="w-9 h-9 rounded-full object-cover shrink-0" />
-          ) : (
-            <div className="w-9 h-9 rounded-full bg-brand-900/40 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
-              {row.title.slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm">
-              <span className="font-semibold">{row.title}</span>
-              {row.subtitle && <span className="text-slate-500"> ({row.subtitle})</span>}
-              {" "}&middot;{" "}
-              {formatSlotDate(row.slot.start_time)}, {formatSlotTime(row.slot.start_time)}&ndash;
-              {formatSlotTime(row.slot.end_time)}
-            </p>
-            {row.note && <p className="text-xs text-slate-400 mt-1 italic">&ldquo;{row.note}&rdquo;</p>}
-          </div>
-          <span className={`text-xs font-semibold rounded-full px-2.5 py-1 shrink-0 ${STATUS_STYLES[status]}`}>
-            {STATUS_LABELS[status]}
-          </span>
-        </div>
-
-        {status === "upcoming" && (
-          <div className="flex items-center gap-3 mt-3 pl-12">
-            {row.meetingLink && (
-              <a
-                href={row.meetingLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-primary text-xs"
-              >
-                Join Meeting
-              </a>
-            )}
-            {row.rescheduleMentorId && (
-              <a href={`/mentorship/mentor/${row.rescheduleMentorId}`} className="btn-secondary text-xs">
-                Reschedule
-              </a>
-            )}
-            <button
-              type="button"
-              onClick={() => cancelSession(row.slot.id)}
-              disabled={busyId === row.slot.id}
-              className="text-xs text-red-400 hover:text-red-300"
-            >
-              {busyId === row.slot.id ? "Cancelling..." : "Cancel"}
-            </button>
-          </div>
-        )}
-        {errorId?.id === row.slot.id && (
-          <p className="text-xs text-red-400 mt-2 pl-12">{errorId.message}</p>
-        )}
-      </div>
+      <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+        <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+          <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
+          <p className="text-sm text-slate-400 mb-6">
+            Students who&apos;ve booked a slot with you, soonest first.
+          </p>
+          <SessionsListClient rows={rows} />
+        </main>
+      </AppShell>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        {upcoming.length === 0 ? (
-          <p className="text-sm text-slate-400">No upcoming sessions.</p>
-        ) : (
-          upcoming.map(renderRow)
-        )}
-      </div>
+  const { data: myBookingsData } = await supabase
+    .from("mentor_slots")
+    .select("*, mentors(id, name, photo_path, meeting_link)")
+    .eq("booked_by", user.id)
+    .order("start_time", { ascending: true });
+  const myBookings = (myBookingsData ?? []) as MyBooking[];
 
-      {past.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Past</p>
-          <div className="space-y-2">{past.map(renderRow)}</div>
-        </div>
-      )}
-    </div>
+  const rows: SessionRow[] = myBookings.map((b) => ({
+    slot: b,
+    title: b.mentors?.name ?? "Mentor",
+    photoUrl: mentorPhotoUrl(b.mentors?.photo_path ?? null, SUPABASE_URL),
+    meetingLink: b.mentors?.meeting_link ?? null,
+    rescheduleMentorId: b.mentors?.id ?? null,
+  }));
+
+  return (
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+        <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
+        <p className="text-sm text-slate-400 mb-6">
+          Every mentorship session you&apos;ve booked, soonest first.
+        </p>
+        <SessionsListClient rows={rows} />
+      </main>
+    </AppShell>
   );
 }
