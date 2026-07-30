@@ -467,10 +467,14 @@ export default function MentorAvailabilityClient({
                       <div className="flex items-center gap-3 shrink-0">
                         <span
                           className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
-                            s.is_booked ? "bg-green-900/40 text-green-400" : "bg-slate-800 text-slate-300"
+                            s.cancelled_at
+                              ? "bg-red-900/40 text-red-400"
+                              : s.is_booked
+                                ? "bg-green-900/40 text-green-400"
+                                : "bg-slate-800 text-slate-300"
                           }`}
                         >
-                          {s.is_booked ? "Booked" : "Open"}
+                          {s.cancelled_at ? "Cancelled" : s.is_booked ? "Booked" : "Open"}
                         </span>
                         {!s.is_booked && (
                           <button
