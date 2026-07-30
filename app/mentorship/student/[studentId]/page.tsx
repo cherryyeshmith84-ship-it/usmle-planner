@@ -9,6 +9,7 @@ import { EXAM_TYPE_LABEL, computeDisciplineStrengths, computeSystemStrengths, ty
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import { readField } from "@/lib/plannerColumns";
 import AppShell from "@/components/AppShell";
+import StudyPlanEditor from "@/components/StudyPlanEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   if (!studentData) notFound();
   const student = studentData as Pick<Profile, "id" | "full_name" | "email">;
 
-  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes] = await Promise.all([
+  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes, studyPlanRes] = await Promise.all([
     supabase
       .from("score_reports")
       .select("*")
@@ -100,6 +101,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
           .eq("mentor_id", myMentorRecord.id)
           .eq("student_id", params.studentId)
       : Promise.resolve({ data: [] as SessionNote[] }),
+    myMentorRecord
+      ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
@@ -107,6 +111,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
   const sessions = (slotsRes.data ?? []) as MentorSlot[];
   const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
+  const studyPlan = studyPlanRes.data as { content: string; updated_at: string } | null;
 
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
@@ -169,6 +174,23 @@ export default async function StudentProgressPage({ params }: { params: { studen
             </div>
           )}
         </div>
+
+        {/* Study plan - only the signed-in mentor's own relationship can write
+            here (see mentor_study_plans RLS); writing this overrides the
+            default AI-generated study plan the student otherwise sees on
+            their own Analysis page. */}
+        {myMentorRecord && (
+          <div className="mb-8">
+            <h2 className="text-lg font-bold mb-3">Study plan</h2>
+            <StudyPlanEditor
+              studentId={params.studentId}
+              mentorId={myMentorRecord.id}
+              currentUserId={user.id}
+              initialContent={studyPlan?.content ?? null}
+              initialUpdatedAt={studyPlan?.updated_at ?? null}
+            />
+          </div>
+        )}
 
         {/* Score reports */}
         {scoreReports.length > 0 && (
