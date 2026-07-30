@@ -113,6 +113,15 @@ export default function PerformanceClient({
   const [systemTableOpen, setSystemTableOpen] = useState(true);
   const [disciplineTableOpen, setDisciplineTableOpen] = useState(true);
   const [topicTableOpen, setTopicTableOpen] = useState(true);
+  // "Progress by system" table controls - default sort matches the existing
+  // weakest-first order computeSystemStrengths already returns; the other
+  // two re-sort by how much each system's percent moved from its first to
+  // its most recent regular report (see systemDelta below), not just its
+  // rolling average, so a system that's swinging hard shows up even if its
+  // average still looks middling. expandedSystemHistory drives the
+  // click-a-system-to-see-full-history row.
+  const [systemSort, setSystemSort] = useState<"weakest" | "declining" | "improving">("weakest");
+  const [expandedSystemHistory, setExpandedSystemHistory] = useState<string | null>(null);
 
   const reports = initialReports;
   const immediateReview = useMemo(() => computeImmediateExamReview(reports), [reports]);
@@ -171,6 +180,27 @@ export default function PerformanceClient({
     () => computeDisciplineStrengths(regularReports),
     [regularReports]
   );
+
+  // How much a system's percent moved from its first to its most recent
+  // appearance across comparisonReports (same columns the table shows) -
+  // used by the "Most declining"/"Most improving" sort options below. Null
+  // when a system has fewer than 2 data points, so it sorts as "no real
+  // movement" rather than a false zero.
+  function systemDelta(system: string): number | null {
+    const vals = comparisonReports
+      .map((r) => r.system_breakdown?.[system])
+      .filter((v): v is number => typeof v === "number");
+    if (vals.length < 2) return null;
+    return vals[vals.length - 1] - vals[0];
+  }
+
+  const sortedSystemRows = useMemo(() => {
+    if (systemSort === "weakest") return regularStrengths;
+    const withDelta = regularStrengths.map((s) => ({ s, delta: systemDelta(s.system) ?? 0 }));
+    withDelta.sort((a, b) => (systemSort === "declining" ? a.delta - b.delta : b.delta - a.delta));
+    return withDelta.map((x) => x.s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regularStrengths, systemSort, comparisonReports]);
 
   interface TopicRow {
     key: string;
@@ -739,22 +769,39 @@ export default function PerformanceClient({
 
           {comparisonReports.length > 1 && (
             <div className="card overflow-x-auto">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <p className="text-sm font-semibold">Progress by system</p>
-                <button
-                  type="button"
-                  onClick={() => setSystemTableOpen((v) => !v)}
-                  aria-label={systemTableOpen ? "Minimize" : "Maximize"}
-                  className="text-slate-400 hover:text-slate-200 shrink-0 p-1 rounded hover:bg-slate-800 transition"
-                >
-                  <ChevronToggle open={systemTableOpen} />
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Sort control - "Weakest first" is the existing default
+                      order computeSystemStrengths already returns; the other
+                      two re-rank by systemDelta (first-vs-last percent
+                      across the columns shown), so a system swinging hard in
+                      either direction surfaces even if its average looks
+                      middling. */}
+                  <select
+                    value={systemSort}
+                    onChange={(e) => setSystemSort(e.target.value as typeof systemSort)}
+                    className="input text-xs py-1"
+                  >
+                    <option value="weakest">Sort: Weakest first</option>
+                    <option value="declining">Sort: Most declining</option>
+                    <option value="improving">Sort: Most improving</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setSystemTableOpen((v) => !v)}
+                    aria-label={systemTableOpen ? "Minimize" : "Maximize"}
+                    className="text-slate-400 hover:text-slate-200 shrink-0 p-1 rounded hover:bg-slate-800 transition"
+                  >
+                    <ChevronToggle open={systemTableOpen} />
+                  </button>
+                </div>
               </div>
               {systemTableOpen && (
                 <table className="min-w-full text-xs">
                   <thead>
                     <tr className="text-left text-slate-500">
-                      <th className="pr-3 py-1">System</th>
+                      <th className="pr-3 py-1 sticky-col">System</th>
                       {comparisonReports.map((r) => (
                         <th key={r.id} className="px-2 py-1 whitespace-nowrap">
                           {r.taken_date ?? "?"}
@@ -765,23 +812,76 @@ export default function PerformanceClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {regularStrengths.map((s) => (
-                      <tr key={s.system} className="border-t border-slate-800">
-                        <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
-                        {comparisonReports.map((r) => {
-                          const pct = r.system_breakdown?.[s.system];
-                          return (
-                            <td key={r.id} className="px-2 py-1.5 text-center">
-                              {typeof pct === "number" ? (
-                                <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
-                              ) : (
-                                <span className="text-slate-700">-</span>
-                              )}
+                    {sortedSystemRows.map((s) => {
+                      const historyOpen = expandedSystemHistory === s.system;
+                      const history = trends[s.system] ?? [];
+                      return (
+                        <Fragment key={s.system}>
+                          <tr className="border-t border-slate-800">
+                            <td className="pr-3 py-1.5 whitespace-nowrap sticky-col">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedSystemHistory(historyOpen ? null : s.system)}
+                                className="text-slate-300 hover:text-brand-300 text-left"
+                              >
+                                {s.system}
+                              </button>
                             </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                            {comparisonReports.map((r) => {
+                              const pct = r.system_breakdown?.[s.system];
+                              return (
+                                <td key={r.id} className="px-2 py-1.5 text-center">
+                                  {typeof pct === "number" ? (
+                                    <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                                  ) : (
+                                    <span className="text-slate-700">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                          {/* Click-a-system full history - every trend point
+                              ever recorded for this system (not just the
+                              regular-report columns above), each with its
+                              delta vs. the point before it, for a student
+                              who wants the whole story on one system instead
+                              of scanning across the wide table. */}
+                          {historyOpen && (
+                            <tr className="border-t border-slate-900 bg-slate-900/30">
+                              <td colSpan={comparisonReports.length + 1} className="px-3 py-2">
+                                {history.length === 0 ? (
+                                  <p className="text-slate-500">No history for this system.</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                    {history.map((point, i) => {
+                                      const prevPct = i > 0 ? history[i - 1].percent : null;
+                                      const delta = prevPct !== null ? point.percent - prevPct : null;
+                                      return (
+                                        <span key={point.reportId} className="whitespace-nowrap">
+                                          <span className="text-slate-500">
+                                            {point.takenDate ?? "?"} ({point.examName}):
+                                          </span>{" "}
+                                          <span className={`font-semibold rounded-full px-1.5 py-0.5 ${scoreBadgeClass(point.percent)}`}>
+                                            {point.percent}%
+                                          </span>
+                                          {delta !== null && delta !== 0 && (
+                                            <span className={delta > 0 ? "text-green-400" : "text-red-400"}>
+                                              {" "}
+                                              {delta > 0 ? "↑" : "↓"}
+                                              {Math.abs(delta)}
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
