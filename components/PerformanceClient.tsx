@@ -9,6 +9,7 @@ import {
   computeImmediateExamReview,
   computeSystemStrengths,
   systemTrends,
+  type AiExamReview,
   type ScoreReport,
 } from "@/lib/scoreReports";
 import { compareContentBreakdowns, type ContentAreaStat } from "@/lib/questionLevelReports";
@@ -88,7 +89,7 @@ export default function PerformanceClient({
   initialReports: ScoreReport[];
 }) {
   const router = useRouter();
-  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [aiReview, setAiReview] = useState<AiExamReview | null>(null);
   const [loadingSuggestion, setLoadingSuggestion] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -203,7 +204,7 @@ export default function PerformanceClient({
       try {
         const res = await fetch("/api/score-report/suggestions");
         const json = await res.json();
-        if (res.ok && json.suggestion) setSuggestion(json.suggestion);
+        if (res.ok && json.review) setAiReview(json.review);
       } catch {
         // Silent - the button is still there if this fails.
       }
@@ -222,9 +223,9 @@ export default function PerformanceClient({
       });
       const json = await res.json();
       if (!res.ok) {
-        setSuggestionError(json.error || "Couldn't generate a suggestion.");
+        setSuggestionError(json.error || "Couldn't generate a review.");
       } else {
-        setSuggestion(json.suggestion);
+        setAiReview(json.review);
       }
     } catch (e: any) {
       setSuggestionError(e.message || "Couldn't reach the AI.");
@@ -503,6 +504,65 @@ export default function PerformanceClient({
             </div>
           )}
 
+          {/* AI Exam Review - structured bullets instead of a paragraph (see
+              AiExamReview in lib/scoreReports.ts). Sits right below the
+              Immediate Exam Review, above every table, matching the intended
+              upload -> AI processing -> immediate review -> AI review flow. */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold">AI Exam Review</p>
+              <button
+                type="button"
+                onClick={() => getSuggestion(!!aiReview)}
+                disabled={loadingSuggestion}
+                className="btn-secondary text-xs"
+              >
+                {loadingSuggestion ? "Thinking..." : aiReview ? "Refresh" : "Get AI review"}
+              </button>
+            </div>
+            {suggestionError && <p className="text-xs text-red-400 mb-2">{suggestionError}</p>}
+            {aiReview ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  {aiReview.bullets.map((b, i) => (
+                    <p key={i} className={`text-sm flex items-start gap-2 ${b.positive ? "text-slate-300" : "text-slate-300"}`}>
+                      <span className={`shrink-0 ${b.positive ? "text-green-400" : "text-amber-400"}`}>
+                        {b.positive ? "✓" : "⚠"}
+                      </span>
+                      {b.text}
+                    </p>
+                  ))}
+                </div>
+                {aiReview.priorityAreas.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Priority Areas</p>
+                    <ol className="text-sm text-slate-300 list-decimal list-inside space-y-0.5">
+                      {aiReview.priorityAreas.map((area) => (
+                        <li key={area}>{area}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {aiReview.estimatedHours && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                      Estimated study requirement
+                    </p>
+                    <p className="text-sm text-slate-300">{aiReview.estimatedHours}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              !suggestionError && (
+                <p className="text-xs text-slate-500">
+                  Generates a quick read on what's going well and what to prioritize, based on your score
+                  history. Reused automatically until you add a new report or hit Refresh, so it doesn't
+                  burn through the shared AI quota.
+                </p>
+              )
+            )}
+          </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="card">
               <p className="text-sm font-semibold mb-3">Weakest systems right now</p>
@@ -772,31 +832,6 @@ export default function PerformanceClient({
             )}
           </div>
 
-          {/* Moved to the very bottom, below every table and both history
-              lists, so it reads as a closing takeaway after everything else
-              on the page rather than interrupting the data on the way down. */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold">AI suggestions</p>
-              <button
-                type="button"
-                onClick={() => getSuggestion(!!suggestion)}
-                disabled={loadingSuggestion}
-                className="btn-secondary text-xs"
-              >
-                {loadingSuggestion ? "Thinking..." : suggestion ? "Refresh" : "Get suggestions"}
-              </button>
-            </div>
-            {suggestionError && <p className="text-xs text-red-400">{suggestionError}</p>}
-            {suggestion && <p className="text-sm text-slate-300 whitespace-pre-line">{suggestion}</p>}
-            {!suggestion && !suggestionError && (
-              <p className="text-xs text-slate-500">
-                Generates a short note on what to prioritize based on your score history. Reused
-                automatically until you add a new report or hit Refresh, so it doesn't burn through
-                the shared AI quota.
-              </p>
-            )}
-          </div>
         </>
       )}
     </div>
