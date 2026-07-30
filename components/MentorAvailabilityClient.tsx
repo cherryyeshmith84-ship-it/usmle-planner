@@ -3,9 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { formatSlotDate, formatSlotTime, groupSlotsByDate, type Mentor, type MentorSlot } from "@/lib/mentors";
+import {
+  formatSlotDate,
+  formatSlotTime,
+  groupSlotsByDate,
+  mentorPhotoUrl,
+  type Mentor,
+  type MentorSlot,
+} from "@/lib/mentors";
 import { nyWallTimeToUtcIso } from "@/lib/timezone";
 import MentorChatPanel from "./MentorChatPanel";
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
 type SlotWithBooker = MentorSlot & {
   booked_by_profile?: { full_name: string | null; email: string | null } | null;
@@ -33,6 +42,91 @@ export default function MentorAvailabilityClient({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<ConversationPartner | null>(null);
+
+  // Profile editing - name/bio/photo only. Email and active status are
+  // intentionally left out here (and are blocked server-side too, even if
+  // someone tried to force them through): email is tied to how this mentor
+  // logs in, and active is an admin-only visibility switch.
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileName, setProfileName] = useState(mentor.name);
+  const [profileBio, setProfileBio] = useState(mentor.bio || "");
+  const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [photoPath, setPhotoPath] = useState(mentor.photo_path);
+  const [displayName, setDisplayName] = useState(mentor.name);
+  const [displayBio, setDisplayBio] = useState(mentor.bio || "");
+
+  function startEditProfile() {
+    setProfileName(displayName);
+    setProfileBio(displayBio);
+    setProfilePhotoFile(null);
+    setProfileError(null);
+    setEditingProfile(true);
+  }
+
+  function cancelEditProfile() {
+    setEditingProfile(false);
+    setProfilePhotoFile(null);
+    setProfileError(null);
+  }
+
+  async function saveProfile() {
+    if (!profileName.trim()) {
+      setProfileError("Name can't be blank.");
+      return;
+    }
+    setProfileSaving(true);
+    setProfileError(null);
+    const supabase = createClient();
+
+    // Keep the existing photo unless a new file was chosen. The old file is
+    // removed afterward on a best-effort basis so storage doesn't quietly
+    // accumulate replaced photos.
+    let newPhotoPath = photoPath;
+    const oldPhotoPath = photoPath;
+    if (profilePhotoFile) {
+      const ext = profilePhotoFile.name.split(".").pop() || "jpg";
+      const path = `${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("mentor-photos")
+        .upload(path, profilePhotoFile, { upsert: false });
+      if (uploadError) {
+        setProfileSaving(false);
+        setProfileError(uploadError.message);
+        return;
+      }
+      newPhotoPath = path;
+    }
+
+    const { error: updateError } = await supabase
+      .from("mentors")
+      .update({
+        name: profileName.trim(),
+        bio: profileBio.trim() || null,
+        photo_path: newPhotoPath,
+      })
+      .eq("id", mentor.id);
+
+    if (updateError) {
+      setProfileSaving(false);
+      setProfileError(updateError.message);
+      return;
+    }
+
+    if (profilePhotoFile && oldPhotoPath) {
+      await supabase.storage.from("mentor-photos").remove([oldPhotoPath]).catch(() => {});
+    }
+
+    setPhotoPath(newPhotoPath);
+    setDisplayName(profileName.trim());
+    setDisplayBio(profileBio.trim());
+    setProfileSaving(false);
+    setEditingProfile(false);
+    router.refresh();
+  }
+
+  const photoUrl = mentorPhotoUrl(photoPath, SUPABASE_URL);
 
   async function addSlot() {
     if (!date || !startTime || !endTime) {
@@ -84,6 +178,90 @@ export default function MentorAvailabilityClient({
 
   return (
     <div className="space-y-6">
+      <div className="card">
+        {editingProfile ? (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold">Edit your profile</p>
+            <p className="text-xs text-slate-500">
+              This is what students see when they browse mentors. Your email ({mentor.email}) isn&apos;t
+              editable here since it&apos;s tied to how you sign in.
+            </p>
+            <div>
+              <label className="label">Name</label>
+              <input className="input" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Details / bio</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={profileBio}
+                onChange={(e) => setProfileBio(e.target.value)}
+                placeholder="Background, specialties, what students can ask about..."
+              />
+            </div>
+            <div>
+              <label className="label">Photo</label>
+              <div className="flex items-center gap-3">
+                {photoUrl ? (
+                  <img src={photoUrl} alt={displayName} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
+                    {displayName.slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setProfilePhotoFile(e.target.files?.[0] ?? null)}
+                  className="text-sm text-slate-300"
+                />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Current photo shown on the left. Choose a file to replace it, or leave blank to keep it.
+              </p>
+            </div>
+            {profileError && <p className="text-xs text-red-400">{profileError}</p>}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={saveProfile}
+                disabled={profileSaving}
+                className="btn-primary text-sm"
+              >
+                {profileSaving ? "Saving..." : "Save changes"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEditProfile}
+                disabled={profileSaving}
+                className="btn-secondary text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-4">
+            {photoUrl ? (
+              <img src={photoUrl} alt={displayName} className="w-14 h-14 rounded-full object-cover shrink-0" />
+            ) : (
+              <div className="w-14 h-14 rounded-full bg-brand-900/40 text-brand-300 font-bold flex items-center justify-center shrink-0">
+                {displayName.slice(0, 1).toUpperCase()}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">{displayName}</p>
+              <p className="text-xs text-slate-400 truncate">{mentor.email}</p>
+              {displayBio && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{displayBio}</p>}
+            </div>
+            <button type="button" onClick={startEditProfile} className="btn-secondary text-xs shrink-0">
+              Edit profile
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <p className="text-sm font-semibold mb-1">Add an open slot</p>
         <p className="text-xs text-slate-500 mb-3">
