@@ -106,6 +106,14 @@ export default function PerformanceClient({
   const [loadingSuggestion, setLoadingSuggestion] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // "View Report" on each history card - opens the original uploaded
+  // image_paths (already stored at upload time, never surfaced anywhere
+  // until now). The score-reports storage bucket is private, so each path
+  // needs a signed URL; those are fetched lazily on first click and cached
+  // per report id rather than re-signed every render.
+  const [viewingReportId, setViewingReportId] = useState<string | null>(null);
+  const [reportImageUrls, setReportImageUrls] = useState<Record<string, string[]>>({});
+  const [loadingReportImages, setLoadingReportImages] = useState<string | null>(null);
   // Maximize/minimize toggles for the three "Progress by ..." tables below -
   // each defaults open, but with 13+ reports as columns these can get wide
   // and tall, so a student can collapse the ones they're not looking at
@@ -333,6 +341,31 @@ export default function PerformanceClient({
     router.refresh();
   }
 
+  /** Toggles the "View Report" panel for a card, lazily signing every
+   *  image_paths entry the first time (storage RLS only lets a student sign
+   *  URLs for their own folder, which is exactly what these paths are - see
+   *  score_reports_storage_select policy). Rendered as real <a> links
+   *  (opened one at a time by the student's own click) rather than
+   *  window.open() from the async callback, since the async gap between
+   *  fetching the signed URLs and having them ready breaks the "triggered by
+   *  a user gesture" window popup blockers require. */
+  async function toggleViewReport(r: ScoreReport) {
+    if (viewingReportId === r.id) {
+      setViewingReportId(null);
+      return;
+    }
+    setViewingReportId(r.id);
+    if (reportImageUrls[r.id] || r.image_paths.length === 0) return;
+    setLoadingReportImages(r.id);
+    const supabase = createClient();
+    const { data } = await supabase.storage.from("score-reports").createSignedUrls(r.image_paths, 300);
+    setReportImageUrls((prev) => ({
+      ...prev,
+      [r.id]: (data ?? []).map((d) => d.signedUrl).filter((u): u is string => !!u),
+    }));
+    setLoadingReportImages(null);
+  }
+
   /**
    * Renders one report card (used for both the regular score-report list
    * and the separate question-level-report list below it). For
@@ -344,6 +377,7 @@ export default function PerformanceClient({
    */
   function renderReportCard(r: ScoreReport) {
     const expanded = expandedId === r.id;
+    const viewingReport = viewingReportId === r.id;
     return (
       <div key={r.id} className="card">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -362,6 +396,15 @@ export default function PerformanceClient({
                 {r.overall_percent !== null ? `${r.overall_percent}%` : r.overall_score}
               </span>
             )}
+            {r.image_paths.length > 0 && (
+              <button
+                type="button"
+                onClick={() => toggleViewReport(r)}
+                className="text-xs text-brand-400 hover:text-brand-300 font-medium"
+              >
+                {viewingReport ? "Hide report" : "View Report"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setExpandedId(expanded ? null : r.id)}
@@ -378,6 +421,32 @@ export default function PerformanceClient({
             </button>
           </div>
         </div>
+        {viewingReport && (
+          <div className="mt-3 pt-3 border-t border-slate-800">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              Original uploaded report
+            </p>
+            {loadingReportImages === r.id ? (
+              <p className="text-xs text-slate-500">Loading...</p>
+            ) : (reportImageUrls[r.id]?.length ?? 0) === 0 ? (
+              <p className="text-xs text-slate-500">Couldn&apos;t load the original file(s) for this report.</p>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {reportImageUrls[r.id].map((url, i) => (
+                  <a
+                    key={url}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-brand-400 hover:text-brand-300 underline"
+                  >
+                    Open page {i + 1}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {expanded && (
           <div className="mt-3 space-y-4">
             <div>
