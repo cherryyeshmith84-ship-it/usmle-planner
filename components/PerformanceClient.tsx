@@ -85,6 +85,7 @@ export default function PerformanceClient({
   userId,
   initialReports,
   myMentor,
+  mentorStudyPlan,
 }: {
   userId: string;
   initialReports: ScoreReport[];
@@ -93,6 +94,11 @@ export default function PerformanceClient({
   // has no mentor relationship yet, in which case "Discuss With Mentor"
   // routes to the mentor directory instead of a specific profile.
   myMentor?: { id: string; name: string | null } | null;
+  // A mentor-authored study plan (see StudyPlanEditor.tsx / mentor_study_plans
+  // table) - when present, this fully replaces the computed "Default AI Study
+  // Plan" below. Null until a mentor writes one; disappears again if they
+  // remove it.
+  mentorStudyPlan?: { content: string; updatedAt: string; mentorName: string | null } | null;
 }) {
   const router = useRouter();
   const [aiReview, setAiReview] = useState<AiExamReview | null>(null);
@@ -566,6 +572,50 @@ export default function PerformanceClient({
                   burn through the shared AI quota.
                 </p>
               )
+            )}
+          </div>
+
+          {/* Study Plan - a mentor-authored plan (mentorStudyPlan) always
+              wins when one exists; otherwise this is computed on the fly
+              from the AI Exam Review above (no separate AI call/schema
+              needed for the default case - see mentorStudyPlan prop doc). */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-semibold">
+                {mentorStudyPlan ? "Study Plan" : "Default AI Study Plan"}
+              </p>
+              {mentorStudyPlan && (
+                <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-brand-900/40 text-brand-300">
+                  From {mentorStudyPlan.mentorName ?? "your mentor"}
+                </span>
+              )}
+            </div>
+            {mentorStudyPlan ? (
+              <>
+                <p className="text-sm text-slate-300 whitespace-pre-wrap">{mentorStudyPlan.content}</p>
+                <p className="text-xs text-slate-500 mt-2">
+                  Last updated {new Date(mentorStudyPlan.updatedAt).toLocaleDateString()}
+                </p>
+              </>
+            ) : aiReview && aiReview.priorityAreas.length > 0 ? (
+              <>
+                <p className="text-xs text-slate-500 mb-2">
+                  Generated from your AI Exam Review above - a mentor can replace this with their own plan
+                  any time.
+                </p>
+                <ol className="text-sm text-slate-300 list-decimal list-inside space-y-0.5">
+                  {aiReview.priorityAreas.map((area) => (
+                    <li key={area}>{area}</li>
+                  ))}
+                </ol>
+                {aiReview.estimatedHours && (
+                  <p className="text-xs text-slate-500 mt-2">Estimated total: {aiReview.estimatedHours}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-slate-500">
+                Get an AI Exam Review above to generate your default study plan here.
+              </p>
             )}
           </div>
 
