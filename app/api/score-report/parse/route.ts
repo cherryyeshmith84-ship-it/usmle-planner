@@ -193,7 +193,13 @@ IMPORTANT - use the exact spelling and punctuation shown in the numbered
 lists above for every key in system_breakdown/discipline_breakdown (e.g.
 "Behavioral Health & Nervous Systems/Special Senses" with no space before
 or after the "/", exactly as printed above) - keys that don't match exactly
-are silently dropped before they ever reach the student.
+are silently dropped before they ever reach the student. The numbers in
+front of each item (e.g. "4." in "4. Cardiovascular System") are ONLY there
+so you can cross-reference them in your own reasoning - they are NOT part
+of the name. Never include that number, a period, or a closing parenthesis
+in the actual JSON key - the key for item 4 must be exactly
+"Cardiovascular System", not "4. Cardiovascular System" or "4 Cardiovascular
+System".
 
 Respond with ONLY JSON in exactly this shape, no extra commentary:
 
@@ -232,9 +238,23 @@ field as null (system_breakdown and discipline_breakdown as {}).
 
   /** Loosely normalizes a label for matching purposes only (lowercase,
    *  collapsed whitespace, no spaces around "/" or "&", punctuation
-   *  stripped) - never used as the actual stored key. */
+   *  stripped, leading list-numbering stripped) - never used as the actual
+   *  stored key.
+   *
+   *  Root cause found via the raw-labels-in-the-warning debug output: the
+   *  system/discipline lists are given to Gemini as a NUMBERED list ("1.
+   *  Behavioral Health...", "2. Biostatistics...") so it can cross-reference
+   *  them in its reasoning, but Gemini kept echoing that number back as part
+   *  of the JSON key itself (e.g. "1 Behavioral Health & Nervous
+   *  Systems/Special Senses" instead of just the name) - which meant EVERY
+   *  key failed the canonical-list match, no matter how well spacing/
+   *  punctuation were normalized elsewhere. Stripping a leading "12. "/"12) "/
+   *  "12 " prefix before comparing fixes this at the root, regardless of
+   *  whether the prompt instruction below actually stops Gemini from doing
+   *  it every time. */
   function normalizeLabel(s: string): string {
     return s
+      .replace(/^\s*\d+\s*[.)]?\s*/, "")
       .toLowerCase()
       .replace(/\s*\/\s*/g, "/")
       .replace(/\s*&\s*/g, " & ")
