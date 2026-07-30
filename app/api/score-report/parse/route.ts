@@ -243,6 +243,20 @@ field as null (system_breakdown and discipline_breakdown as {}).
       .trim();
   }
 
+  /** Accepts a plain number OR a numeric string (Gemini sometimes writes
+   *  "65" or "65%" instead of a bare 65 despite responseMimeType being
+   *  "application/json" - that only enforces valid JSON syntax, not that
+   *  every field is the right JS type) - returns null if it's genuinely not
+   *  a number either way. */
+  function coerceNumber(v: unknown): number | null {
+    if (typeof v === "number" && !Number.isNaN(v)) return v;
+    if (typeof v === "string") {
+      const n = Number(v.trim().replace(/%$/, ""));
+      if (v.trim() !== "" && !Number.isNaN(n)) return n;
+    }
+    return null;
+  }
+
   /**
    * Matches Gemini's returned breakdown keys against the canonical
    * STEP1_SYSTEMS/STEP1_SUBJECTS list by a loosely-normalized comparison
@@ -252,20 +266,22 @@ field as null (system_breakdown and discipline_breakdown as {}).
    * used slightly different spacing/punctuation than our canonical labels
    * (e.g. a space before/after "/") - which read to the student as "the AI
    * filled in my overall score but left every system/discipline box blank"
-   * even though Gemini had actually returned real numbers. This keeps the
-   * stored key exactly canonical (so everything downstream -
+   * even though Gemini had actually returned real numbers. Combined with
+   * coerceNumber above (in case a value came back as "65" instead of 65),
+   * this keeps the stored key exactly canonical (so everything downstream -
    * lib/scoreReports.ts, PerformanceClient.tsx - still only ever sees the
    * exact STEP1_SYSTEMS/STEP1_SUBJECTS strings) while being forgiving about
-   * how Gemini spelled it.
+   * exactly how Gemini formatted its answer.
    */
   function coerceBreakdown(raw: unknown, canonicalList: readonly string[]): Record<string, number> {
     if (!raw || typeof raw !== "object") return {};
     const byNormalized = new Map(canonicalList.map((c) => [normalizeLabel(c), c] as const));
     const out: Record<string, number> = {};
     for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-      if (typeof v !== "number" || Number.isNaN(v)) continue;
+      const n = coerceNumber(v);
+      if (n === null) continue;
       const canonical = byNormalized.get(normalizeLabel(k));
-      if (canonical) out[canonical] = Math.max(0, Math.min(100, Math.round(v)));
+      if (canonical) out[canonical] = Math.max(0, Math.min(100, Math.round(n)));
     }
     return out;
   }
@@ -372,7 +388,31 @@ field as null (system_breakdown and discipline_breakdown as {}).
       discipline_breakdown: coerceBreakdown(parsed.discipline_breakdown, STEP1_SUBJECTS),
     };
 
-    return NextResponse.json({ result, raw: json });
+    // Distinguishes "the AI didn't find a system/discipline table in this
+    // image at all" (nothing to warn about - the boxes are correctly blank)
+    // from "the AI returned data but every single key failed to match our
+    // canonical list" (a real problem worth flagging, since otherwise the
+    // student has no way to tell those two cases apart - both just look
+    // like empty boxes). Surfaced to the review screen as a soft warning,
+    // not a hard error, since the rest of the report still saved fine.
+    const rawSystemCount =
+      parsed.system_breakdown && typeof parsed.system_breakdown === "object"
+        ? Object.keys(parsed.system_breakdown).length
+        : 0;
+    const rawDisciplineCount =
+      parsed.discipline_breakdown && typeof parsed.discipline_breakdown === "object"
+        ? Object.keys(parsed.discipline_breakdown).length
+        : 0;
+    let warning: string | null = null;
+    if (rawSystemCount > 0 && Object.keys(result.system_breakdown).length === 0) {
+      warning =
+        "The AI found system data in this file but none of its labels matched - please fill in the System boxes manually below.";
+    } else if (rawDisciplineCount > 0 && Object.keys(result.discipline_breakdown).length === 0) {
+      warning =
+        "The AI found discipline data in this file but none of its labels matched - please fill in the Discipline boxes manually below.";
+    }
+
+    return NextResponse.json({ result, warning, raw: json });
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message || "Unexpected error calling the AI." },
