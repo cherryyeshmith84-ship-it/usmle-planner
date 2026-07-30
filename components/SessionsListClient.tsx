@@ -24,6 +24,10 @@ export type SessionRow = {
   // The session note for this slot, if one already exists - undefined/null
   // means none has been written yet.
   sessionNote?: SessionNote | null;
+  // Only set on mentor rows - links to the read-only student progress page
+  // (app/mentorship/student/[studentId]) so a mentor can check a student's
+  // score reports, planner, and history before/after a session.
+  studentId?: string | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -242,6 +246,11 @@ export default function SessionsListClient({
               {formatSlotTime(row.slot.end_time)}
             </p>
             {row.note && <p className="text-xs text-slate-400 mt-1 italic">&ldquo;{row.note}&rdquo;</p>}
+            {role === "mentor" && row.studentId && (
+              <a href={`/mentorship/student/${row.studentId}`} className="text-xs text-brand-400 hover:text-brand-300">
+                View student progress →
+              </a>
+            )}
           </div>
           <span className={`text-xs font-semibold rounded-full px-2.5 py-1 shrink-0 ${STATUS_STYLES[status]}`}>
             {STATUS_LABELS[status]}
