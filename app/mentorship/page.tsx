@@ -1,127 +1,318 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/lib/types";
-import type { Mentor, MentorSlot } from "@/lib/mentors";
-import { findMentorByEmail } from "@/lib/mentors";
-import { getContentPublished } from "@/lib/platformSettings";
-import AppShell from "@/components/AppShell";
-import MentorAvailabilityClient from "@/components/MentorAvailabilityClient";
-import MentorBrowseClient from "@/components/MentorBrowseClient";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import {
+  BIGGEST_CHALLENGE_OPTIONS,
+  PREP_STAGE_OPTIONS,
+  formatSlotDate,
+  formatSlotTime,
+  groupSlotsByDate,
+  mentorPhotoUrl,
+  type Mentor,
+  type MentorSlot,
+} from "@/lib/mentors";
+import { easternWeekStart } from "@/lib/timezone";
+import MentorChatPanel from "./MentorChatPanel";
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
 /**
- * Single "Mentorship" nav destination for everyone - which view renders
- * depends on whether the signed-in user's email matches a mentors row:
- *   - Matches -> MentorAvailabilityClient (their own slot manager).
- *   - Doesn't match (students, admin) -> MentorBrowseClient (directory +
- *     booking + "my upcoming sessions").
- * A mentor never needs a separate account type/invite flow - they just
- * sign up at the normal /signup page with the email the admin entered for
- * them in /admin/mentors.
+ * Dedicated profile page for one mentor - About / What they'll help with /
+ * Languages / Availability, plus the booking flow (previously all crammed
+ * into MentorBrowseClient's right-hand column). MentorBrowseClient now only
+ * renders cards that link here; all the "pick a slot, answer the
+ * questionnaire, book" logic lives in this one place instead.
  */
-export default async function MentorshipPage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+export default function MentorProfileClient({
+  mentor,
+  openSlots,
+  helpedCount,
+  myBookings,
+  currentUserId,
+}: {
+  mentor: Mentor;
+  openSlots: MentorSlot[];
+  helpedCount: number;
+  myBookings: MentorSlot[];
+  currentUserId: string;
+}) {
+  const router = useRouter();
+  const [slots, setSlots] = useState(openSlots);
+  const [bookingId, setBookingId] = useState<string | null>(null);
+  const [bookError, setBookError] = useState<string | null>(null);
+  const [bookedMsg, setBookedMsg] = useState<string | null>(null);
 
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("is_admin, full_name")
-    .eq("id", user.id)
-    .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
+  // Structured pre-booking questionnaire - required before any slot can be
+  // booked, same "fill in once, applies to whichever slot you book" idea as
+  // before, just with real structured fields instead of one packed string.
+  const [stage, setStage] = useState("");
+  const [currentNbme, setCurrentNbme] = useState("");
+  const [targetExamDate, setTargetExamDate] = useState("");
+  const [challenge, setChallenge] = useState("");
+  const [challengeOther, setChallengeOther] = useState("");
+  const [note, setNote] = useState("");
+  const readyToBook = stage.trim().length > 0 && challenge.trim().length > 0;
 
-  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
+  const photoUrl = mentorPhotoUrl(mentor.photo_path, SUPABASE_URL);
+  const languages = mentor.languages || [];
+  const helpAreas = mentor.help_areas || [];
 
-  const { data: mentorsData } = await supabase
-    .from("mentors")
-    .select("*")
-    .eq("active", true)
-    .order("name", { ascending: true });
-  const mentors = (mentorsData ?? []) as Mentor[];
-
-  const myMentorRecord = findMentorByEmail(mentors, user.email);
-
-  if (myMentorRecord) {
-    // Join the booking student's profile so the mentor can see who booked
-    // each slot and when, not just an "Open/Booked" badge.
-    const { data: slotsData } = await supabase
-      .from("mentor_slots")
-      .select("*, booked_by_profile:booked_by(full_name, email)")
-      .eq("mentor_id", myMentorRecord.id)
-      .order("start_time", { ascending: true });
-    const slots = (slotsData ?? []) as MentorSlot[];
-
-    // Conversation partners = anyone who's either booked a slot with this
-    // mentor or already messaged them - a student can start a thread before
-    // ever booking (e.g. asking a question first), so messages alone aren't
-    // enough to find everyone the mentor should be able to reply to.
-    const { data: bookedByRows } = await supabase
-      .from("mentor_slots")
-      .select("booked_by")
-      .eq("mentor_id", myMentorRecord.id)
-      .not("booked_by", "is", null);
-    const { data: messageStudentRows } = await supabase
-      .from("mentor_messages")
-      .select("student_id")
-      .eq("mentor_id", myMentorRecord.id);
-    const partnerIds = Array.from(
-      new Set([
-        ...(bookedByRows ?? []).map((r: any) => r.booked_by as string),
-        ...(messageStudentRows ?? []).map((r: any) => r.student_id as string),
-      ])
-    );
-    let conversationPartners: { id: string; full_name: string | null; email: string | null }[] = [];
-    if (partnerIds.length > 0) {
-      const { data: partnerProfiles } = await supabase
-        .from("profiles")
-        .select("id, full_name, email")
-        .in("id", partnerIds);
-      conversationPartners = (partnerProfiles ?? []) as any[];
-    }
-
-    return (
-      <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
-          <h1 className="text-xl font-bold mb-1">Your mentorship availability</h1>
-          <p className="text-sm text-slate-400 mb-6">
-            Add times you're free to meet. Students book straight from what you add here, and a slot
-            disappears from their view the moment someone books it.
-          </p>
-          <MentorAvailabilityClient
-            mentor={myMentorRecord}
-            initialSlots={slots}
-            conversationPartners={conversationPartners}
-          />
-        </main>
-      </AppShell>
-    );
+  function hasBookingInWeekOf(startTime: string): boolean {
+    const week = easternWeekStart(startTime);
+    return myBookings.some((b) => easternWeekStart(b.start_time) === week);
   }
 
-  // Not a mentor - browse the directory. Also fetch this user's own booked
-  // sessions across every mentor so they can see "my upcoming sessions" up
-  // top regardless of which mentor they booked with.
-  const { data: myBookingsData } = await supabase
-    .from("mentor_slots")
-    .select("*, mentors(name, photo_path)")
-    .eq("booked_by", user.id)
-    .order("start_time", { ascending: true });
+  async function book(slotId: string) {
+    if (!readyToBook) {
+      setBookError("Fill in your current stage and biggest challenge before booking.");
+      return;
+    }
+    if (challenge === "Other" && !challengeOther.trim()) {
+      setBookError("Say a bit about what your biggest challenge is.");
+      return;
+    }
+    const targetSlot = slots.find((s) => s.id === slotId);
+    if (targetSlot && hasBookingInWeekOf(targetSlot.start_time)) {
+      setBookError(
+        "You already have a mentor session booked this week (Mon-Sun, Eastern Time). Only one booking per week is allowed."
+      );
+      return;
+    }
+    setBookingId(slotId);
+    setBookError(null);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("mentor_slots")
+      .update({
+        is_booked: true,
+        booked_by: currentUserId,
+        booked_at: new Date().toISOString(),
+        current_stage: stage,
+        current_nbme: currentNbme.trim() || null,
+        target_exam_date: targetExamDate || null,
+        biggest_challenge: challenge === "Other" ? `Other: ${challengeOther.trim()}` : challenge,
+        student_note: note.trim() || null,
+      })
+      .eq("id", slotId)
+      .eq("is_booked", false)
+      .select();
+    setBookingId(null);
+    if (error) {
+      setBookError(error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      setBookError("Someone just booked that slot - pick another.");
+      setSlots((prev) => prev.filter((s) => s.id !== slotId));
+      return;
+    }
+    setSlots((prev) => prev.filter((s) => s.id !== slotId));
+    setBookedMsg('Booked! You\'ll see it under "Upcoming Sessions" in the sidebar.');
+
+    const bookedSlot = slots.find((s) => s.id === slotId);
+    if (bookedSlot) {
+      fetch("/api/mentorship/notify-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slotId,
+          dateLabel: formatSlotDate(bookedSlot.start_time),
+          timeLabel: `${formatSlotTime(bookedSlot.start_time)} - ${formatSlotTime(bookedSlot.end_time)}`,
+        }),
+      }).catch(() => {});
+    }
+
+    router.refresh();
+  }
 
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-1">Mentorship</h1>
-        <p className="text-sm text-slate-400 mb-1">
-          Pick a mentor to see their open availability and book a slot.
-        </p>
-        <p className="text-xs text-slate-500 mb-6">
+    <div className="space-y-6">
+      <a href="/mentorship" className="text-xs text-brand-400 hover:text-brand-300">
+        &larr; Back to all mentors
+      </a>
+
+      <div className="card flex items-start gap-4">
+        {photoUrl ? (
+          <img src={photoUrl} alt={mentor.name} className="w-20 h-20 rounded-full object-cover shrink-0" />
+        ) : (
+          <div className="w-20 h-20 rounded-full bg-brand-900/40 text-brand-300 text-2xl font-bold flex items-center justify-center shrink-0">
+            {mentor.name.slice(0, 1).toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-lg font-bold">{mentor.name}</p>
+            <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-green-900/40 text-green-400">
+              ✓ Passed USMLE Step 1
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Helped {helpedCount} student{helpedCount === 1 ? "" : "s"}
+            {mentor.response_time_note && <> &middot; Typically responds {mentor.response_time_note}</>}
+          </p>
+          {languages.length > 0 && (
+            <p className="text-xs text-slate-500 mt-1">Speaks {languages.join(", ")}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <p className="text-sm font-semibold mb-2">About</p>
+        {mentor.bio && <p className="text-sm text-slate-300 mb-2">{mentor.bio}</p>}
+        {mentor.med_school && (
+          <p className="text-xs text-slate-400 mb-1">
+            <span className="text-slate-500">Medical school:</span> {mentor.med_school}
+          </p>
+        )}
+        {mentor.step1_experience && (
+          <p className="text-xs text-slate-400 mb-1">
+            <span className="text-slate-500">Step 1 experience:</span> {mentor.step1_experience}
+          </p>
+        )}
+        {mentor.why_mentor && (
+          <p className="text-xs text-slate-400">
+            <span className="text-slate-500">Why they mentor:</span> {mentor.why_mentor}
+          </p>
+        )}
+        {!mentor.bio && !mentor.med_school && !mentor.step1_experience && !mentor.why_mentor && (
+          <p className="text-sm text-slate-500">This mentor hasn&apos;t filled in their About section yet.</p>
+        )}
+      </div>
+
+      {helpAreas.length > 0 && (
+        <div className="card">
+          <p className="text-sm font-semibold mb-2">What they&apos;ll help with</p>
+          <div className="grid sm:grid-cols-2 gap-1.5">
+            {helpAreas.map((area) => (
+              <p key={area} className="text-sm text-slate-300">
+                <span className="text-green-400">✓</span> {area}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="card">
+        <p className="text-sm font-semibold mb-3">Availability</p>
+        <p className="text-xs text-slate-500 mb-3">
           All times shown are Eastern Time (ET) - EST or EDT depending on the time of year.
         </p>
-        <MentorBrowseClient mentors={mentors} myBookings={(myBookingsData ?? []) as any[]} />
-      </main>
-    </AppShell>
+        {!readyToBook ? (
+          <div>
+            <p className="text-sm font-semibold mb-1">Before you see {mentor.name}&apos;s availability</p>
+            <p className="text-xs text-slate-500 mb-3">
+              Required so your mentor knows where you&apos;re at before the session - fill this in once,
+              it applies to whichever slot you book.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Current stage</label>
+                <div className="flex flex-wrap gap-3">
+                  {PREP_STAGE_OPTIONS.map((s) => (
+                    <label key={s} className="flex items-center gap-1.5 text-sm text-slate-300">
+                      <input type="radio" name="stage" checked={stage === s} onChange={() => setStage(s)} />
+                      {s}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="label">Current NBME (optional)</label>
+                <input
+                  className="input"
+                  value={currentNbme}
+                  onChange={(e) => setCurrentNbme(e.target.value)}
+                  placeholder="e.g. Form 26: 220"
+                />
+              </div>
+              <div>
+                <label className="label">Target exam date (optional)</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={targetExamDate}
+                  onChange={(e) => setTargetExamDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Biggest challenge</label>
+                <div className="flex flex-wrap gap-3">
+                  {BIGGEST_CHALLENGE_OPTIONS.map((c) => (
+                    <label key={c} className="flex items-center gap-1.5 text-sm text-slate-300">
+                      <input type="radio" name="challenge" checked={challenge === c} onChange={() => setChallenge(c)} />
+                      {c}
+                    </label>
+                  ))}
+                </div>
+                {challenge === "Other" && (
+                  <input
+                    className="input mt-2"
+                    value={challengeOther}
+                    onChange={(e) => setChallengeOther(e.target.value)}
+                    placeholder="Say more..."
+                  />
+                )}
+              </div>
+              <div>
+                <label className="label">Anything you&apos;d like your mentor to know? (optional)</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-amber-400 mt-3">
+              Fill in your stage and biggest challenge to unlock {mentor.name}&apos;s availability.
+            </p>
+          </div>
+        ) : (
+          <>
+            {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
+            {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
+            {slots.length === 0 ? (
+              <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
+            ) : (
+              <div className="space-y-4">
+                {groupSlotsByDate(slots).map(({ date, slots }) => (
+                  <div key={date}>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
+                    <div className="space-y-2">
+                      {slots.map((s) => {
+                        const weekClash = hasBookingInWeekOf(s.start_time);
+                        return (
+                          <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                            <p className="text-sm">
+                              {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                            </p>
+                            {weekClash ? (
+                              <span className="text-xs text-slate-500">Already booked this week</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => book(s.id)}
+                                disabled={bookingId === s.id}
+                                className="btn-primary text-xs"
+                              >
+                                {bookingId === s.id ? "Booking..." : "Book Session"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <MentorChatPanel mentorId={mentor.id} studentId={currentUserId} otherPartyLabel={mentor.name} />
+    </div>
   );
 }
