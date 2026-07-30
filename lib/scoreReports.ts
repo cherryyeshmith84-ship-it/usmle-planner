@@ -152,6 +152,26 @@ export function computeDisciplineStrengths(reports: ScoreReport[]): SystemStreng
   return buildCategoryStrengths(STEP1_SUBJECTS, disciplineTrends(reports));
 }
 
+/** Structured shape for the "AI Exam Review" card - replaces the old
+ *  free-text paragraph stored in ai_suggestion_cache.suggestion. Kept here
+ *  (rather than only in the API route) since both the route that generates
+ *  it and PerformanceClient that renders it need the same shape. */
+export interface AiExamReviewBullet {
+  text: string;
+  // true -> rendered with a green check, false -> rendered with an amber
+  // warning triangle. Roughly "this is going well" vs "pay attention here".
+  positive: boolean;
+}
+export interface AiExamReview {
+  bullets: AiExamReviewBullet[];
+  // Ordered, most urgent first - empty once the student has already taken
+  // the real exam (nothing left to prioritize).
+  priorityAreas: string[];
+  // Free text like "8-10 focused hours" - deliberately not a number type
+  // since the AI phrases this as a range, not a single figure.
+  estimatedHours: string;
+}
+
 export interface ImmediateExamReview {
   latest: ScoreReport;
   previous: ScoreReport | null;
