@@ -10,6 +10,7 @@ import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import { readField } from "@/lib/plannerColumns";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
+import MentorReviewButton from "@/components/MentorReviewButton";
 
 export const dynamic = "force-dynamic";
 
@@ -198,15 +199,29 @@ export default async function StudentProgressPage({ params }: { params: { studen
             <h2 className="text-lg font-bold mb-3">Score reports</h2>
             <div className="space-y-2">
               {scoreReports.map((r) => (
-                <div key={r.id} className="card py-2.5 flex items-center justify-between text-sm">
-                  <div>
-                    <span className="font-semibold">{r.exam_name}</span>{" "}
-                    <span className="text-slate-500">({EXAM_TYPE_LABEL[r.exam_type]})</span>
-                    {r.taken_date && <span className="text-slate-500"> &middot; {r.taken_date}</span>}
+                <div key={r.id} className="card py-2.5 text-sm space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold">{r.exam_name}</span>{" "}
+                      <span className="text-slate-500">({EXAM_TYPE_LABEL[r.exam_type]})</span>
+                      {r.taken_date && <span className="text-slate-500"> &middot; {r.taken_date}</span>}
+                    </div>
+                    <span className="font-semibold text-brand-300">
+                      {r.overall_percent != null ? `${r.overall_percent}%` : r.overall_score ?? "—"}
+                    </span>
                   </div>
-                  <span className="font-semibold text-brand-300">
-                    {r.overall_percent != null ? `${r.overall_percent}%` : r.overall_score ?? "—"}
-                  </span>
+                  {/* Review status - only the signed-in mentor's own
+                      relationship can write this (mentor_mark_report_reviewed
+                      checks is_mentor_of_student server-side), and it's what
+                      drives the student's own "Mentor Status" banner on
+                      their Analysis page. */}
+                  {myMentorRecord && (
+                    <MentorReviewButton
+                      reportId={r.id}
+                      reviewedAt={r.mentor_reviewed_at ?? null}
+                      nextCheckinDate={r.next_checkin_date ?? null}
+                    />
+                  )}
                 </div>
               ))}
             </div>
