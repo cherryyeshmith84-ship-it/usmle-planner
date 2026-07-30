@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -109,7 +110,16 @@ export default function NavBar({
     // (overflow-y-auto) if there are ever more links than fit.
     <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] h-screen flex flex-col">
       <div className="px-5 py-6">
-        <span className="font-bold text-brand-300 block">Master Grid</span>
+        <div className="flex items-center gap-2">
+          <Image
+            src="/logo.jpg"
+            alt=""
+            width={28}
+            height={28}
+            className="rounded-md shrink-0"
+          />
+          <span className="font-bold text-brand-300 block">Master Grid</span>
+        </div>
         {typeof streak === "number" && streak > 0 && (
           <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 mt-1">
             🔥 {streak} day{streak === 1 ? "" : "s"}
