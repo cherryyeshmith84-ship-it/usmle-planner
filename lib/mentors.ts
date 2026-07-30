@@ -84,6 +84,21 @@ export interface SessionNote {
   updated_at?: string;
 }
 
+/** A student's rating of a completed session - always writable only by the
+ *  student it belongs to (see mentor_session_feedback RLS: "Student manages
+ *  own feedback"), always readable by the mentor it's about ("Mentor views
+ *  own session feedback"). One row per slot, upserted on slot_id. */
+export interface SessionFeedback {
+  id?: string;
+  slot_id: string;
+  mentor_id: string;
+  student_id: string;
+  rating: number; // 1-5
+  helpful: boolean | null;
+  comment: string | null;
+  created_at?: string;
+}
+
 export type SlotStatus = "upcoming" | "completed" | "cancelled";
 
 /** A session's lifecycle status, derived rather than stored: cancelled
