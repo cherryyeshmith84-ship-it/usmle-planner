@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
-import type { Mentor, MentorSlot, SessionNote } from "@/lib/mentors";
+import type { Mentor, MentorSlot, SessionNote, SessionFeedback } from "@/lib/mentors";
 import { findMentorByEmail, mentorPhotoUrl } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
@@ -67,6 +67,18 @@ export default async function UpcomingSessionsPage() {
       .eq("mentor_id", myMentorRecord.id);
     const notesBySlotId = new Map<string, SessionNote>((notesData ?? []).map((n: any) => [n.slot_id, n]));
 
+    // Every rating this mentor has ever received, keyed by slot, so a
+    // completed row can show "View student feedback" without a per-row
+    // round trip. Mentors can only ever read these (RLS: "Mentor views own
+    // session feedback") - never write them.
+    const { data: feedbackData } = await supabase
+      .from("mentor_session_feedback")
+      .select("*")
+      .eq("mentor_id", myMentorRecord.id);
+    const feedbackBySlotId = new Map<string, SessionFeedback>(
+      (feedbackData ?? []).map((f: any) => [f.slot_id, f])
+    );
+
     const rows: SessionRow[] = sessions.map((s) => ({
       slot: s,
       title: s.booked_by_profile?.full_name || "A student",
@@ -75,6 +87,7 @@ export default async function UpcomingSessionsPage() {
       meetingLink: myMentorRecord.meeting_link ?? null,
       sessionNote: notesBySlotId.get(s.id) ?? null,
       studentId: s.booked_by,
+      feedback: feedbackBySlotId.get(s.id) ?? null,
     }));
 
     return (
@@ -104,6 +117,14 @@ export default async function UpcomingSessionsPage() {
     .eq("student_id", user.id);
   const myNotesBySlotId = new Map<string, SessionNote>((myNotesData ?? []).map((n: any) => [n.slot_id, n]));
 
+  const { data: myFeedbackData } = await supabase
+    .from("mentor_session_feedback")
+    .select("*")
+    .eq("student_id", user.id);
+  const myFeedbackBySlotId = new Map<string, SessionFeedback>(
+    (myFeedbackData ?? []).map((f: any) => [f.slot_id, f])
+  );
+
   const rows: SessionRow[] = myBookings.map((b) => ({
     slot: b,
     title: b.mentors?.name ?? "Mentor",
@@ -111,6 +132,7 @@ export default async function UpcomingSessionsPage() {
     meetingLink: b.mentors?.meeting_link ?? null,
     rescheduleMentorId: b.mentors?.id ?? null,
     sessionNote: myNotesBySlotId.get(b.id) ?? null,
+    feedback: myFeedbackBySlotId.get(b.id) ?? null,
   }));
 
   return (
@@ -126,4 +148,3 @@ export default async function UpcomingSessionsPage() {
     </AppShell>
   );
 }
-
