@@ -7,6 +7,8 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 export type MentorCardData = Mentor & {
   helpedCount: number;
   availableThisWeek: boolean;
+  avgRating: number | null;
+  ratingCount: number;
 };
 
 /**
@@ -47,7 +49,14 @@ export default function MentorBrowseClient({ mentors }: { mentors: MentorCardDat
                   )}
                   <div className="min-w-0">
                     <p className="text-sm font-semibold truncate">{m.name}</p>
-                    <span className="text-[11px] font-semibold text-green-400">✓ Passed USMLE Step 1</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] font-semibold text-green-400">✓ Passed USMLE Step 1</span>
+                      {m.ratingCount > 0 && (
+                        <span className="text-[11px] font-semibold text-yellow-400">
+                          ★ {m.avgRating} ({m.ratingCount})
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
