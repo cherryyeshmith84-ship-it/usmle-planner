@@ -1,7 +1,27 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeSystemStrengths } from "@/lib/scoreReports";
-import type { ScoreReport } from "@/lib/scoreReports";
+import type { AiExamReview, ScoreReport } from "@/lib/scoreReports";
+
+/** Gemini is asked for raw JSON but sometimes wraps it in a ```json fence
+ *  anyway despite the instruction not to - this strips that before parsing
+ *  so a well-formed response doesn't get treated as a parse failure. */
+function parseAiExamReview(text: string): AiExamReview | null {
+  const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "");
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed.bullets)) return null;
+    return {
+      bullets: parsed.bullets
+        .filter((b: any) => typeof b?.text === "string")
+        .map((b: any) => ({ text: b.text, positive: !!b.positive })),
+      priorityAreas: Array.isArray(parsed.priorityAreas) ? parsed.priorityAreas.filter((p: any) => typeof p === "string") : [],
+      estimatedHours: typeof parsed.estimatedHours === "string" ? parsed.estimatedHours : "",
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Generates a short, specific coaching note from a student's score-report
@@ -37,7 +57,12 @@ export async function GET() {
     .select("*")
     .eq("user_id", user.id)
     .maybeSingle();
-  return NextResponse.json({ suggestion: cache?.suggestion ?? null, cached: true });
+  // Older cache rows (before this became structured) hold a plain-prose
+  // string that won't parse as JSON - treated the same as "no cache yet"
+  // rather than an error, so the student just sees the "Get suggestions"
+  // button instead of a broken render.
+  const review = cache?.suggestion ? parseAiExamReview(cache.suggestion) : null;
+  return NextResponse.json({ review, cached: true });
 }
 
 /**
@@ -101,7 +126,13 @@ export async function POST(req: Request) {
     .eq("user_id", user.id)
     .maybeSingle();
   if (!force && cache && cache.report_count === reports.length) {
-    return NextResponse.json({ suggestion: cache.suggestion, cached: true });
+    const cachedReview = parseAiExamReview(cache.suggestion);
+    // A pre-structured cache row (plain prose from before this change) just
+    // falls through to generating a fresh one below, instead of returning
+    // something the UI can't render.
+    if (cachedReview) {
+      return NextResponse.json({ review: cachedReview, cached: true });
+    }
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -151,6 +182,15 @@ studying more will not change an exam that's already been taken.\n`
       ? `The student's own overall average across every report so far is ${overallAverage}%. Frame priorities around bringing every weak system up to at least that average, not just vaguely "keep improving" - a system sitting well below ${overallAverage}% is a bigger, more concrete priority than one only slightly under it.`
       : `Frame the goal as bringing every system up toward the student's own overall average, not just generic improvement.`;
 
+  // Structured JSON instead of a prose paragraph - lets the "AI Exam Review"
+  // card render checkmark/warning bullets, a numbered priority list, and an
+  // estimated-hours line instead of one block of text (see AiExamReview in
+  // lib/scoreReports.ts for the exact shape this must match).
+  const jsonShapeNote = `
+Respond with ONLY raw JSON (no markdown fences, no commentary before or after) matching exactly this shape:
+{"bullets": [{"text": "...", "positive": true}, ...], "priorityAreas": ["...", ...], "estimatedHours": "..."}
+"positive": true for something going well (rendered with a checkmark), false for something needing attention (rendered with a warning sign).`;
+
   const prompt = `
 You are a USMLE Step 1 study coach reviewing a student's practice-exam score history.
 ${officialResultNote}
@@ -162,22 +202,27 @@ ${systemLines}
 
 ${
   officialResult
-    ? `Write 2-3 warm, specific sentences congratulating the student on completing
-the real USMLE Step 1 exam noted above (mention the result if one is
-recorded). Do not mention weak systems, studying, or study priorities in any
-way - the exam is done, that advice no longer applies. Plain text, no
-markdown.`
-    : `Write a short, specific note (3-5 sentences, plain text, no markdown headers or
-bullet points) that:
-1. Names the 1-3 systems that are the real priority right now - weight both how
-   low they are AND whether they're stuck/declining vs. already improving.
+    ? `Produce 2-3 warm, specific bullets (all "positive": true) congratulating the
+student on completing the real USMLE Step 1 exam noted above (mention the
+result if one is recorded). Do not mention weak systems, studying, or study
+priorities in any way - the exam is done, that advice no longer applies.
+"priorityAreas" must be an empty array and "estimatedHours" must be an empty string.`
+    : `Produce 3-5 short bullets (each one sentence, no markdown) that:
+1. Name the 1-3 systems that are the real priority right now - weight both how
+   low they are AND whether they're stuck/declining vs. already improving. Mark
+   these bullets "positive": false.
 2. ${goalLine}
-3. If a system used to be weak but is now trending up, acknowledge that instead
-   of just repeating "still weak."
-4. Gives one concrete, actionable suggestion (not generic "study more") for the
-   top-priority system.
-Keep it warm and direct - like a coach talking to the student, not a report.`
+3. If a system used to be weak but is now trending up, include a "positive": true
+   bullet acknowledging that instead of just repeating "still weak."
+4. Include at least one "positive": true bullet naming a genuine strength or
+   improvement, if the data supports one.
+Then set "priorityAreas" to the same 1-3 systems named above, ordered most
+urgent first, and "estimatedHours" to a short range like "8-10 focused hours"
+estimating how much dedicated study time closing those gaps would take.
+Keep bullet text warm and direct - like a coach talking to the student, not a report.`
 }
+
+${jsonShapeNote}
 `.trim();
 
   // gemini-2.0-flash was fully shut down by Google on June 1, 2026 - calls to
@@ -210,19 +255,29 @@ Keep it warm and direct - like a coach talking to the student, not a report.`
 
     const json = await res.json();
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    const suggestion = text.trim() || "No suggestion generated.";
+    // Gemini occasionally ignores the "raw JSON only" instruction under load -
+    // rather than hard-failing the whole request when that happens, fall
+    // back to a single bullet wrapping whatever text did come back so the
+    // card still renders something instead of an error.
+    const review: AiExamReview = parseAiExamReview(text) ?? {
+      bullets: [{ text: text.trim() || "No suggestion generated.", positive: true }],
+      priorityAreas: [],
+      estimatedHours: "",
+    };
 
     // Best-effort cache write - if this fails for some reason, we still
-    // return the suggestion we just paid quota for, we just won't reuse it
-    // next time.
+    // return the review we just paid quota for, we just won't reuse it
+    // next time. Stored as a JSON string in the same `suggestion` text
+    // column that used to hold plain prose - see parseAiExamReview above
+    // for how older plain-prose rows are handled on read.
     await supabase.from("ai_suggestion_cache").upsert({
       user_id: user.id,
-      suggestion,
+      suggestion: JSON.stringify(review),
       report_count: reports.length,
       generated_at: new Date().toISOString(),
     });
 
-    return NextResponse.json({ suggestion, cached: false });
+    return NextResponse.json({ review, cached: false });
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message || "Unexpected error calling the AI." },
