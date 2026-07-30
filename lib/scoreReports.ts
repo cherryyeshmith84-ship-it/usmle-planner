@@ -114,6 +114,13 @@ export interface SystemStrength {
   trend: "improving" | "declining" | "flat" | "unknown";
 }
 
+/** Fixed default goal used for the "Target %" column on the Weakest Systems
+ *  row detail - there's no per-student customizable target yet, so this is
+ *  the same 70% bar computeImmediateExamReview already uses to decide
+ *  whether a system counts as "strong" (see strongSystems there), kept in
+ *  one place so the two stay consistent if it's ever tuned. */
+export const SYSTEM_TARGET_PERCENT = 70;
+
 /**
  * Ranks every category by recent performance - average of the last 3
  * data points per category, plus a simple trend read (first vs last of
