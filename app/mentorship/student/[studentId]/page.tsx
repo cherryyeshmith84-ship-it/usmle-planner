@@ -5,12 +5,12 @@ import type { Profile } from "@/lib/types";
 import type { Mentor, MentorSlot, SessionNote } from "@/lib/mentors";
 import { findMentorByEmail, formatSlotDate, formatSlotTime, getSlotStatus } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
-import { EXAM_TYPE_LABEL, computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
+import { computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import { readField } from "@/lib/plannerColumns";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
-import MentorReviewButton from "@/components/MentorReviewButton";
+import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,14 @@ const TREND_STYLE: Record<string, string> = {
   flat: "text-slate-400",
   unknown: "text-slate-500",
 };
+
+function scoreBadgeClass(pct: number | null) {
+  if (pct === null) return "bg-slate-800 text-slate-300";
+  if (pct >= 75) return "bg-green-900/40 text-green-400";
+  if (pct >= 60) return "bg-yellow-900/40 text-yellow-400";
+  if (pct >= 45) return "bg-orange-900/40 text-orange-400";
+  return "bg-red-900/40 text-red-400";
+}
 
 /**
  * Read-only "student progress" view a mentor can open for a specific
@@ -117,6 +125,15 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
 
+  // Full comparison tables (not just the top-5 weakest above) - a mentor
+  // planning a session needs to see every system/discipline across every
+  // report, the same depth the student themselves sees on their own
+  // Analysis page, not just a quick-glance summary.
+  const regularReports = scoreReports.filter((r) => r.exam_type !== "question_level");
+  const comparisonReports = [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
+  const allSystemStrengths = computeSystemStrengths(regularReports);
+  const allDisciplineStrengths = computeDisciplineStrengths(regularReports);
+
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
@@ -174,6 +191,89 @@ export default async function StudentProgressPage({ params }: { params: { studen
               </div>
             </div>
           )}
+
+          {/* Full comparison tables - every system/discipline across every
+              regular report, not just the top-5 weakest above, so a mentor
+              has the same depth of data the student sees on their own
+              Analysis page when deciding what to put in the student's study
+              plan below. */}
+          {comparisonReports.length > 1 && (
+            <div className="card overflow-x-auto mt-4">
+              <p className="text-sm font-semibold mb-3">Progress by system</p>
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="pr-3 py-1">System</th>
+                    {comparisonReports.map((r) => (
+                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                        {r.taken_date ?? "?"}
+                        <br />
+                        <span className="text-slate-600">{r.exam_name}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allSystemStrengths.map((s) => (
+                    <tr key={s.system} className="border-t border-slate-800">
+                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                      {comparisonReports.map((r) => {
+                        const pct = r.system_breakdown?.[s.system];
+                        return (
+                          <td key={r.id} className="px-2 py-1.5 text-center">
+                            {typeof pct === "number" ? (
+                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                            ) : (
+                              <span className="text-slate-700">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {comparisonReports.length > 1 && allDisciplineStrengths.length > 0 && (
+            <div className="card overflow-x-auto mt-4">
+              <p className="text-sm font-semibold mb-3">Progress by discipline</p>
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="pr-3 py-1">Discipline</th>
+                    {comparisonReports.map((r) => (
+                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                        {r.taken_date ?? "?"}
+                        <br />
+                        <span className="text-slate-600">{r.exam_name}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allDisciplineStrengths.map((s) => (
+                    <tr key={s.system} className="border-t border-slate-800">
+                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                      {comparisonReports.map((r) => {
+                        const pct = r.discipline_breakdown?.[s.system];
+                        return (
+                          <td key={r.id} className="px-2 py-1.5 text-center">
+                            {typeof pct === "number" ? (
+                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                            ) : (
+                              <span className="text-slate-700">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Study plan - only the signed-in mentor's own relationship can write
@@ -199,30 +299,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
             <h2 className="text-lg font-bold mb-3">Score reports</h2>
             <div className="space-y-2">
               {scoreReports.map((r) => (
-                <div key={r.id} className="card py-2.5 text-sm space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold">{r.exam_name}</span>{" "}
-                      <span className="text-slate-500">({EXAM_TYPE_LABEL[r.exam_type]})</span>
-                      {r.taken_date && <span className="text-slate-500"> &middot; {r.taken_date}</span>}
-                    </div>
-                    <span className="font-semibold text-brand-300">
-                      {r.overall_percent != null ? `${r.overall_percent}%` : r.overall_score ?? "—"}
-                    </span>
-                  </div>
-                  {/* Review status - only the signed-in mentor's own
-                      relationship can write this (mentor_mark_report_reviewed
-                      checks is_mentor_of_student server-side), and it's what
-                      drives the student's own "Mentor Status" banner on
-                      their Analysis page. */}
-                  {myMentorRecord && (
-                    <MentorReviewButton
-                      reportId={r.id}
-                      reviewedAt={r.mentor_reviewed_at ?? null}
-                      nextCheckinDate={r.next_checkin_date ?? null}
-                    />
-                  )}
-                </div>
+                <MentorScoreReportRow key={r.id} report={r} canReview={!!myMentorRecord} />
               ))}
             </div>
           </div>
