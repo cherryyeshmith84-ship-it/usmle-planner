@@ -129,6 +129,10 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     setImagePaths(paths);
 
     setStage("parsing");
+    // Clear any leftover error/warning from a previous file in this same
+    // "separate reports" batch before this one's result comes back, so an
+    // old warning can't linger and look like it applies to the new file.
+    setError(null);
     try {
       const encoded = await Promise.all(filesForThisReport.map((f) => fileToBase64(f)));
       const res = await fetch("/api/score-report/parse", {
@@ -152,6 +156,12 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
         });
       } else {
         setDraft(json.result as ParsedScoreReport);
+        // Soft warning (not a hard error) - the report still parsed fine
+        // overall, but the AI's system/discipline labels didn't match ours
+        // so those boxes came back empty. Reuses the existing amber notice
+        // below so the student knows to fill those in by hand instead of
+        // just seeing silently blank boxes with no explanation.
+        if (json.warning) setError(json.warning);
       }
     } catch (e: any) {
       setError(e.message || "Couldn't reach the AI - you can still enter it manually below.");
