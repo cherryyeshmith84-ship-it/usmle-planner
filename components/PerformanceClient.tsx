@@ -14,7 +14,7 @@ import {
   type ScoreReport,
 } from "@/lib/scoreReports";
 import { compareContentBreakdowns, type ContentAreaStat } from "@/lib/questionLevelReports";
-import { STEP1_SYSTEMS } from "@/lib/qbankTypes";
+import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import ScoreReportUpload from "./ScoreReportUpload";
 import QuestionLevelReportUpload from "./QuestionLevelReportUpload";
 
@@ -122,6 +122,13 @@ export default function PerformanceClient({
   // click-a-system-to-see-full-history row.
   const [systemSort, setSystemSort] = useState<"weakest" | "declining" | "improving">("weakest");
   const [expandedSystemHistory, setExpandedSystemHistory] = useState<string | null>(null);
+  // Compare Exams - which two regular (non-question-level) reports to diff.
+  // Null until the student picks one explicitly, in which case the default
+  // below (previous vs. latest) is used - same pair Immediate Exam Review
+  // already compares, so Compare Exams starts out showing the same story in
+  // more detail rather than something that looks unrelated.
+  const [compareAId, setCompareAId] = useState<string | null>(null);
+  const [compareBId, setCompareBId] = useState<string | null>(null);
 
   const reports = initialReports;
   const immediateReview = useMemo(() => computeImmediateExamReview(reports), [reports]);
@@ -201,6 +208,49 @@ export default function PerformanceClient({
     return withDelta.map((x) => x.s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regularStrengths, systemSort, comparisonReports]);
+
+  // Compare Exams - defaults to the same previous-vs-latest pair Immediate
+  // Exam Review already uses (comparisonReports is oldest-first, so [-2]/[-1]
+  // are previous/latest) until the student explicitly picks two reports.
+  const compareA = useMemo(
+    () => comparisonReports.find((r) => r.id === compareAId) ?? comparisonReports[comparisonReports.length - 2] ?? null,
+    [comparisonReports, compareAId]
+  );
+  const compareB = useMemo(
+    () => comparisonReports.find((r) => r.id === compareBId) ?? comparisonReports[comparisonReports.length - 1] ?? null,
+    [comparisonReports, compareBId]
+  );
+  interface CompareRow {
+    category: string;
+    from: number;
+    to: number;
+    delta: number;
+  }
+  function buildCompareRows(categories: readonly string[], breakdown: (r: ScoreReport) => Record<string, number> | null | undefined): CompareRow[] {
+    if (!compareA || !compareB) return [];
+    const rows: CompareRow[] = [];
+    for (const category of categories) {
+      const from = breakdown(compareA)?.[category];
+      const to = breakdown(compareB)?.[category];
+      if (typeof from === "number" && typeof to === "number") {
+        rows.push({ category, from, to, delta: to - from });
+      }
+    }
+    // Biggest movers first, regardless of direction - that's the whole point
+    // of a comparison view, as opposed to the weakest-first convention used
+    // elsewhere on this page.
+    return rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  }
+  const compareSystemRows = useMemo(
+    () => buildCompareRows(STEP1_SYSTEMS, (r) => r.system_breakdown),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [compareA, compareB]
+  );
+  const compareDisciplineRows = useMemo(
+    () => buildCompareRows(STEP1_SUBJECTS, (r) => r.discipline_breakdown),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [compareA, compareB]
+  );
 
   interface TopicRow {
     key: string;
@@ -944,6 +994,89 @@ export default function PerformanceClient({
                   </table>
                 )
               )}
+            </div>
+          )}
+
+          {/* Compare Exams - pick any two regular reports and see every
+              system/discipline that moved between them, biggest movers
+              first. Defaults to previous-vs-latest (same pair Immediate
+              Exam Review uses) until the student picks their own. */}
+          {comparisonReports.length > 1 && compareA && compareB && (
+            <div className="card">
+              <p className="text-sm font-semibold mb-3">Compare Exams</p>
+              <div className="flex items-center gap-2 flex-wrap mb-4">
+                <select
+                  value={compareA.id}
+                  onChange={(e) => setCompareAId(e.target.value)}
+                  className="input text-xs py-1"
+                >
+                  {comparisonReports.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.taken_date ?? "?"} - {r.exam_name}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-slate-500 text-xs">vs.</span>
+                <select
+                  value={compareB.id}
+                  onChange={(e) => setCompareBId(e.target.value)}
+                  className="input text-xs py-1"
+                >
+                  {comparisonReports.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.taken_date ?? "?"} - {r.exam_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Systems</p>
+                  <div className="space-y-1.5">
+                    {compareSystemRows.length === 0 ? (
+                      <p className="text-xs text-slate-500">No overlapping system data between these two reports.</p>
+                    ) : (
+                      compareSystemRows.map((row) => (
+                        <div key={row.category} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-300 truncate">{row.category}</span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            <span className="text-slate-500">
+                              {row.from}% &rarr; {row.to}%
+                            </span>
+                            <span className={row.delta > 0 ? "text-green-400" : row.delta < 0 ? "text-red-400" : "text-slate-500"}>
+                              {row.delta > 0 ? "↑" : row.delta < 0 ? "↓" : "→"}
+                              {Math.abs(row.delta)}
+                            </span>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Disciplines</p>
+                  <div className="space-y-1.5">
+                    {compareDisciplineRows.length === 0 ? (
+                      <p className="text-xs text-slate-500">No overlapping discipline data between these two reports.</p>
+                    ) : (
+                      compareDisciplineRows.map((row) => (
+                        <div key={row.category} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-300 truncate">{row.category}</span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            <span className="text-slate-500">
+                              {row.from}% &rarr; {row.to}%
+                            </span>
+                            <span className={row.delta > 0 ? "text-green-400" : row.delta < 0 ? "text-red-400" : "text-slate-500"}>
+                              {row.delta > 0 ? "↑" : row.delta < 0 ? "↓" : "→"}
+                              {Math.abs(row.delta)}
+                            </span>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
