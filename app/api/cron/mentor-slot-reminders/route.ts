@@ -1,129 +1,108 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { formatSlotDate, formatSlotTime } from "@/lib/mentors";
-import { easternDateStringNow, nyWallTimeToUtcIso } from "@/lib/timezone";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import type { Profile } from "@/lib/types";
+import type { Mentor, MentorSlot } from "@/lib/mentors";
+import { findMentorByEmail, mentorPhotoUrl } from "@/lib/mentors";
+import { getContentPublished } from "@/lib/platformSettings";
+import AppShell from "@/components/AppShell";
+import SessionsListClient, { type SessionRow } from "@/components/SessionsListClient";
 
 export const dynamic = "force-dynamic";
 
-// Runs once a day, scheduled for ~midnight Eastern (see vercel.json).
-// Vercel Hobby cron jobs can only fire once per day and Vercel doesn't
-// adjust cron schedules for Daylight Saving - "midnight ET" drifts by up to
-// an hour for a few weeks twice a year around the March/November DST
-// changeovers. Finds every booked mentor_slots row whose start_time falls
-// on "today" in Eastern Time and emails the student a same-day reminder.
-// reminder_sent_at makes this idempotent, so re-running it (e.g. a manual
-// test hit) never double-emails anyone.
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
-function isAuthorized(req: NextRequest): boolean {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false;
-  const authHeader = req.headers.get("authorization");
-  if (authHeader === `Bearer ${expected}`) return true;
-  const querySecret = req.nextUrl.searchParams.get("secret");
-  return querySecret === expected;
-}
+type MyBooking = MentorSlot & {
+  mentors?: { id: string; name: string; photo_path: string | null; meeting_link: string | null } | null;
+};
+type BookedByMe = MentorSlot & {
+  booked_by_profile?: { full_name: string | null; email: string | null } | null;
+};
 
-async function sendReminderEmail(
-  to: string,
-  studentFirstName: string,
-  mentorName: string,
-  dateLabel: string,
-  timeLabel: string
-): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return false;
-  const from = process.env.REMINDER_FROM_EMAIL || "Master Grid <onboarding@resend.dev>";
+/**
+ * Dedicated "Upcoming sessions" page under the Mentorship nav group - now
+ * split into Upcoming / Past (Completed or Cancelled) via SessionsListClient,
+ * with Join Meeting / Reschedule / Cancel actions on upcoming rows. Same
+ * mentor-vs-student branching as app/mentorship/page.tsx: a mentor sees who's
+ * booked time with them, a student sees every session they've booked across
+ * every mentor.
+ */
+export default async function UpcomingSessionsPage() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to,
-      subject: `Reminder: your mentorship session with ${mentorName} is today`,
-      html: `
-        <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
-          <p>Hi ${studentFirstName},</p>
-          <p>Just a reminder - your mentorship session with <strong>${mentorName}</strong> is today:</p>
-          <p style="font-size: 16px; margin: 16px 0;">
-            📅 <strong>${dateLabel}</strong><br />
-            🕐 <strong>${timeLabel}</strong>
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("is_admin, full_name")
+    .eq("id", user.id)
+    .single();
+  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
+  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
+
+  const { data: mentorsData } = await supabase.from("mentors").select("*").eq("active", true);
+  const mentors = (mentorsData ?? []) as Mentor[];
+  const myMentorRecord = findMentorByEmail(mentors, user.email);
+
+  if (myMentorRecord) {
+    // No end_time/is_booked-only cutoff here anymore (that used to hide
+    // completed and cancelled sessions entirely) - every booked slot is
+    // fetched and SessionsListClient buckets it into Upcoming vs Past based
+    // on getSlotStatus().
+    const { data } = await supabase
+      .from("mentor_slots")
+      .select("*, booked_by_profile:booked_by(full_name, email)")
+      .eq("mentor_id", myMentorRecord.id)
+      .eq("is_booked", true)
+      .order("start_time", { ascending: true });
+    const sessions = (data ?? []) as BookedByMe[];
+
+    const rows: SessionRow[] = sessions.map((s) => ({
+      slot: s,
+      title: s.booked_by_profile?.full_name || "A student",
+      subtitle: s.booked_by_profile?.email ?? null,
+      note: s.student_note,
+      meetingLink: myMentorRecord.meeting_link ?? null,
+    }));
+
+    return (
+      <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+        <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+          <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
+          <p className="text-sm text-slate-400 mb-6">
+            Students who&apos;ve booked a slot with you, soonest first.
           </p>
-          <p>All times on Master Grid are Eastern Time (ET) - double check that against your own
-            timezone if you're not on the US East Coast.</p>
-          <p>- Master Grid</p>
-        </div>
-      `,
-    }),
-  });
-  return res.ok;
-}
+          <SessionsListClient rows={rows} />
+        </main>
+      </AppShell>
+    );
+  }
 
-async function runReminders() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
-  const todayEastern = easternDateStringNow();
-  const [y, m, d] = todayEastern.split("-").map(Number);
-  const tomorrowEastern = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-  const startOfDayUtc = nyWallTimeToUtcIso(todayEastern, "00:00");
-  const endOfDayUtc = nyWallTimeToUtcIso(tomorrowEastern, "00:00");
-
-  const { data, error } = await supabase
+  const { data: myBookingsData } = await supabase
     .from("mentor_slots")
-    .select("*, mentors(name), booked_by_profile:booked_by(full_name, email)")
-    .eq("is_booked", true)
-    .is("reminder_sent_at", null)
-    .gte("start_time", startOfDayUtc)
-    .lt("start_time", endOfDayUtc);
+    .select("*, mentors(id, name, photo_path, meeting_link)")
+    .eq("booked_by", user.id)
+    .order("start_time", { ascending: true });
+  const myBookings = (myBookingsData ?? []) as MyBooking[];
 
-  if (error) {
-    return { error: error.message, checked: 0, remindersSent: 0, details: [] as any[] };
-  }
+  const rows: SessionRow[] = myBookings.map((b) => ({
+    slot: b,
+    title: b.mentors?.name ?? "Mentor",
+    photoUrl: mentorPhotoUrl(b.mentors?.photo_path ?? null, SUPABASE_URL),
+    meetingLink: b.mentors?.meeting_link ?? null,
+    rescheduleMentorId: b.mentors?.id ?? null,
+  }));
 
-  const slots = data ?? [];
-  const details: { email: string; sent: boolean }[] = [];
-
-  for (const slot of slots as any[]) {
-    const studentEmail: string | undefined = slot.booked_by_profile?.email;
-    if (!studentEmail) continue;
-
-    const studentFirstName = (slot.booked_by_profile?.full_name || "").trim().split(/\s+/)[0] || "there";
-    const mentorName = slot.mentors?.name || "your mentor";
-    const dateLabel = formatSlotDate(slot.start_time);
-    const timeLabel = `${formatSlotTime(slot.start_time)} - ${formatSlotTime(slot.end_time)}`;
-
-    const sent = await sendReminderEmail(studentEmail, studentFirstName, mentorName, dateLabel, timeLabel);
-    if (sent) {
-      await supabase
-        .from("mentor_slots")
-        .update({ reminder_sent_at: new Date().toISOString() })
-        .eq("id", slot.id);
-    }
-    details.push({ email: studentEmail, sent });
-  }
-
-  return {
-    todayEastern,
-    checked: slots.length,
-    remindersSent: details.filter((d) => d.sent).length,
-    details,
-  };
-}
-
-export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const result = await runReminders();
-  return NextResponse.json(result);
-}
-
-export async function POST(req: NextRequest) {
-  return GET(req);
+  return (
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+        <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
+        <p className="text-sm text-slate-400 mb-6">
+          Every mentorship session you&apos;ve booked, soonest first.
+        </p>
+        <SessionsListClient rows={rows} />
+      </main>
+    </AppShell>
+  );
 }
