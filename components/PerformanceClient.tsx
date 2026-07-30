@@ -260,6 +260,50 @@ export default function PerformanceClient({
     [compareA, compareB]
   );
 
+  // Action Center (item 15) - a short, deterministic "what to do right now"
+  // checklist built from data already on this page, not a new AI call. Each
+  // rule is independent and only fires when its condition is genuinely true,
+  // so the list shrinks to nothing (and the card disappears) once a student
+  // is caught up rather than nagging permanently.
+  interface ActionItem {
+    id: string;
+    text: string;
+    href?: string;
+  }
+  const mentorHref = myMentor ? `/mentorship/mentor/${myMentor.id}` : "/mentorship";
+  const actionItems = useMemo(() => {
+    const items: ActionItem[] = [];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (immediateReview && !immediateReview.latest.mentor_reviewed_at) {
+      items.push({
+        id: "discuss",
+        text: `Discuss your ${immediateReview.latest.exam_name} results with your mentor before your next study block.`,
+        href: mentorHref,
+      });
+    }
+    if (immediateReview?.latest.next_checkin_date && immediateReview.latest.next_checkin_date < todayStr) {
+      items.push({
+        id: "checkin",
+        text: `Your mentor check-in was due ${immediateReview.latest.next_checkin_date} - reach out.`,
+        href: mentorHref,
+      });
+    }
+    if (reports.length > 0 && disciplineStrengths.length === 0) {
+      items.push({
+        id: "disciplines",
+        text: "Add a discipline breakdown (Anatomy, Pathology, Pharmacology, etc.) to your next upload to unlock discipline tracking.",
+      });
+    }
+    if (reports.length > 0 && !mentorStudyPlan && (!aiReview || aiReview.priorityAreas.length === 0)) {
+      items.push({
+        id: "ai-review",
+        text: "Get an AI Exam Review above to generate your default study plan.",
+      });
+    }
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [immediateReview, disciplineStrengths, mentorStudyPlan, aiReview, reports, mentorHref]);
+
   interface TopicRow {
     key: string;
     subtopic: string;
@@ -604,6 +648,60 @@ export default function PerformanceClient({
         </div>
       ) : (
         <>
+          {/* Mentor Status banner (bonus) - only meaningful once the student
+              has both a mentor relationship and at least one regular
+              report; review status is written exclusively by
+              mentor_mark_report_reviewed() from the mentor's own student-
+              progress page (see MentorReviewButton.tsx), never by the
+              student's own client. */}
+          {myMentor && immediateReview && (
+            <div
+              className="card flex items-center justify-between gap-3 flex-wrap"
+              // Inline style, not a Tailwind border-* class - .card's own
+              // `border` shorthand rule (globals.css) is emitted after the
+              // Tailwind utilities layer in this file, so a utility class
+              // would silently lose the cascade; an inline style always wins.
+              style={{ borderColor: immediateReview.latest.mentor_reviewed_at ? "#14532d" : "#78350f" }}
+            >
+              <p className="text-xs text-slate-300">
+                {immediateReview.latest.mentor_reviewed_at ? (
+                  <>
+                    <span className="text-green-400 font-semibold">✓ Reviewed by {myMentor.name ?? "your mentor"}</span>{" "}
+                    on {new Date(immediateReview.latest.mentor_reviewed_at).toLocaleDateString()}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-amber-400 font-semibold">⚠ Not yet reviewed</span> - {myMentor.name ?? "your mentor"}{" "}
+                    hasn&apos;t looked at your {immediateReview.latest.exam_name} results yet.
+                  </>
+                )}
+                {immediateReview.latest.next_checkin_date && (
+                  <span className="text-slate-500"> &middot; Next check-in: {immediateReview.latest.next_checkin_date}</span>
+                )}
+              </p>
+            </div>
+          )}
+
+          {/* Action Center - short, rule-based "what to do now" checklist;
+              see actionItems above for exactly what triggers each row. */}
+          {actionItems.length > 0 && (
+            <div className="card">
+              <p className="text-sm font-semibold mb-2">Action Center</p>
+              <div className="space-y-2">
+                {actionItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-300">{item.text}</span>
+                    {item.href && (
+                      <a href={item.href} className="text-xs text-brand-400 hover:text-brand-300 font-medium shrink-0">
+                        Go &rarr;
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Immediate Exam Review - deterministic, no AI call, so it's ready
               the instant a report is saved instead of waiting on anything.
               Always about the single most recent regular (non-question-
