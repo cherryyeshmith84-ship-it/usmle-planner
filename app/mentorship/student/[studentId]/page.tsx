@@ -377,6 +377,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
                             date={e.log_date}
                             initialContent={dailyNotesByDate[e.log_date]?.content ?? ""}
                             initialStatus={dailyNotesByDate[e.log_date]?.status ?? null}
+                            initialReviewed={dailyNotesByDate[e.log_date]?.reviewed ?? false}
+                            initialReviewedAt={dailyNotesByDate[e.log_date]?.reviewed_at ?? null}
+                            initialNextCheckinDate={dailyNotesByDate[e.log_date]?.next_checkin_date ?? null}
                           />
                         ) : (
                           <span className="text-slate-300 whitespace-pre-wrap">
