@@ -16,6 +16,7 @@ import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import MentorDailyNoteCell from "@/components/MentorDailyNoteCell";
 import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
+import AssignToPlanButton from "@/components/AssignToPlanButton";
 
 export const dynamic = "force-dynamic";
 
@@ -177,11 +178,23 @@ export default async function StudentProgressPage({ params }: { params: { studen
                 </p>
                 <div className="space-y-1.5">
                   {systemStrengths.map((s) => (
-                    <div key={s.system} className="flex items-center justify-between text-sm">
+                    <div key={s.system} className="flex items-center justify-between text-sm gap-2">
                       <span>{s.system}</span>
-                      <span className="text-slate-400">
-                        {s.averagePercent}%{" "}
-                        <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-slate-400">
+                          {s.averagePercent}%{" "}
+                          <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                        </span>
+                        {myMentorRecord && (
+                          <AssignToPlanButton
+                            studentId={params.studentId}
+                            mentorId={myMentorRecord.id}
+                            title={`Review ${s.system}`}
+                            detail={`Weak system - ${s.averagePercent}% average${
+                              s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
+                            }`}
+                          />
+                        )}
                       </span>
                     </div>
                   ))}
@@ -196,11 +209,23 @@ export default async function StudentProgressPage({ params }: { params: { studen
                     <p className="text-sm text-slate-500">No discipline breakdown available.</p>
                   ) : (
                     disciplineStrengths.map((s) => (
-                      <div key={s.system} className="flex items-center justify-between text-sm">
+                      <div key={s.system} className="flex items-center justify-between text-sm gap-2">
                         <span>{s.system}</span>
-                        <span className="text-slate-400">
-                          {s.averagePercent}%{" "}
-                          <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-slate-400">
+                            {s.averagePercent}%{" "}
+                            <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                          </span>
+                          {myMentorRecord && (
+                            <AssignToPlanButton
+                              studentId={params.studentId}
+                              mentorId={myMentorRecord.id}
+                              title={`Review ${s.system}`}
+                              detail={`Weak discipline - ${s.averagePercent}% average${
+                                s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
+                              }`}
+                            />
+                          )}
                         </span>
                       </div>
                     ))
