@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
-import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
@@ -43,12 +43,13 @@ export default async function PlannerPage() {
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
-  const [columnsRes, entriesRes, blocksRes, mentorNotesRes, planTasksRes] = await Promise.all([
+  const [columnsRes, entriesRes, blocksRes, mentorNotesRes, planTasksRes, resourcesRes] = await Promise.all([
     supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
     supabase.from("planner_entries").select("*").eq("user_id", user.id),
     supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
+    supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
   ]);
 
   const columns = (columnsRes.data ?? []) as PlannerColumn[];
@@ -56,6 +57,7 @@ export default async function PlannerPage() {
   const blocks = (blocksRes.data ?? []) as UWorldBlock[];
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
+  const studyResources = (resourcesRes.data ?? []) as StudyResource[];
   const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, new Date().toISOString().slice(0, 10));
 
   return (
@@ -79,6 +81,7 @@ export default async function PlannerPage() {
           initialBlocks={blocks}
           initialMentorNotes={mentorNotes}
           initialPlanTasks={planTasks}
+          studyResources={studyResources}
         />
       </main>
     </AppShell>
