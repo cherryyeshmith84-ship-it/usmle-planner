@@ -5,8 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { groupBlocksByDate } from "@/lib/uworldBlocks";
-import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
-import { groupNotesByDate } from "@/lib/mentorDailyNotes";
+import type { MentorDailyNote, DayStatus } from "@/lib/mentorDailyNotes";
+import { groupNotesByDate, DAY_STATUS_LABEL } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
 import { groupTasksByDate } from "@/lib/planTasks";
 import UWorldBlockTracker from "./UWorldBlockTracker";
@@ -14,6 +14,15 @@ import DailySummary from "./DailySummary";
 import AssignmentsChecklist from "./AssignmentsChecklist";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Study Planner v1 item 7 (Mentor Checklist) - badge colors for the
+// mentor's day rating, shown read-only alongside Mentor Notes below.
+const MENTOR_STATUS_BADGE: Record<DayStatus, string> = {
+  completed: "bg-green-900/40 text-green-400",
+  needs_improvement: "bg-yellow-900/40 text-yellow-400",
+  missed: "bg-red-900/40 text-red-400",
+  rescheduled: "bg-slate-700 text-slate-300",
+};
 
 type CellValue = string | boolean;
 type RowValues = Record<string, CellValue>;
@@ -468,14 +477,25 @@ export default function PlannerGridClient({
                                 </p>
                               </div>
                             )}
-                            {mentorNotesByDate[date]?.content && (
+                            {(mentorNotesByDate[date]?.content || mentorNotesByDate[date]?.status) && (
                               <div className="pt-3 border-t border-slate-800">
                                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                                   Mentor Notes
                                 </p>
-                                <p className="text-sm text-slate-200 whitespace-pre-wrap">
-                                  {mentorNotesByDate[date].content}
-                                </p>
+                                {mentorNotesByDate[date].status && (
+                                  <span
+                                    className={`inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 mb-1.5 ${
+                                      MENTOR_STATUS_BADGE[mentorNotesByDate[date].status as DayStatus]
+                                    }`}
+                                  >
+                                    {DAY_STATUS_LABEL[mentorNotesByDate[date].status as DayStatus]}
+                                  </span>
+                                )}
+                                {mentorNotesByDate[date].content && (
+                                  <p className="text-sm text-slate-200 whitespace-pre-wrap">
+                                    {mentorNotesByDate[date].content}
+                                  </p>
+                                )}
                                 <p className="text-[11px] text-slate-500 mt-1">
                                   From your mentor - you can read this but can't edit it.
                                 </p>
