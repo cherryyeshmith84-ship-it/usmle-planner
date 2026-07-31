@@ -37,6 +37,7 @@ export default function OnboardingForm({
   const [weakAreas, setWeakAreas] = useState(initialProfile?.weak_areas ?? "");
   const [strongAreas, setStrongAreas] = useState(initialProfile?.strong_areas ?? "");
   const [goalsNotes, setGoalsNotes] = useState(initialProfile?.goals_notes ?? "");
+  const [mentorEmail, setMentorEmail] = useState(initialProfile?.mentor_email ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,6 +84,7 @@ export default function OnboardingForm({
         weak_areas: needsMoreDetail ? weakAreas || null : null,
         strong_areas: needsMoreDetail ? strongAreas || null : null,
         goals_notes: needsMoreDetail ? goalsNotes || null : null,
+        mentor_email: mentorEmail.trim() || null,
       })
       .eq("id", userId);
 
@@ -124,6 +126,19 @@ export default function OnboardingForm({
         This tells your coach what kind of plan to build for you. She reviews
         this herself and assigns your plan personally &mdash; you&apos;ll see
         it appear on your dashboard once it&apos;s ready.
+      </p>
+
+      <label className="label">Your mentor&apos;s email (optional)</label>
+      <input
+        type="email"
+        className="input mb-5"
+        placeholder="e.g. mentor@example.com - leave blank if you don't have one yet"
+        value={mentorEmail}
+        onChange={(e) => setMentorEmail(e.target.value)}
+      />
+      <p className="text-xs text-slate-500 mb-6 -mt-3">
+        If you were paired with a mentor, entering their email here gives them access to your
+        planner right away. You can add or change this later from Settings.
       </p>
 
       <label className="label">What are you preparing for?</label>
