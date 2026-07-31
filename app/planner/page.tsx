@@ -5,9 +5,11 @@ import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
+import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
+import WeeklyProgress from "@/components/WeeklyProgress";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,7 @@ export default async function PlannerPage() {
   const blocks = (blocksRes.data ?? []) as UWorldBlock[];
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
+  const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, new Date().toISOString().slice(0, 10));
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
@@ -66,6 +69,8 @@ export default async function PlannerPage() {
             move the range, or jump straight to a date.
           </p>
         </div>
+
+        <WeeklyProgress summary={weeklySummary} />
 
         <PlannerGridClient
           targetUserId={user.id}
