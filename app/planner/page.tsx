@@ -6,10 +6,12 @@ import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
+import { computeTodayStatus } from "@/lib/plannerStatus";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
 import WeeklyProgress from "@/components/WeeklyProgress";
+import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +60,9 @@ export default async function PlannerPage() {
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
   const studyResources = (resourcesRes.data ?? []) as StudyResource[];
-  const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, new Date().toISOString().slice(0, 10));
+  const today = new Date().toISOString().slice(0, 10);
+  const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
+  const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
@@ -71,6 +75,8 @@ export default async function PlannerPage() {
             move the range, or jump straight to a date.
           </p>
         </div>
+
+        <PlannerStatusHeader status={todayStatus} />
 
         <WeeklyProgress summary={weeklySummary} />
 
