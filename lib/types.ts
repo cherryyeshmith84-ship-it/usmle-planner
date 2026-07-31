@@ -39,6 +39,12 @@ export interface Profile {
   goals_notes?: string | null;
   track_changed_pending?: boolean;
   active_plan_source?: ActivePlanSource;
+  // Student-entered link to a specific mentor (by the mentor's email) -
+  // gives that mentor access to this student's planner/analysis/etc.
+  // immediately, without needing a booked session or a message first. See
+  // is_mentor_of_student() in Postgres, which checks this alongside the
+  // older booking/message paths.
+  mentor_email?: string | null;
 }
 
 export interface TemplateTask {
