@@ -112,7 +112,12 @@ export default function PlannerGridClient({
   const mainColumns = useMemo(
     () =>
       activeColumns.filter(
-        (c) => c.key !== "student_notes" && c.key !== "mood" && c.key !== "study_issue" && c.key !== "resources_used"
+        (c) =>
+          c.key !== "student_notes" &&
+          c.key !== "mood" &&
+          c.key !== "study_issue" &&
+          c.key !== "resources_used" &&
+          c.key !== "tomorrow_goal"
       ),
     [activeColumns]
   );
@@ -121,6 +126,10 @@ export default function PlannerGridClient({
   const issueColumn = useMemo(() => activeColumns.find((c) => c.key === "study_issue") ?? null, [activeColumns]);
   const resourcesColumn = useMemo(
     () => activeColumns.find((c) => c.key === "resources_used") ?? null,
+    [activeColumns]
+  );
+  const tomorrowGoalColumn = useMemo(
+    () => activeColumns.find((c) => c.key === "tomorrow_goal") ?? null,
     [activeColumns]
   );
   const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
@@ -531,6 +540,25 @@ export default function PlannerGridClient({
                                 <p className="text-[11px] text-slate-500 mt-1">
                                   Your study journal - your mentor can read this but can't edit it. Saved with
                                   the rest of the day via "Save changes" above.
+                                </p>
+                              </div>
+                            )}
+                            {tomorrowGoalColumn && (
+                              <div className="pt-3 border-t border-slate-800">
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                                  Tomorrow&apos;s Goal
+                                </p>
+                                <textarea
+                                  value={(rowValues["tomorrow_goal"] as string) ?? ""}
+                                  disabled={!canEdit}
+                                  onChange={(e) => setCellValue(date, "tomorrow_goal", e.target.value)}
+                                  rows={2}
+                                  placeholder="What's the plan for tomorrow?"
+                                  className="input text-sm py-2 px-2.5 w-full resize-y text-slate-100"
+                                />
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  Saved with the rest of the day via "Save changes" above - your mentor can see
+                                  this too.
                                 </p>
                               </div>
                             )}
