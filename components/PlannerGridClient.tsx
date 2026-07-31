@@ -6,6 +6,7 @@ import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { groupBlocksByDate } from "@/lib/uworldBlocks";
 import UWorldBlockTracker from "./UWorldBlockTracker";
+import DailySummary from "./DailySummary";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -394,18 +395,40 @@ export default function PlannerGridClient({
                       </td>
                     )}
                   </tr>
-                  {expanded && (
-                    <tr className="border-t border-slate-800 bg-slate-950/40">
-                      <td colSpan={colCount} className="px-4 py-4">
-                        <UWorldBlockTracker
-                          targetUserId={targetUserId}
-                          date={date}
-                          initialBlocks={blocksByDate[date] ?? []}
-                          canEdit={canEdit}
-                        />
-                      </td>
-                    </tr>
-                  )}
+                  {expanded &&
+                    (() => {
+                      const dayBlocks = blocksByDate[date] ?? [];
+                      const rowValues = valuesByDate[date] ?? {};
+                      const numOrNull = (raw: CellValue | undefined): number | null => {
+                        if (raw === undefined || raw === "" || raw === null) return null;
+                        const n = Number(raw);
+                        return Number.isNaN(n) ? null : n;
+                      };
+                      const blockQuestionsSum = dayBlocks.reduce((sum, b) => sum + (b.questions ?? 0), 0);
+                      const questionsCompleted =
+                        dayBlocks.length > 0 ? blockQuestionsSum : numOrNull(rowValues["q_solved"]);
+                      return (
+                        <tr className="border-t border-slate-800 bg-slate-950/40">
+                          <td colSpan={colCount} className="px-4 py-4 space-y-4">
+                            <DailySummary
+                              questionsCompleted={questionsCompleted}
+                              blocksCount={dayBlocks.length}
+                              questionsReviewed={numOrNull(rowValues["q_reviewed"])}
+                              hours={numOrNull(rowValues["hours"])}
+                              studyCompleted={!!rowValues["task_completed"]}
+                            />
+                            <div className="pt-3 border-t border-slate-800">
+                              <UWorldBlockTracker
+                                targetUserId={targetUserId}
+                                date={date}
+                                initialBlocks={dayBlocks}
+                                canEdit={canEdit}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })()}
                 </Fragment>
               );
             })}
