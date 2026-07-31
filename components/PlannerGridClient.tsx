@@ -78,6 +78,13 @@ export default function PlannerGridClient({
     () => columns.filter((c) => c.active).sort((a, b) => a.sort_order - b.sort_order),
     [columns]
   );
+  // Student Notes (Study Planner v1 item 4) is pulled out of the flat grid
+  // and rendered as a dedicated journal box in each day's expanded panel
+  // instead - a paragraph-length daily journal doesn't belong crammed into
+  // a table cell next to number inputs. Everything else still renders as a
+  // normal grid column.
+  const mainColumns = useMemo(() => activeColumns.filter((c) => c.key !== "student_notes"), [activeColumns]);
+  const notesColumn = useMemo(() => activeColumns.find((c) => c.key === "student_notes") ?? null, [activeColumns]);
   const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
 
@@ -322,7 +329,7 @@ export default function PlannerGridClient({
               <th className="px-2 py-2 text-xs font-semibold text-slate-400" />
               <th className="px-3 py-2 text-xs font-semibold text-slate-400 sticky left-0 bg-slate-900">Day</th>
               <th className="px-3 py-2 text-xs font-semibold text-slate-400">Date</th>
-              {activeColumns.map((c) => (
+              {mainColumns.map((c) => (
                 <th key={c.id} className="px-3 py-2 text-xs font-semibold text-slate-400 whitespace-nowrap">
                   <button
                     type="button"
@@ -343,7 +350,7 @@ export default function PlannerGridClient({
             {dates.map((date) => {
               const rowHighlighted = highlightedRows.has(date);
               const expanded = expandedDates.has(date);
-              const colCount = 3 + activeColumns.length + (canEdit ? 1 : 0);
+              const colCount = 3 + mainColumns.length + (canEdit ? 1 : 0);
               return (
                 <Fragment key={date}>
                   <tr
@@ -377,7 +384,7 @@ export default function PlannerGridClient({
                         <span className="ml-1.5 text-[10px] font-semibold text-brand-400">TODAY</span>
                       )}
                     </td>
-                    {activeColumns.map((c) => (
+                    {mainColumns.map((c) => (
                       <td key={c.id} className="px-2 py-1">
                         {renderCell(date, c)}
                       </td>
@@ -425,6 +432,25 @@ export default function PlannerGridClient({
                                 canEdit={canEdit}
                               />
                             </div>
+                            {notesColumn && (
+                              <div className="pt-3 border-t border-slate-800">
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                                  Student Notes
+                                </p>
+                                <textarea
+                                  value={(rowValues["student_notes"] as string) ?? ""}
+                                  disabled={!canEdit}
+                                  onChange={(e) => setCellValue(date, "student_notes", e.target.value)}
+                                  rows={4}
+                                  placeholder="Today's goals, what you struggled with, what to review tomorrow..."
+                                  className="input text-sm py-2 px-2.5 w-full resize-y text-slate-100"
+                                />
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  Your study journal - your mentor can read this but can't edit it. Saved with
+                                  the rest of the day via "Save changes" above.
+                                </p>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -436,7 +462,7 @@ export default function PlannerGridClient({
         </table>
       </div>
 
-      {activeColumns.length === 0 && (
+      {mainColumns.length === 0 && (
         <p className="text-sm text-slate-400">
           No planner columns are set up yet - an admin can add some from Planner Settings.
         </p>
