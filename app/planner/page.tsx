@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
@@ -9,12 +10,17 @@ import PlannerGridClient from "@/components/PlannerGridClient";
 export const dynamic = "force-dynamic";
 
 /**
- * Day-by-day tracking grid (Planned system, PP/CP FA, hours, questions,
- * notes, etc.) - matches the coach's spreadsheet layout. Columns are
- * admin-configurable from /admin/planner-config. This replaced the older
- * template-driven task checklist; that still exists for the Dashboard's
- * "today" view and the AI coach (app/planner/mine and schedule_templates),
- * which this page no longer touches.
+ * Planner page - day-by-day tracking grid (Planned System, First Aid
+ * Pages, Questions Planned/Completed/Reviewed, Hours Studied, Study
+ * Status - see planner_columns) is the "Daily Study Planner" (Study
+ * Planner v1 item 1). Each row also expands into a day workspace panel,
+ * starting with the UWorld Block Tracker (item 2) - more sections (Student/
+ * Mentor Notes, Assignments, Reflection, etc.) land there as later items in
+ * that spec are built, so a day becomes more than a flat spreadsheet row.
+ * Columns are admin-configurable from /admin/planner-config. This replaced
+ * the older template-driven task checklist; that still exists for the AI
+ * coach (app/planner/mine and schedule_templates), which this page doesn't
+ * touch.
  */
 export default async function PlannerPage() {
   const supabase = createClient();
@@ -33,13 +39,15 @@ export default async function PlannerPage() {
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
-  const [columnsRes, entriesRes] = await Promise.all([
+  const [columnsRes, entriesRes, blocksRes] = await Promise.all([
     supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
     supabase.from("planner_entries").select("*").eq("user_id", user.id),
+    supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
   ]);
 
   const columns = (columnsRes.data ?? []) as PlannerColumn[];
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
+  const blocks = (blocksRes.data ?? []) as UWorldBlock[];
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
@@ -47,12 +55,13 @@ export default async function PlannerPage() {
         <div className="mb-6">
           <h1 className="text-xl font-bold mb-1">My Study Plan</h1>
           <p className="text-sm text-slate-400">
-            Log your day-by-day progress here - First Aid pages, questions, hours, and notes. Click
-            "Show earlier week" / "Show more weeks" to move the range, or jump straight to a date.
+            Log your day-by-day progress here - First Aid pages, questions, hours, and notes. Click the
+            ▸ next to a day to log UWorld blocks for it. Click "Show earlier week" / "Show more weeks" to
+            move the range, or jump straight to a date.
           </p>
         </div>
 
-        <PlannerGridClient targetUserId={user.id} columns={columns} initialEntries={entries} />
+        <PlannerGridClient targetUserId={user.id} columns={columns} initialEntries={entries} initialBlocks={blocks} />
       </main>
     </AppShell>
   );
