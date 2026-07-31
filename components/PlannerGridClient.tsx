@@ -15,6 +15,7 @@ import AssignmentsChecklist from "./AssignmentsChecklist";
 import MoodPicker from "./MoodPicker";
 import StudyIssueSelector from "./StudyIssueSelector";
 import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
+import DailyReflection from "./DailyReflection";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -117,7 +118,10 @@ export default function PlannerGridClient({
           c.key !== "mood" &&
           c.key !== "study_issue" &&
           c.key !== "resources_used" &&
-          c.key !== "tomorrow_goal"
+          c.key !== "tomorrow_goal" &&
+          c.key !== "reflection_went_well" &&
+          c.key !== "reflection_slowed_down" &&
+          c.key !== "reflection_improve"
       ),
     [activeColumns]
   );
@@ -130,6 +134,10 @@ export default function PlannerGridClient({
   );
   const tomorrowGoalColumn = useMemo(
     () => activeColumns.find((c) => c.key === "tomorrow_goal") ?? null,
+    [activeColumns]
+  );
+  const reflectionColumn = useMemo(
+    () => activeColumns.find((c) => c.key === "reflection_went_well") ?? null,
     [activeColumns]
   );
   const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
@@ -540,6 +548,26 @@ export default function PlannerGridClient({
                                 <p className="text-[11px] text-slate-500 mt-1">
                                   Your study journal - your mentor can read this but can't edit it. Saved with
                                   the rest of the day via "Save changes" above.
+                                </p>
+                              </div>
+                            )}
+                            {reflectionColumn && (
+                              <div className="pt-3 border-t border-slate-800">
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                                  Daily Reflection
+                                </p>
+                                <DailyReflection
+                                  wentWell={(rowValues["reflection_went_well"] as string) ?? ""}
+                                  slowedDown={(rowValues["reflection_slowed_down"] as string) ?? ""}
+                                  improve={(rowValues["reflection_improve"] as string) ?? ""}
+                                  disabled={!canEdit}
+                                  onChangeWentWell={(v) => setCellValue(date, "reflection_went_well", v)}
+                                  onChangeSlowedDown={(v) => setCellValue(date, "reflection_slowed_down", v)}
+                                  onChangeImprove={(v) => setCellValue(date, "reflection_improve", v)}
+                                />
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  Saved with the rest of the day via "Save changes" above - your mentor can see
+                                  this too.
                                 </p>
                               </div>
                             )}
