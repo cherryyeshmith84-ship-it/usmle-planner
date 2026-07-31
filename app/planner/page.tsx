@@ -4,6 +4,7 @@ import type { Profile } from "@/lib/types";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import type { PlanTask } from "@/lib/planTasks";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
@@ -40,17 +41,19 @@ export default async function PlannerPage() {
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
-  const [columnsRes, entriesRes, blocksRes, mentorNotesRes] = await Promise.all([
+  const [columnsRes, entriesRes, blocksRes, mentorNotesRes, planTasksRes] = await Promise.all([
     supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
     supabase.from("planner_entries").select("*").eq("user_id", user.id),
     supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
+    supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
   ]);
 
   const columns = (columnsRes.data ?? []) as PlannerColumn[];
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
   const blocks = (blocksRes.data ?? []) as UWorldBlock[];
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
+  const planTasks = (planTasksRes.data ?? []) as PlanTask[];
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
@@ -70,6 +73,7 @@ export default async function PlannerPage() {
           initialEntries={entries}
           initialBlocks={blocks}
           initialMentorNotes={mentorNotes}
+          initialPlanTasks={planTasks}
         />
       </main>
     </AppShell>
