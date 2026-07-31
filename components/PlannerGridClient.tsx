@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { groupBlocksByDate } from "@/lib/uworldBlocks";
+import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import { groupNotesByDate } from "@/lib/mentorDailyNotes";
 import UWorldBlockTracker from "./UWorldBlockTracker";
 import DailySummary from "./DailySummary";
 
@@ -65,12 +67,14 @@ export default function PlannerGridClient({
   columns,
   initialEntries,
   initialBlocks = [],
+  initialMentorNotes = [],
   canEdit = true,
 }: {
   targetUserId: string;
   columns: PlannerColumn[];
   initialEntries: PlannerEntry[];
   initialBlocks?: UWorldBlock[];
+  initialMentorNotes?: MentorDailyNote[];
   canEdit?: boolean;
 }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -86,6 +90,7 @@ export default function PlannerGridClient({
   const mainColumns = useMemo(() => activeColumns.filter((c) => c.key !== "student_notes"), [activeColumns]);
   const notesColumn = useMemo(() => activeColumns.find((c) => c.key === "student_notes") ?? null, [activeColumns]);
   const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
+  const mentorNotesByDate = useMemo(() => groupNotesByDate(initialMentorNotes), [initialMentorNotes]);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
 
   function toggleExpanded(date: string) {
@@ -448,6 +453,19 @@ export default function PlannerGridClient({
                                 <p className="text-[11px] text-slate-500 mt-1">
                                   Your study journal - your mentor can read this but can't edit it. Saved with
                                   the rest of the day via "Save changes" above.
+                                </p>
+                              </div>
+                            )}
+                            {mentorNotesByDate[date]?.content && (
+                              <div className="pt-3 border-t border-slate-800">
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                                  Mentor Notes
+                                </p>
+                                <p className="text-sm text-slate-200 whitespace-pre-wrap">
+                                  {mentorNotesByDate[date].content}
+                                </p>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  From your mentor - you can read this but can't edit it.
                                 </p>
                               </div>
                             )}
