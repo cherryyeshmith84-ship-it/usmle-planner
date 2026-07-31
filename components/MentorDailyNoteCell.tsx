@@ -31,54 +31,86 @@ export default function MentorDailyNoteCell({
   date,
   initialContent,
   initialStatus,
+  initialReviewed = false,
+  initialReviewedAt = null,
+  initialNextCheckinDate = null,
 }: {
   studentId: string;
   mentorId: string;
   date: string;
   initialContent: string;
   initialStatus: DayStatus | null;
+  initialReviewed?: boolean;
+  initialReviewedAt?: string | null;
+  initialNextCheckinDate?: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState(initialContent);
   const [status, setStatus] = useState<DayStatus | "">(initialStatus ?? "");
+  const [reviewed, setReviewed] = useState(initialReviewed);
+  const [reviewedAt, setReviewedAt] = useState(initialReviewedAt);
+  const [nextCheckinDate, setNextCheckinDate] = useState(initialNextCheckinDate ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
     setSaving(true);
     setError(null);
+    // reviewed_at is set the moment "Reviewed" is first checked, not
+    // hand-entered - it should reflect when the mentor actually looked at
+    // the day, not be backdatable.
+    const nextReviewedAt = reviewed ? reviewedAt ?? new Date().toISOString() : null;
     const supabase = createClient();
-    const { error: upsertError } = await supabase
-      .from("mentor_daily_notes")
-      .upsert(
-        { student_id: studentId, mentor_id: mentorId, note_date: date, content, status: status || null },
-        { onConflict: "student_id,note_date" }
-      );
+    const { error: upsertError } = await supabase.from("mentor_daily_notes").upsert(
+      {
+        student_id: studentId,
+        mentor_id: mentorId,
+        note_date: date,
+        content,
+        status: status || null,
+        reviewed,
+        reviewed_at: nextReviewedAt,
+        next_checkin_date: nextCheckinDate || null,
+      },
+      { onConflict: "student_id,note_date" }
+    );
     setSaving(false);
     if (upsertError) {
       setError(upsertError.message);
       return;
     }
+    setReviewedAt(nextReviewedAt);
     setEditing(false);
   }
 
   if (!editing) {
     return (
       <div className="flex items-start gap-2">
-        <div>
-          {status && (
-            <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${STATUS_BADGE[status]}`}>
-              {DAY_STATUS_LABEL[status]}
-            </span>
-          )}
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {status && (
+              <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${STATUS_BADGE[status]}`}>
+                {DAY_STATUS_LABEL[status]}
+              </span>
+            )}
+            {reviewed && (
+              <span
+                className="text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-brand-900/40 text-brand-400"
+                title={reviewedAt ? `Reviewed ${new Date(reviewedAt).toLocaleDateString()}` : "Reviewed"}
+              >
+                ✓ Reviewed{reviewedAt ? ` ${new Date(reviewedAt).toLocaleDateString()}` : ""}
+              </span>
+            )}
+          </div>
           <div className="text-slate-300 whitespace-pre-wrap">{content || <span className="text-slate-600">-</span>}</div>
+          {nextCheckinDate && <p className="text-[10px] text-slate-500">Next check-in: {nextCheckinDate}</p>}
         </div>
         <button
           type="button"
           onClick={() => setEditing(true)}
           className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
         >
-          {content || status ? "Edit" : "Add"}
+          {content || status || reviewed ? "Edit" : "Add"}
         </button>
       </div>
     );
@@ -105,6 +137,19 @@ export default function MentorDailyNoteCell({
         className="input text-xs py-1.5 px-2 w-full resize-y text-slate-100"
         placeholder="Note for this day..."
       />
+      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+        <input type="checkbox" checked={reviewed} onChange={(e) => setReviewed(e.target.checked)} className="w-3.5 h-3.5" />
+        Reviewed
+      </label>
+      <div>
+        <label className="block text-[10px] text-slate-500 mb-0.5">Next check-in</label>
+        <input
+          type="date"
+          value={nextCheckinDate}
+          onChange={(e) => setNextCheckinDate(e.target.value)}
+          className="input text-xs py-1 px-2 w-full"
+        />
+      </div>
       <div className="flex items-center gap-2">
         <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
           {saving ? "Saving..." : "Save"}
@@ -114,6 +159,9 @@ export default function MentorDailyNoteCell({
           onClick={() => {
             setContent(initialContent);
             setStatus(initialStatus ?? "");
+            setReviewed(initialReviewed);
+            setReviewedAt(initialReviewedAt);
+            setNextCheckinDate(initialNextCheckinDate ?? "");
             setEditing(false);
             setError(null);
           }}
