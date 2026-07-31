@@ -16,6 +16,13 @@ export interface MentorDailyNote {
   // Mentor Checklist (Study Planner v1 item 7) - the mentor's day rating,
   // separate from the free-text note above. Null until a mentor sets it.
   status: DayStatus | null;
+  // Mentor Review status (Study Planner v1 item 14) - a separate signal from
+  // the day rating above: has the mentor actually looked at this day yet,
+  // and when's the next planned check-in. reviewed_at is set automatically
+  // the moment a mentor checks "Reviewed", not hand-entered.
+  reviewed: boolean;
+  reviewed_at: string | null;
+  next_checkin_date: string | null;
   created_at?: string;
   updated_at?: string;
 }
