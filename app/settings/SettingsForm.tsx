@@ -39,6 +39,7 @@ export default function SettingsForm({
   const [strongAreas, setStrongAreas] = useState(profile.strong_areas ?? "");
   const [weakAreas, setWeakAreas] = useState(profile.weak_areas ?? "");
   const [goalsNotes, setGoalsNotes] = useState(profile.goals_notes ?? "");
+  const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
   const [aiInstructions, setAiInstructions] = useState(profile.ai_instructions ?? "");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export default function SettingsForm({
         strong_areas: strongAreas || null,
         weak_areas: weakAreas || null,
         goals_notes: goalsNotes || null,
+        mentor_email: mentorEmail.trim() || null,
         ai_instructions: aiInstructions || null,
         ...(trackChanged ? { track_changed_pending: true } : {}),
       })
@@ -102,7 +104,18 @@ export default function SettingsForm({
         <label className="label">Email</label>
         <input className="input mb-4 bg-slate-800" value={email} disabled />
         <label className="label">Name</label>
-        <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <input className="input mb-4" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <label className="label">Your mentor&apos;s email</label>
+        <input
+          type="email"
+          className="input"
+          placeholder="e.g. mentor@example.com - leave blank if you don't have one"
+          value={mentorEmail}
+          onChange={(e) => setMentorEmail(e.target.value)}
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Gives that mentor access to your planner, notes, and analysis. Leave blank to remove access.
+        </p>
       </div>
 
       <div className="card">
