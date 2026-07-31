@@ -562,23 +562,41 @@ export default function PlannerGridClient({
                                 </p>
                               </div>
                             )}
-                            {(mentorNotesByDate[date]?.content || mentorNotesByDate[date]?.status) && (
+                            {(mentorNotesByDate[date]?.content ||
+                              mentorNotesByDate[date]?.status ||
+                              mentorNotesByDate[date]?.reviewed ||
+                              mentorNotesByDate[date]?.next_checkin_date) && (
                               <div className="pt-3 border-t border-slate-800">
                                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                                   Mentor Notes
                                 </p>
-                                {mentorNotesByDate[date].status && (
-                                  <span
-                                    className={`inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 mb-1.5 ${
-                                      MENTOR_STATUS_BADGE[mentorNotesByDate[date].status as DayStatus]
-                                    }`}
-                                  >
-                                    {DAY_STATUS_LABEL[mentorNotesByDate[date].status as DayStatus]}
-                                  </span>
-                                )}
+                                <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                                  {mentorNotesByDate[date].status && (
+                                    <span
+                                      className={`inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${
+                                        MENTOR_STATUS_BADGE[mentorNotesByDate[date].status as DayStatus]
+                                      }`}
+                                    >
+                                      {DAY_STATUS_LABEL[mentorNotesByDate[date].status as DayStatus]}
+                                    </span>
+                                  )}
+                                  {mentorNotesByDate[date].reviewed && (
+                                    <span className="inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-brand-900/40 text-brand-400">
+                                      ✓ Reviewed
+                                      {mentorNotesByDate[date].reviewed_at
+                                        ? ` ${new Date(mentorNotesByDate[date].reviewed_at as string).toLocaleDateString()}`
+                                        : ""}
+                                    </span>
+                                  )}
+                                </div>
                                 {mentorNotesByDate[date].content && (
                                   <p className="text-sm text-slate-200 whitespace-pre-wrap">
                                     {mentorNotesByDate[date].content}
+                                  </p>
+                                )}
+                                {mentorNotesByDate[date].next_checkin_date && (
+                                  <p className="text-[11px] text-slate-400 mt-1">
+                                    Next check-in: {mentorNotesByDate[date].next_checkin_date}
                                   </p>
                                 )}
                                 <p className="text-[11px] text-slate-500 mt-1">
