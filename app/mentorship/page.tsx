@@ -80,6 +80,20 @@ export default async function MentorshipPage() {
     const feedback = (feedbackData ?? []) as SessionFeedback[];
     const avgRating = averageRating(feedback);
 
+    // Students who linked this mentor's email directly (Settings/onboarding
+    // "Your mentor's email" field) - RLS ("Mentors can view profiles of
+    // students who linked their email") already restricts this to exactly
+    // this mentor's matches, so no client-side filtering needed. This is a
+    // separate roster from bookedSlots above: a student can appear here
+    // with zero sessions booked yet and the mentor can still open their
+    // planner immediately.
+    const { data: linkedStudentsData } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .not("mentor_email", "is", null)
+      .order("full_name", { ascending: true });
+    const linkedStudents = (linkedStudentsData ?? []) as Pick<Profile, "id" | "full_name" | "email">[];
+
     const todayLabel = formatSlotDate(new Date().toISOString());
     const nonCancelled = bookedSlots.filter((s) => !s.cancelled_at);
     const todaysSessions = nonCancelled.filter((s) => formatSlotDate(s.start_time) === todayLabel);
@@ -131,6 +145,36 @@ export default async function MentorshipPage() {
               <p className="text-2xl font-bold text-brand-300">{openUpcomingCount}</p>
               <p className="text-xs text-slate-500">Open slots</p>
             </div>
+          </div>
+
+          {/* My Students - directly linked via mentor email, not tied to a
+              booked session. Their planner (and everything else on
+              /mentorship/student/[id]) is reachable immediately. */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold mb-3">My students</h2>
+            {linkedStudents.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No students have linked your email yet - once a student adds your email under their
+                Settings, they&apos;ll show up here.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {linkedStudents.map((s) => (
+                  <div key={s.id} className="card py-2.5 flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
+                      <span className="text-slate-500">&middot; {s.email}</span>
+                    </div>
+                    <a
+                      href={`/mentorship/student/${s.id}`}
+                      className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
+                    >
+                      Open planner →
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Needs attention */}
