@@ -8,9 +8,12 @@ import { getContentPublished } from "@/lib/platformSettings";
 import { computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import { readField } from "@/lib/plannerColumns";
+import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import { groupNotesByDate } from "@/lib/mentorDailyNotes";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
+import MentorDailyNoteCell from "@/components/MentorDailyNoteCell";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +42,15 @@ function scoreBadgeClass(pct: number | null) {
  * Read-only "student progress" view a mentor can open for a specific
  * student. Deliberately built fresh instead of reusing PlannerGridClient /
  * PerformanceClient, since both of those are edit-capable and a mentor
- * should never be able to write a student's planner or score reports -
- * only read them. RLS (is_mentor_of_student, see migration
+ * should never be able to write a student's own planner rows or score
+ * reports - only read them. RLS (is_mentor_of_student, see migration
  * mentor_read_student_progress) is what actually enforces that a mentor can
  * only load a student they have a real relationship with (a booked session
  * or a message thread) - this page's own not-a-mentor / no-relationship
- * checks below are just a friendlier 404 on top of that.
+ * checks below are just a friendlier 404 on top of that. The one deliberate
+ * write exception is the "Mentor Note" column (mentor_daily_notes, Study
+ * Planner v1 item 5) - a separate table the mentor can write and the
+ * student can only read, kept apart from the student's own planner data.
  */
 export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
   const supabase = createClient();
@@ -81,7 +87,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   if (!studentData) notFound();
   const student = studentData as Pick<Profile, "id" | "full_name" | "email">;
 
-  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes, studyPlanRes] = await Promise.all([
+  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes, studyPlanRes, dailyNotesRes] = await Promise.all([
     supabase
       .from("score_reports")
       .select("*")
@@ -113,6 +119,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
     myMentorRecord
       ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
       : Promise.resolve({ data: null }),
+    supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
@@ -121,6 +128,13 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const sessions = (slotsRes.data ?? []) as MentorSlot[];
   const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
   const studyPlan = studyPlanRes.data as { content: string; updated_at: string } | null;
+  // Mentor Notes (Study Planner v1 item 5) - a separate, mentor-writable
+  // per-day note shown alongside the read-only planner grid below. Only
+  // meaningful when the viewer actually is this student's mentor (RLS also
+  // enforces this - an admin browsing here sees existing notes but has no
+  // relationship id to write new ones under, so the cell just renders
+  // read-only text via the fallback below).
+  const dailyNotesByDate = groupNotesByDate((dailyNotesRes.data ?? []) as MentorDailyNote[]);
 
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
@@ -305,7 +319,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
           </div>
         )}
 
-        {/* Study planner (read-only) */}
+        {/* Study planner - read-only except the Mentor Note column */}
         <div className="mb-8">
           <h2 className="text-lg font-bold mb-3">Study planner</h2>
           {plannerEntries.length === 0 || plannerColumns.length === 0 ? (
@@ -321,6 +335,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
                         {c.label}
                       </th>
                     ))}
+                    <th className="pr-4 py-1">Mentor Note</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -335,6 +350,20 @@ export default async function StudentProgressPage({ params }: { params: { studen
                           </td>
                         );
                       })}
+                      <td className="pr-4 py-1.5 align-top">
+                        {myMentorRecord ? (
+                          <MentorDailyNoteCell
+                            studentId={params.studentId}
+                            mentorId={myMentorRecord.id}
+                            date={e.log_date}
+                            initialContent={dailyNotesByDate[e.log_date]?.content ?? ""}
+                          />
+                        ) : (
+                          <span className="text-slate-300 whitespace-pre-wrap">
+                            {dailyNotesByDate[e.log_date]?.content || <span className="text-slate-600">-</span>}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
