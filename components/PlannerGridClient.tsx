@@ -12,6 +12,7 @@ import { groupTasksByDate } from "@/lib/planTasks";
 import UWorldBlockTracker from "./UWorldBlockTracker";
 import DailySummary from "./DailySummary";
 import AssignmentsChecklist from "./AssignmentsChecklist";
+import MoodPicker from "./MoodPicker";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -101,8 +102,15 @@ export default function PlannerGridClient({
   // instead - a paragraph-length daily journal doesn't belong crammed into
   // a table cell next to number inputs. Everything else still renders as a
   // normal grid column.
-  const mainColumns = useMemo(() => activeColumns.filter((c) => c.key !== "student_notes"), [activeColumns]);
+  // Daily Mood (item 9) gets the same "pulled out of the flat grid,
+  // rendered specially in the expanded panel" treatment as Student Notes -
+  // one-click emoji buttons don't belong in a dense table cell either.
+  const mainColumns = useMemo(
+    () => activeColumns.filter((c) => c.key !== "student_notes" && c.key !== "mood"),
+    [activeColumns]
+  );
   const notesColumn = useMemo(() => activeColumns.find((c) => c.key === "student_notes") ?? null, [activeColumns]);
+  const moodColumn = useMemo(() => activeColumns.find((c) => c.key === "mood") ?? null, [activeColumns]);
   const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
   const mentorNotesByDate = useMemo(() => groupNotesByDate(initialMentorNotes), [initialMentorNotes]);
   const planTasksByDate = useMemo(() => groupTasksByDate(initialPlanTasks), [initialPlanTasks]);
@@ -444,6 +452,18 @@ export default function PlannerGridClient({
                               hours={numOrNull(rowValues["hours"])}
                               studyCompleted={!!rowValues["task_completed"]}
                             />
+                            {moodColumn && (
+                              <div className="pt-3 border-t border-slate-800">
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                                  Daily Mood
+                                </p>
+                                <MoodPicker
+                                  value={(rowValues["mood"] as string) ?? ""}
+                                  disabled={!canEdit}
+                                  onChange={(mood) => setCellValue(date, "mood", mood)}
+                                />
+                              </div>
+                            )}
                             <div className="pt-3 border-t border-slate-800">
                               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                                 Assignments
