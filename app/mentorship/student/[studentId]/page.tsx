@@ -376,6 +376,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
                             mentorId={myMentorRecord.id}
                             date={e.log_date}
                             initialContent={dailyNotesByDate[e.log_date]?.content ?? ""}
+                            initialStatus={dailyNotesByDate[e.log_date]?.status ?? null}
                           />
                         ) : (
                           <span className="text-slate-300 whitespace-pre-wrap">
