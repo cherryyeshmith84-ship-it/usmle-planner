@@ -10,10 +10,12 @@ import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import { readField } from "@/lib/plannerColumns";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import { groupNotesByDate } from "@/lib/mentorDailyNotes";
+import type { PlanTask } from "@/lib/planTasks";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import MentorDailyNoteCell from "@/components/MentorDailyNoteCell";
+import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +89,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   if (!studentData) notFound();
   const student = studentData as Pick<Profile, "id" | "full_name" | "email">;
 
-  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes, studyPlanRes, dailyNotesRes] = await Promise.all([
+  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes, studyPlanRes, dailyNotesRes, planTasksRes] = await Promise.all([
     supabase
       .from("score_reports")
       .select("*")
@@ -120,6 +122,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
       ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
       : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
+    supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
@@ -135,6 +138,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   // relationship id to write new ones under, so the cell just renders
   // read-only text via the fallback below).
   const dailyNotesByDate = groupNotesByDate((dailyNotesRes.data ?? []) as MentorDailyNote[]);
+  const planTasks = (planTasksRes.data ?? []) as PlanTask[];
 
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
@@ -303,6 +307,21 @@ export default async function StudentProgressPage({ params }: { params: { studen
               currentUserId={user.id}
               initialContent={studyPlan?.content ?? null}
               initialUpdatedAt={studyPlan?.updated_at ?? null}
+            />
+          </div>
+        )}
+
+        {/* Assignments - the day-by-day checklist (Study Planner v1 item 6)
+            the student sees and checks off on their own planner. Separate
+            from the free-text Study plan above: this is a per-day task
+            list, not a paragraph. */}
+        {myMentorRecord && (
+          <div className="mb-8">
+            <h2 className="text-lg font-bold mb-3">Assignments</h2>
+            <MentorAssignmentsSection
+              studentId={params.studentId}
+              mentorId={myMentorRecord.id}
+              initialTasks={planTasks}
             />
           </div>
         )}
