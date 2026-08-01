@@ -552,15 +552,19 @@ export default function PlannerGridClient({
                                 </p>
                                 <textarea
                                   value={(rowValues["student_notes"] as string) ?? ""}
-                                  disabled={!canEdit}
+                                  // Always read-only when a mentor is viewing (mentorId set), even
+                                  // though everything else on this grid is mentor-editable - this is
+                                  // the student's own journal, kept one-directional on purpose.
+                                  disabled={!canEdit || !!mentorId}
                                   onChange={(e) => setCellValue(date, "student_notes", e.target.value)}
                                   rows={4}
                                   placeholder="Today's goals, what you struggled with, what to review tomorrow..."
                                   className="input text-sm py-2 px-2.5 w-full resize-y text-slate-100"
                                 />
                                 <p className="text-[11px] text-slate-500 mt-1">
-                                  Your study journal - your mentor can read this but can't edit it. Saved with
-                                  the rest of the day via "Save changes" above.
+                                  {mentorId
+                                    ? "The student's own journal - you can read it but can't edit it."
+                                    : "Your study journal - your mentor can read this but can't edit it. Saved with the rest of the day via \"Save changes\" above."}
                                 </p>
                               </div>
                             )}
