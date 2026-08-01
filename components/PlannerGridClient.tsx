@@ -322,12 +322,15 @@ export default function PlannerGridClient({
 
   function addSpecificDay() {
     if (!newDate) return;
-    if (newDate < rangeStart) setRangeStart(newDate);
-    if (newDate > rangeEnd) setRangeEnd(newDate);
+    // Re-anchors the visible table to start exactly at this date, rather
+    // than just making sure the date is somewhere in the existing range -
+    // that was the actual ask ("get dates from that date"), not merely
+    // scrolling to a row that might already be showing. Keeps at least ~2
+    // weeks visible past it, same minimum window the initial load uses.
+    setRangeStart(newDate);
+    const minimumEnd = addDays(newDate, 13);
+    if (rangeEnd < minimumEnd) setRangeEnd(minimumEnd);
     setValuesByDate((prev) => (prev[newDate] ? prev : { ...prev, [newDate]: {} }));
-    // Even when the date was already inside the visible range (nothing to
-    // extend), the row could be far down the table - scroll to it below
-    // instead of leaving the student to hunt for it themselves.
     setScrollTarget(newDate);
     setNewDate("");
   }
