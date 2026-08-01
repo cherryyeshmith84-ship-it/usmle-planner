@@ -35,10 +35,6 @@ export default function SettingsForm({
   const [questionGoal, setQuestionGoal] = useState(profile.daily_question_goal?.toString() ?? "");
   const [resources, setResources] = useState<string[]>(profile.resources ?? []);
   const [customResource, setCustomResource] = useState("");
-  const [completedSoFar, setCompletedSoFar] = useState(profile.completed_so_far ?? "");
-  const [strongAreas, setStrongAreas] = useState(profile.strong_areas ?? "");
-  const [weakAreas, setWeakAreas] = useState(profile.weak_areas ?? "");
-  const [goalsNotes, setGoalsNotes] = useState(profile.goals_notes ?? "");
   const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
   const [aiInstructions, setAiInstructions] = useState(profile.ai_instructions ?? "");
   const [saving, setSaving] = useState(false);
@@ -68,10 +64,6 @@ export default function SettingsForm({
         daily_hour_goal: hourGoal ? Number(hourGoal) : null,
         daily_question_goal: questionGoal ? Number(questionGoal) : null,
         resources: finalResources,
-        completed_so_far: completedSoFar || null,
-        strong_areas: strongAreas || null,
-        weak_areas: weakAreas || null,
-        goals_notes: goalsNotes || null,
         mentor_email: mentorEmail.trim() || null,
         ai_instructions: aiInstructions || null,
         ...(trackChanged ? { track_changed_pending: true } : {}),
@@ -237,39 +229,6 @@ export default function SettingsForm({
           value={customResource}
           onChange={(e) => setCustomResource(e.target.value)}
         />
-      </div>
-
-      <div className="card space-y-4">
-        <h2 className="font-semibold">Where you're at (for your coach)</h2>
-        <p className="text-sm text-slate-300 -mt-2">
-          Keep this updated so your coach can adjust your plan when things change.
-        </p>
-        <div>
-          <label className="label">What have you completed so far?</label>
-          <textarea
-            className="input"
-            rows={2}
-            value={completedSoFar}
-            onChange={(e) => setCompletedSoFar(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Which systems/topics are you strong in?</label>
-          <input className="input" value={strongAreas} onChange={(e) => setStrongAreas(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">Which systems/topics are you struggling with?</label>
-          <input className="input" value={weakAreas} onChange={(e) => setWeakAreas(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">What do you want to master / get suggestions on?</label>
-          <textarea
-            className="input"
-            rows={2}
-            value={goalsNotes}
-            onChange={(e) => setGoalsNotes(e.target.value)}
-          />
-        </div>
       </div>
 
       <div className="card">
