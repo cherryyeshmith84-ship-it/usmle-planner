@@ -9,7 +9,12 @@ export default async function PlannerConfigPage() {
   const { supabase } = await requireAdmin();
 
   const [columnsRes, resourcesRes] = await Promise.all([
-    supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
+    // Global defaults only (student_id is null) - a mentor's per-student
+    // customizations (see MentorPlannerColumnsEditor) live in this same
+    // table but are managed from that student's own page, not here. Without
+    // this filter an admin (who can see every row via RLS) would see every
+    // student's customized columns mixed into the shared default list.
+    supabase.from("planner_columns").select("*").is("student_id", null).order("sort_order", { ascending: true }),
     supabase.from("study_resources").select("*").order("sort_order", { ascending: true }),
   ]);
 
