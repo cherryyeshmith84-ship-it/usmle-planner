@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
@@ -190,6 +190,7 @@ export default function PlannerGridClient({
   const [rangeStart, setRangeStart] = useState(initialRange.rangeStart);
   const [rangeEnd, setRangeEnd] = useState(initialRange.rangeEnd);
   const [newDate, setNewDate] = useState("");
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
   const [dirtyDates, setDirtyDates] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -209,6 +210,17 @@ export default function PlannerGridClient({
     }
     return out;
   }, [rangeStart, rangeEnd]);
+
+  // Scrolls "Jump to date"'s target row into view once it's actually in the
+  // rendered table - if the date required extending rangeStart/rangeEnd,
+  // that state update and this effect land in the same render pass, so the
+  // row exists in the DOM by the time this runs.
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const el = document.getElementById(`planner-row-${scrollTarget}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setScrollTarget(null);
+  }, [scrollTarget, dates]);
 
   function setCellValue(date: string, key: string, value: CellValue) {
     setSaveMessage(null);
@@ -276,6 +288,10 @@ export default function PlannerGridClient({
     if (newDate < rangeStart) setRangeStart(newDate);
     if (newDate > rangeEnd) setRangeEnd(newDate);
     setValuesByDate((prev) => (prev[newDate] ? prev : { ...prev, [newDate]: {} }));
+    // Even when the date was already inside the visible range (nothing to
+    // extend), the row could be far down the table - scroll to it below
+    // instead of leaving the student to hunt for it themselves.
+    setScrollTarget(newDate);
     setNewDate("");
   }
 
@@ -458,6 +474,7 @@ export default function PlannerGridClient({
               return (
                 <Fragment key={date}>
                   <tr
+                    id={`planner-row-${date}`}
                     className={`border-t border-slate-800 ${date === today ? "bg-brand-900/10" : ""} ${
                       rowHighlighted ? "bg-amber-900/20" : ""
                     } ${dirtyDates.has(date) ? "outline outline-1 outline-brand-500/40" : ""}`}
