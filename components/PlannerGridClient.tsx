@@ -198,6 +198,8 @@ export default function PlannerGridClient({
   const [clearingDate, setClearingDate] = useState<string | null>(null);
   const [highlightedRows, setHighlightedRows] = useState<Set<string>>(new Set());
   const [highlightedCols, setHighlightedCols] = useState<Set<string>>(new Set());
+  const [savingDate, setSavingDate] = useState<string | null>(null);
+  const [dayStatus, setDayStatus] = useState<{ date: string; ok: boolean; message: string } | null>(null);
 
   const dates = useMemo(() => {
     const out: string[] = [];
@@ -281,6 +283,41 @@ export default function PlannerGridClient({
     }
     setDirtyDates(new Set());
     setSaveMessage(`Saved ${targets.length} day${targets.length === 1 ? "" : "s"} - visible to the student now.`);
+  }
+
+  /**
+   * Saves just one day - the "Save this day" button inside an expanded
+   * panel (Student Notes, Daily Reflection, Tomorrow's Goal, etc.). Those
+   * fields intentionally don't auto-save on every keystroke like the
+   * click-to-choose widgets do, but making someone scroll all the way back
+   * up to the top "Save changes" button just to not lose a paragraph they
+   * just wrote was the actual complaint - this does the same save, right
+   * where they're already looking.
+   */
+  async function saveDay(date: string) {
+    if (!canEdit) return;
+    setSavingDate(date);
+    setDayStatus(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("planner_entries").upsert(
+      {
+        user_id: targetUserId,
+        log_date: date,
+        field_values: toFieldValues(valuesByDate[date] ?? {}, activeColumns),
+      },
+      { onConflict: "user_id,log_date" }
+    );
+    setSavingDate(null);
+    if (error) {
+      setDayStatus({ date, ok: false, message: error.message });
+      return;
+    }
+    setDirtyDates((prev) => {
+      const next = new Set(prev);
+      next.delete(date);
+      return next;
+    });
+    setDayStatus({ date, ok: true, message: "Saved - visible now." });
   }
 
   function addSpecificDay() {
@@ -538,6 +575,27 @@ export default function PlannerGridClient({
                       return (
                         <tr className="border-t border-slate-800 bg-slate-950/40">
                           <td colSpan={colCount} className="px-4 py-4 space-y-4">
+                            {canEdit && (
+                              <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+                                <button
+                                  type="button"
+                                  onClick={() => saveDay(date)}
+                                  disabled={savingDate === date}
+                                  className="btn-primary text-xs"
+                                >
+                                  {savingDate === date ? "Saving..." : "Save this day"}
+                                </button>
+                                <p className="text-xs text-slate-500">
+                                  Saves everything in this expanded day - notes, reflection, goal, and the
+                                  row above - without needing to scroll up.
+                                </p>
+                                {dayStatus && dayStatus.date === date && (
+                                  <p className={`text-xs ${dayStatus.ok ? "text-green-400" : "text-red-400"}`}>
+                                    {dayStatus.message}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                             <DailySummary
                               questionsCompleted={questionsCompleted}
                               blocksCount={dayBlocks.length}
