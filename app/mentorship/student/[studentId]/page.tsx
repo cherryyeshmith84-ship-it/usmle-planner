@@ -6,19 +6,19 @@ import type { Mentor, MentorSlot, SessionNote } from "@/lib/mentors";
 import { findMentorByEmail, formatSlotDate, formatSlotTime, getSlotStatus } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import { computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
-import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
-import { readField, resolvePlannerColumns } from "@/lib/plannerColumns";
+import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
+import { resolvePlannerColumns } from "@/lib/plannerColumns";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
-import { groupNotesByDate } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
-import MentorDailyNoteCell from "@/components/MentorDailyNoteCell";
 import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
 import MentorPlannerColumnsEditor from "@/components/MentorPlannerColumnsEditor";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
+import PlannerGridClient from "@/components/PlannerGridClient";
 
 export const dynamic = "force-dynamic";
 
@@ -44,18 +44,19 @@ function scoreBadgeClass(pct: number | null) {
 }
 
 /**
- * Read-only "student progress" view a mentor can open for a specific
- * student. Deliberately built fresh instead of reusing PlannerGridClient /
- * PerformanceClient, since both of those are edit-capable and a mentor
- * should never be able to write a student's own planner rows or score
- * reports - only read them. RLS (is_mentor_of_student, see migration
- * mentor_read_student_progress) is what actually enforces that a mentor can
- * only load a student they have a real relationship with (a booked session
- * or a message thread) - this page's own not-a-mentor / no-relationship
- * checks below are just a friendlier 404 on top of that. The one deliberate
- * write exception is the "Mentor Note" column (mentor_daily_notes, Study
- * Planner v1 item 5) - a separate table the mentor can write and the
- * student can only read, kept apart from the student's own planner data.
+ * "Student progress" view a mentor can open for a specific student. Score
+ * reports stay upload-only by the student - a mentor can only view and
+ * review those. The day-by-day planner grid, though, is now fully
+ * mentor-editable (reuses the same PlannerGridClient the student's own
+ * /planner and admin's student page use, with canEdit + mentorId passed in)
+ * so a mentor can actually write the complete study plan for a student who
+ * hasn't started logging anything themselves yet, not just bolt on
+ * assignments/notes alongside it. RLS (is_mentor_of_student - see
+ * migrations mentor_read_student_progress and
+ * mentor_write_student_planner_entries) is what actually enforces that a
+ * mentor can only load/write a student they have a real relationship with -
+ * this page's own not-a-mentor / no-relationship checks below are just a
+ * friendlier 404 on top of that.
  */
 export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
   const supabase = createClient();
@@ -102,6 +103,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
     dailyNotesRes,
     planTasksRes,
     plannerSettingsRes,
+    blocksRes,
+    resourcesRes,
   ] = await Promise.all([
     supabase
       .from("score_reports")
@@ -114,12 +117,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
     // needs to manage hidden ones. resolvePlannerColumns below picks which
     // set actually applies, then it's filtered to active for display.
     supabase.from("planner_columns").select("*").or(`student_id.is.null,student_id.eq.${params.studentId}`),
-    supabase
-      .from("planner_entries")
-      .select("*")
-      .eq("user_id", params.studentId)
-      .order("log_date", { ascending: false })
-      .limit(14),
+    // No date limit here (unlike the old read-only summary table) - the
+    // editable grid below computes its own visible date range and needs
+    // the full history to know what's actually been logged.
+    supabase.from("planner_entries").select("*").eq("user_id", params.studentId),
     myMentorRecord
       ? supabase
           .from("mentor_slots")
@@ -142,6 +143,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
     supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
+    supabase.from("uworld_blocks").select("*").eq("user_id", params.studentId),
+    supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
@@ -153,15 +156,11 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const sessions = (slotsRes.data ?? []) as MentorSlot[];
   const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
   const studyPlan = studyPlanRes.data as { content: string; updated_at: string } | null;
-  // Mentor Notes (Study Planner v1 item 5) - a separate, mentor-writable
-  // per-day note shown alongside the read-only planner grid below. Only
-  // meaningful when the viewer actually is this student's mentor (RLS also
-  // enforces this - an admin browsing here sees existing notes but has no
-  // relationship id to write new ones under, so the cell just renders
-  // read-only text via the fallback below).
-  const dailyNotesByDate = groupNotesByDate((dailyNotesRes.data ?? []) as MentorDailyNote[]);
+  const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  const uworldBlocks = (blocksRes.data ?? []) as UWorldBlock[];
+  const studyResources = (resourcesRes.data ?? []) as StudyResource[];
 
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
@@ -183,8 +182,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </Link>
         <h1 className="text-xl font-bold mt-2 mb-1">{student.full_name || "Student"}</h1>
         <p className="text-sm text-slate-400 mb-6">
-          Read-only view - you can see this student&apos;s progress, but only they can edit their planner
-          or upload score reports.
+          {myMentorRecord
+            ? "You can fill in this student's full study planner below - Planned System, Hours, Questions, and anything else in their layout. Score reports are still upload-only by the student."
+            : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
         </p>
 
         {/* Analysis */}
@@ -412,60 +412,28 @@ export default async function StudentProgressPage({ params }: { params: { studen
           </div>
         )}
 
-        {/* Study planner - read-only except the Mentor Note column */}
+        {/* Study planner - the same day-by-day grid the student sees on
+            their own /planner, editable here when the viewer is this
+            student's mentor (canEdit + mentorId below - RLS backs this up,
+            see mentor_write_student_planner_entries). An admin browsing here
+            without a mentor relationship sees it read-only. */}
         <div className="mb-8">
           <h2 className="text-lg font-bold mb-3">Study planner</h2>
-          {plannerEntries.length === 0 || plannerColumns.length === 0 ? (
-            <p className="text-sm text-slate-500">No planner entries yet.</p>
+          {plannerColumns.length === 0 ? (
+            <p className="text-sm text-slate-500">No planner columns are set up yet.</p>
           ) : (
-            <div className="card overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-slate-500 uppercase tracking-wide">
-                    <th className="pr-4 py-1">Date</th>
-                    {plannerColumns.map((c) => (
-                      <th key={c.id} className="pr-4 py-1">
-                        {c.label}
-                      </th>
-                    ))}
-                    <th className="pr-4 py-1">Mentor Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plannerEntries.map((e) => (
-                    <tr key={e.id} className="border-t border-slate-800">
-                      <td className="pr-4 py-1.5 text-slate-400">{e.log_date}</td>
-                      {plannerColumns.map((c) => {
-                        const value = readField(e, c);
-                        return (
-                          <td key={c.id} className="pr-4 py-1.5">
-                            {c.field_type === "checkbox" ? (value ? "✓" : "") : String(value ?? "")}
-                          </td>
-                        );
-                      })}
-                      <td className="pr-4 py-1.5 align-top">
-                        {myMentorRecord ? (
-                          <MentorDailyNoteCell
-                            studentId={params.studentId}
-                            mentorId={myMentorRecord.id}
-                            date={e.log_date}
-                            initialContent={dailyNotesByDate[e.log_date]?.content ?? ""}
-                            initialStatus={dailyNotesByDate[e.log_date]?.status ?? null}
-                            initialReviewed={dailyNotesByDate[e.log_date]?.reviewed ?? false}
-                            initialReviewedAt={dailyNotesByDate[e.log_date]?.reviewed_at ?? null}
-                            initialNextCheckinDate={dailyNotesByDate[e.log_date]?.next_checkin_date ?? null}
-                          />
-                        ) : (
-                          <span className="text-slate-300 whitespace-pre-wrap">
-                            {dailyNotesByDate[e.log_date]?.content || <span className="text-slate-600">-</span>}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PlannerGridClient
+              targetUserId={params.studentId}
+              columns={plannerColumns}
+              initialEntries={plannerEntries}
+              initialBlocks={uworldBlocks}
+              initialMentorNotes={dailyNotes}
+              initialPlanTasks={planTasks}
+              studyResources={studyResources}
+              canEdit={!!myMentorRecord}
+              startDate={plannerStartDate}
+              mentorId={myMentorRecord?.id ?? null}
+            />
           )}
         </div>
 
