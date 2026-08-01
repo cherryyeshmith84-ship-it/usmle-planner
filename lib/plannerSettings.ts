@@ -17,8 +17,11 @@ function addDays(date: string, n: number): string {
  * from today (or further back if entries already exist earlier than that)
  * through a week ahead - centered on "today" every time the page loads.
  *
- * With a mentor-set start date, the grid instead starts there and keeps
- * growing forward from whatever's already been logged, so it never resets
+ * With a mentor-set start date, that date is authoritative: the grid starts
+ * exactly there - not pulled earlier even if older entries exist from before
+ * the mentor set it (that old data is still in the database, just not part
+ * of the default view - "Show earlier week" can still reach it) - and keeps
+ * growing forward from whatever's been logged since, so it never resets
  * back to being centered on "today": the visible range always reaches at
  * least a week past today AND a week past the latest saved entry, whichever
  * is further out, so there's always room to keep going from where the
@@ -33,8 +36,7 @@ export function computeInitialPlannerRange(
   const latestEntry = entryDates.length > 0 ? entryDates.reduce((max, d) => (d > max ? d : max)) : null;
 
   if (startDate) {
-    let rangeStart = startDate;
-    if (earliestEntry && earliestEntry < rangeStart) rangeStart = earliestEntry;
+    const rangeStart = startDate;
 
     let rangeEnd = today > startDate ? today : startDate;
     if (latestEntry && latestEntry > rangeEnd) rangeEnd = latestEntry;
