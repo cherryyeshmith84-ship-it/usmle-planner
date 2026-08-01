@@ -17,6 +17,7 @@ import StudyIssueSelector from "./StudyIssueSelector";
 import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
 import DailyReflection from "./DailyReflection";
 import { computeInitialPlannerRange } from "@/lib/plannerSettings";
+import MentorDailyNoteCell from "./MentorDailyNoteCell";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -89,6 +90,7 @@ export default function PlannerGridClient({
   studyResources = [],
   canEdit = true,
   startDate = null,
+  mentorId = null,
 }: {
   targetUserId: string;
   columns: PlannerColumn[];
@@ -103,6 +105,13 @@ export default function PlannerGridClient({
   // forward instead of always centering on "today" - see
   // lib/plannerSettings.ts.
   startDate?: string | null;
+  // When a mentor (not the student, not an admin browsing generically) is
+  // viewing this grid, passing their mentor id turns the read-only Mentor
+  // Notes block in each day's expanded panel into an editable
+  // MentorDailyNoteCell - lets them write the note without leaving the grid.
+  // Left null for the student's own /planner view and the plain admin view,
+  // both of which keep the old read-only-display behavior.
+  mentorId?: string | null;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const activeColumns = useMemo(
@@ -594,7 +603,8 @@ export default function PlannerGridClient({
                                 </p>
                               </div>
                             )}
-                            {(mentorNotesByDate[date]?.content ||
+                            {(mentorId ||
+                              mentorNotesByDate[date]?.content ||
                               mentorNotesByDate[date]?.status ||
                               mentorNotesByDate[date]?.reviewed ||
                               mentorNotesByDate[date]?.next_checkin_date) && (
@@ -602,38 +612,53 @@ export default function PlannerGridClient({
                                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                                   Mentor Notes
                                 </p>
-                                <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-                                  {mentorNotesByDate[date].status && (
-                                    <span
-                                      className={`inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${
-                                        MENTOR_STATUS_BADGE[mentorNotesByDate[date].status as DayStatus]
-                                      }`}
-                                    >
-                                      {DAY_STATUS_LABEL[mentorNotesByDate[date].status as DayStatus]}
-                                    </span>
-                                  )}
-                                  {mentorNotesByDate[date].reviewed && (
-                                    <span className="inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-brand-900/40 text-brand-400">
-                                      ✓ Reviewed
-                                      {mentorNotesByDate[date].reviewed_at
-                                        ? ` ${new Date(mentorNotesByDate[date].reviewed_at as string).toLocaleDateString()}`
-                                        : ""}
-                                    </span>
-                                  )}
-                                </div>
-                                {mentorNotesByDate[date].content && (
-                                  <p className="text-sm text-slate-200 whitespace-pre-wrap">
-                                    {mentorNotesByDate[date].content}
-                                  </p>
+                                {mentorId ? (
+                                  <MentorDailyNoteCell
+                                    studentId={targetUserId}
+                                    mentorId={mentorId}
+                                    date={date}
+                                    initialContent={mentorNotesByDate[date]?.content ?? ""}
+                                    initialStatus={mentorNotesByDate[date]?.status ?? null}
+                                    initialReviewed={mentorNotesByDate[date]?.reviewed ?? false}
+                                    initialReviewedAt={mentorNotesByDate[date]?.reviewed_at ?? null}
+                                    initialNextCheckinDate={mentorNotesByDate[date]?.next_checkin_date ?? null}
+                                  />
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                                      {mentorNotesByDate[date].status && (
+                                        <span
+                                          className={`inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${
+                                            MENTOR_STATUS_BADGE[mentorNotesByDate[date].status as DayStatus]
+                                          }`}
+                                        >
+                                          {DAY_STATUS_LABEL[mentorNotesByDate[date].status as DayStatus]}
+                                        </span>
+                                      )}
+                                      {mentorNotesByDate[date].reviewed && (
+                                        <span className="inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-brand-900/40 text-brand-400">
+                                          ✓ Reviewed
+                                          {mentorNotesByDate[date].reviewed_at
+                                            ? ` ${new Date(mentorNotesByDate[date].reviewed_at as string).toLocaleDateString()}`
+                                            : ""}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {mentorNotesByDate[date].content && (
+                                      <p className="text-sm text-slate-200 whitespace-pre-wrap">
+                                        {mentorNotesByDate[date].content}
+                                      </p>
+                                    )}
+                                    {mentorNotesByDate[date].next_checkin_date && (
+                                      <p className="text-[11px] text-slate-400 mt-1">
+                                        Next check-in: {mentorNotesByDate[date].next_checkin_date}
+                                      </p>
+                                    )}
+                                    <p className="text-[11px] text-slate-500 mt-1">
+                                      From your mentor - you can read this but can't edit it.
+                                    </p>
+                                  </>
                                 )}
-                                {mentorNotesByDate[date].next_checkin_date && (
-                                  <p className="text-[11px] text-slate-400 mt-1">
-                                    Next check-in: {mentorNotesByDate[date].next_checkin_date}
-                                  </p>
-                                )}
-                                <p className="text-[11px] text-slate-500 mt-1">
-                                  From your mentor - you can read this but can't edit it.
-                                </p>
                               </div>
                             )}
                           </td>
