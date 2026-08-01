@@ -7,7 +7,7 @@ import { findMentorByEmail, formatSlotDate, formatSlotTime, getSlotStatus } from
 import { getContentPublished } from "@/lib/platformSettings";
 import { computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
-import { readField } from "@/lib/plannerColumns";
+import { readField, resolvePlannerColumns } from "@/lib/plannerColumns";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import { groupNotesByDate } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
@@ -17,6 +17,7 @@ import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import MentorDailyNoteCell from "@/components/MentorDailyNoteCell";
 import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
+import MentorPlannerColumnsEditor from "@/components/MentorPlannerColumnsEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +97,12 @@ export default async function StudentProgressPage({ params }: { params: { studen
       .select("*")
       .eq("user_id", params.studentId)
       .order("taken_date", { ascending: false }),
-    supabase.from("planner_columns").select("*").eq("active", true).order("sort_order", { ascending: true }),
+    // Both the shared global defaults (student_id null) AND this student's
+    // own customized columns (if their mentor has set any up) - not
+    // filtered to active=true here since MentorPlannerColumnsEditor also
+    // needs to manage hidden ones. resolvePlannerColumns below picks which
+    // set actually applies, then it's filtered to active for display.
+    supabase.from("planner_columns").select("*").or(`student_id.is.null,student_id.eq.${params.studentId}`),
     supabase
       .from("planner_entries")
       .select("*")
@@ -127,7 +133,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
-  const plannerColumns = (plannerColumnsRes.data ?? []) as PlannerColumn[];
+  const allPlannerColumnRows = (plannerColumnsRes.data ?? []) as PlannerColumn[];
+  const defaultPlannerColumns = allPlannerColumnRows.filter((c) => !c.student_id);
+  const ownPlannerColumns = allPlannerColumnRows.filter((c) => c.student_id === params.studentId);
+  const plannerColumns = resolvePlannerColumns(allPlannerColumnRows, params.studentId).filter((c) => c.active);
   const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
   const sessions = (slotsRes.data ?? []) as MentorSlot[];
   const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
@@ -360,6 +369,21 @@ export default async function StudentProgressPage({ params }: { params: { studen
                 <MentorScoreReportRow key={r.id} report={r} canReview={!!myMentorRecord} />
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Planner layout - lets a mentor add/edit/delete this specific
+            student's planner columns (e.g. drop "First Aid Pages" for a
+            student not using First Aid, or add a custom one) without
+            touching any other student's layout. */}
+        {myMentorRecord && (
+          <div className="mb-8">
+            <h2 className="text-lg font-bold mb-3">Planner layout</h2>
+            <MentorPlannerColumnsEditor
+              studentId={params.studentId}
+              defaultColumns={defaultPlannerColumns}
+              initialOwnColumns={ownPlannerColumns}
+            />
           </div>
         )}
 
