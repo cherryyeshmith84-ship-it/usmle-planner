@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types";
 import { buildRoadmap, computePlanProgress, getTemplateDays, type PlanProgress } from "@/lib/templateDays";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import { resolvePlannerColumns } from "@/lib/plannerColumns";
 import type { ScoreReport } from "@/lib/scoreReports";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
@@ -40,7 +41,15 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
       supabase.from("messages").select("*").eq("student_id", params.id).order("created_at", { ascending: true }),
       supabase.from("daily_logs").select("block_scores").eq("user_id", params.id),
       supabase.from("personal_templates").select("*").eq("user_id", params.id).maybeSingle(),
-      supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
+      // This student's resolved columns (their own customization if their
+      // mentor set one up, else the shared defaults) - not every column
+      // that exists across every student, which is_admin() would otherwise
+      // return unfiltered.
+      supabase
+        .from("planner_columns")
+        .select("*")
+        .or(`student_id.is.null,student_id.eq.${params.id}`)
+        .order("sort_order", { ascending: true }),
       supabase.from("planner_entries").select("*").eq("user_id", params.id),
       supabase.from("score_reports").select("*").eq("user_id", params.id).order("taken_date", { ascending: false }),
     ]);
@@ -54,7 +63,7 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
   const personalTemplate = (personalRes.data as PersonalTemplate) ?? null;
-  const plannerColumns = (plannerColumnsRes.data ?? []) as PlannerColumn[];
+  const plannerColumns = resolvePlannerColumns((plannerColumnsRes.data ?? []) as PlannerColumn[], params.id);
   const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
 
