@@ -578,27 +578,6 @@ export default function PlannerGridClient({
                       return (
                         <tr className="border-t border-slate-800 bg-slate-950/40">
                           <td colSpan={colCount} className="px-4 py-4 space-y-4">
-                            {canEdit && (
-                              <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-                                <button
-                                  type="button"
-                                  onClick={() => saveDay(date)}
-                                  disabled={savingDate === date}
-                                  className="btn-primary text-xs"
-                                >
-                                  {savingDate === date ? "Saving..." : "Save this day"}
-                                </button>
-                                <p className="text-xs text-slate-500">
-                                  Saves everything in this expanded day - notes, reflection, goal, and the
-                                  row above - without needing to scroll up.
-                                </p>
-                                {dayStatus && dayStatus.date === date && (
-                                  <p className={`text-xs ${dayStatus.ok ? "text-green-400" : "text-red-400"}`}>
-                                    {dayStatus.message}
-                                  </p>
-                                )}
-                              </div>
-                            )}
                             <DailySummary
                               questionsCompleted={questionsCompleted}
                               blocksCount={dayBlocks.length}
@@ -774,6 +753,27 @@ export default function PlannerGridClient({
                                       From your mentor - you can read this but can't edit it.
                                     </p>
                                   </>
+                                )}
+                              </div>
+                            )}
+                            {canEdit && (
+                              <div className="flex items-center gap-3 pt-3 border-t border-slate-800">
+                                <button
+                                  type="button"
+                                  onClick={() => saveDay(date)}
+                                  disabled={savingDate === date}
+                                  className="btn-primary text-xs"
+                                >
+                                  {savingDate === date ? "Saving..." : "Save this day"}
+                                </button>
+                                <p className="text-xs text-slate-500">
+                                  Saves everything above in this expanded day - notes, reflection, goal, and
+                                  the row at the top.
+                                </p>
+                                {dayStatus && dayStatus.date === date && (
+                                  <p className={`text-xs ${dayStatus.ok ? "text-green-400" : "text-red-400"}`}>
+                                    {dayStatus.message}
+                                  </p>
                                 )}
                               </div>
                             )}
