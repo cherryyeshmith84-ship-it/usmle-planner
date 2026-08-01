@@ -16,18 +16,15 @@ import { computeTodayStatus } from "@/lib/plannerStatus";
 import { computeStreaks } from "@/lib/streaks";
 import {
   computeAiReminder,
-  computeExamStatus,
   computeRecentActivity,
   latestNoteWithContent,
   nextUpcomingCheckin,
 } from "@/lib/homeInsights";
-import { EASTERN_TZ } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import MarkDayCompleteButton from "@/components/MarkDayCompleteButton";
 import {
-  WelcomeCard,
   TodaysPlanCard,
   LatestAnalysisCard,
   UpcomingMentorshipCard,
@@ -45,15 +42,6 @@ function isoAddDays(date: string, n: number): string {
   const d = new Date(date + "T00:00:00");
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
-}
-
-function greetingForNow(): string {
-  const hour = Number(
-    new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: EASTERN_TZ }).format(new Date())
-  );
-  if (hour < 12) return "Good Morning";
-  if (hour < 18) return "Good Afternoon";
-  return "Good Evening";
 }
 
 type Booking = MentorSlot & {
@@ -151,15 +139,6 @@ export default async function DashboardPage() {
   const mentorFromEmail = findMentorByEmail(mentors, profile.mentor_email);
   const currentMentorName = mentorFromEmail?.name ?? nextBooking?.mentors?.name ?? mostRecentBooking?.mentors?.name ?? null;
 
-  const examLabel = profile.exam_track === "step1" ? "USMLE Step 1" : profile.subject_name || "Subject Exam";
-  const daysRemaining = profile.exam_date
-    ? Math.round(
-        (new Date(profile.exam_date + "T00:00:00").getTime() - new Date(today + "T00:00:00").getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    : null;
-  const statusInfo = computeExamStatus(weeklySummary);
-
   const latestNote = latestNoteWithContent(dailyNotes);
   const noteMentorName = latestNote
     ? mentors.find((m) => m.id === latestNote.mentor_id)?.name ?? currentMentorName
@@ -185,22 +164,9 @@ export default async function DashboardPage() {
   const plannedSystemRaw = todaysEntry?.field_values?.["planned_system"];
   const plannedSystem = typeof plannedSystemRaw === "string" && plannedSystemRaw.trim() ? plannedSystemRaw : null;
 
-  const firstName = profile.full_name?.trim().split(/\s+/)[0] || "there";
-
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8 space-y-6 w-full">
-        <WelcomeCard
-          greeting={greetingForNow()}
-          firstName={firstName}
-          examLabel={examLabel}
-          examDate={profile.exam_date}
-          daysRemaining={daysRemaining}
-          mentorName={currentMentorName}
-          statusLabel={statusInfo.label}
-          statusTone={statusInfo.tone}
-        />
-
         <TodaysPlanCard
           plannedSystem={plannedSystem}
           tasks={todaysTasks}
@@ -215,11 +181,6 @@ export default async function DashboardPage() {
         />
 
         <PlannerStatusHeader status={todayStatus} />
-        <WeeklyProgress summary={weeklySummary} />
-
-        <AiReminderCard message={reminderMessage} />
-
-        <LatestAnalysisCard review={examReview} weakest={weakest} strongest={strongest} />
 
         <div className="grid sm:grid-cols-2 gap-4">
           <UpcomingMentorshipCard
@@ -236,6 +197,12 @@ export default async function DashboardPage() {
           />
           <MentorNoteCard note={latestNote} mentorName={noteMentorName} />
         </div>
+
+        <LatestAnalysisCard review={examReview} weakest={weakest} strongest={strongest} />
+
+        <AiReminderCard message={reminderMessage} />
+
+        <WeeklyProgress summary={weeklySummary} />
 
         <QuickActionsCard />
 
