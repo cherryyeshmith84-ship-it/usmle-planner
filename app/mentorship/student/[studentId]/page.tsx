@@ -18,6 +18,7 @@ import MentorDailyNoteCell from "@/components/MentorDailyNoteCell";
 import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
 import MentorPlannerColumnsEditor from "@/components/MentorPlannerColumnsEditor";
+import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +92,17 @@ export default async function StudentProgressPage({ params }: { params: { studen
   if (!studentData) notFound();
   const student = studentData as Pick<Profile, "id" | "full_name" | "email">;
 
-  const [scoreReportsRes, plannerColumnsRes, plannerEntriesRes, slotsRes, notesRes, studyPlanRes, dailyNotesRes, planTasksRes] = await Promise.all([
+  const [
+    scoreReportsRes,
+    plannerColumnsRes,
+    plannerEntriesRes,
+    slotsRes,
+    notesRes,
+    studyPlanRes,
+    dailyNotesRes,
+    planTasksRes,
+    plannerSettingsRes,
+  ] = await Promise.all([
     supabase
       .from("score_reports")
       .select("*")
@@ -130,6 +141,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
       : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
+    supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
@@ -149,6 +161,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   // read-only text via the fallback below).
   const dailyNotesByDate = groupNotesByDate((dailyNotesRes.data ?? []) as MentorDailyNote[]);
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
+  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
 
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
@@ -369,6 +382,18 @@ export default async function StudentProgressPage({ params }: { params: { studen
                 <MentorScoreReportRow key={r.id} report={r} canReview={!!myMentorRecord} />
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Planner schedule - where this student's plan starts. Once set,
+            their planner grid stops resetting to a window centered on
+            "today" every time it loads and instead starts here, growing
+            forward from whatever's already been logged (see
+            lib/plannerSettings.ts). */}
+        {myMentorRecord && (
+          <div className="mb-8">
+            <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
+            <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
           </div>
         )}
 
