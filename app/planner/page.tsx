@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
+import { resolvePlannerColumns } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
@@ -46,7 +47,14 @@ export default async function PlannerPage() {
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
   const [columnsRes, entriesRes, blocksRes, mentorNotesRes, planTasksRes, resourcesRes] = await Promise.all([
-    supabase.from("planner_columns").select("*").order("sort_order", { ascending: true }),
+    // Global defaults plus this student's own customized columns, if their
+    // mentor has set any up for them (see resolvePlannerColumns below and
+    // MentorPlannerColumnsEditor, which is where those get created).
+    supabase
+      .from("planner_columns")
+      .select("*")
+      .or(`student_id.is.null,student_id.eq.${user.id}`)
+      .order("sort_order", { ascending: true }),
     supabase.from("planner_entries").select("*").eq("user_id", user.id),
     supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
@@ -54,7 +62,7 @@ export default async function PlannerPage() {
     supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
   ]);
 
-  const columns = (columnsRes.data ?? []) as PlannerColumn[];
+  const columns = resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id);
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
   const blocks = (blocksRes.data ?? []) as UWorldBlock[];
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
