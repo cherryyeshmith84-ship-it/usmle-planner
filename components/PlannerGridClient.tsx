@@ -216,6 +216,40 @@ export default function PlannerGridClient({
     setDirtyDates((prev) => new Set(prev).add(date));
   }
 
+  /**
+   * Same as setCellValue, but writes that day's row to the database right
+   * away instead of waiting for "Save changes" - for the click-to-choose
+   * widgets (Daily Mood, Today's Biggest Issue, Resources Used) where
+   * requiring a separate save step just meant the choice silently vanished
+   * on refresh if the student forgot to click it. Text/number cells in the
+   * main grid still stay staged-until-Save on purpose (typing shouldn't fire
+   * a network request per keystroke).
+   */
+  async function setCellValueAndSave(date: string, key: string, value: CellValue) {
+    setSaveMessage(null);
+    const updatedRow = { ...(valuesByDate[date] ?? {}), [key]: value };
+    setValuesByDate((prev) => ({ ...prev, [date]: updatedRow }));
+    if (!canEdit) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("planner_entries").upsert(
+      {
+        user_id: targetUserId,
+        log_date: date,
+        field_values: toFieldValues(updatedRow, activeColumns),
+      },
+      { onConflict: "user_id,log_date" }
+    );
+    if (error) {
+      setSaveError(error.message);
+      return;
+    }
+    setDirtyDates((prev) => {
+      const next = new Set(prev);
+      next.delete(date);
+      return next;
+    });
+  }
+
   async function saveAll() {
     if (dirtyDates.size === 0 || !canEdit) return;
     setSaving(true);
@@ -502,7 +536,7 @@ export default function PlannerGridClient({
                                 <MoodPicker
                                   value={(rowValues["mood"] as string) ?? ""}
                                   disabled={!canEdit}
-                                  onChange={(mood) => setCellValue(date, "mood", mood)}
+                                  onChange={(mood) => setCellValueAndSave(date, "mood", mood)}
                                 />
                               </div>
                             )}
@@ -514,7 +548,7 @@ export default function PlannerGridClient({
                                 <StudyIssueSelector
                                   value={(rowValues["study_issue"] as string) ?? ""}
                                   disabled={!canEdit}
-                                  onChange={(issue) => setCellValue(date, "study_issue", issue)}
+                                  onChange={(issue) => setCellValueAndSave(date, "study_issue", issue)}
                                 />
                               </div>
                             )}
@@ -527,7 +561,7 @@ export default function PlannerGridClient({
                                   resources={studyResources}
                                   value={(rowValues["resources_used"] as string) ?? ""}
                                   disabled={!canEdit}
-                                  onChange={(csv) => setCellValue(date, "resources_used", csv)}
+                                  onChange={(csv) => setCellValueAndSave(date, "resources_used", csv)}
                                 />
                               </div>
                             )}
