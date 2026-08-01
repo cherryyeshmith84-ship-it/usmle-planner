@@ -15,6 +15,7 @@ import type { ScoreReport } from "@/lib/scoreReports";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
 import PlannerGridClient from "@/components/PlannerGridClient";
+import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import PerformanceClient from "@/components/PerformanceClient";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +29,18 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
 
   // None of these six queries depend on each other's results - only on the
   // student id from the URL - so run them all at once instead of one by one.
-  const [studentRes, logsRes, templatesRes, messagesRes, scoreRes, personalRes, plannerColumnsRes, plannerEntriesRes, scoreReportsRes] =
-    await Promise.all([
+  const [
+    studentRes,
+    logsRes,
+    templatesRes,
+    messagesRes,
+    scoreRes,
+    personalRes,
+    plannerColumnsRes,
+    plannerEntriesRes,
+    scoreReportsRes,
+    plannerSettingsRes,
+  ] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", params.id).single(),
       supabase
         .from("daily_logs")
@@ -52,6 +63,7 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
         .order("sort_order", { ascending: true }),
       supabase.from("planner_entries").select("*").eq("user_id", params.id),
       supabase.from("score_reports").select("*").eq("user_id", params.id).order("taken_date", { ascending: false }),
+      supabase.from("student_planner_settings").select("start_date").eq("student_id", params.id).maybeSingle(),
     ]);
 
   if (!studentRes.data) notFound();
@@ -66,6 +78,7 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
   const plannerColumns = resolvePlannerColumns((plannerColumnsRes.data ?? []) as PlannerColumn[], params.id);
   const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
+  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
 
   // Full day-by-day roadmap for whatever this student is currently using -
   // their coach-assigned plan, or their own self-built one - so the coach
@@ -115,7 +128,15 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
             Same day-by-day grid the student sees and edits themselves - you can fill in "Planned
             system" ahead of time or correct anything here.
           </p>
-          <PlannerGridClient targetUserId={params.id} columns={plannerColumns} initialEntries={plannerEntries} />
+          <div className="mb-3">
+            <PlannerStartDateControl studentId={params.id} initialStartDate={plannerStartDate} />
+          </div>
+          <PlannerGridClient
+            targetUserId={params.id}
+            columns={plannerColumns}
+            initialEntries={plannerEntries}
+            startDate={plannerStartDate}
+          />
         </div>
 
         <div className="mt-8">
