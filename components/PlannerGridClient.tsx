@@ -16,6 +16,7 @@ import MoodPicker from "./MoodPicker";
 import StudyIssueSelector from "./StudyIssueSelector";
 import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
 import DailyReflection from "./DailyReflection";
+import { computeInitialPlannerRange } from "@/lib/plannerSettings";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -87,6 +88,7 @@ export default function PlannerGridClient({
   initialPlanTasks = [],
   studyResources = [],
   canEdit = true,
+  startDate = null,
 }: {
   targetUserId: string;
   columns: PlannerColumn[];
@@ -96,6 +98,11 @@ export default function PlannerGridClient({
   initialPlanTasks?: PlanTask[];
   studyResources?: StudyResource[];
   canEdit?: boolean;
+  // Mentor-set date this student's plan starts on (student_planner_settings).
+  // When present, the grid's default range starts there and keeps growing
+  // forward instead of always centering on "today" - see
+  // lib/plannerSettings.ts.
+  startDate?: string | null;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const activeColumns = useMemo(
@@ -166,16 +173,13 @@ export default function PlannerGridClient({
     return map;
   });
 
-  const earliestExisting = initialEntries.reduce(
-    (min, e) => (e.log_date < min ? e.log_date : min),
-    today
+  const initialRange = useMemo(
+    () => computeInitialPlannerRange(startDate, today, initialEntries.map((e) => e.log_date)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
-
-  const [rangeStart, setRangeStart] = useState(() => {
-    const fallback = addDays(today, -7);
-    return earliestExisting < fallback ? earliestExisting : fallback;
-  });
-  const [rangeEnd, setRangeEnd] = useState(() => addDays(today, 7));
+  const [rangeStart, setRangeStart] = useState(initialRange.rangeStart);
+  const [rangeEnd, setRangeEnd] = useState(initialRange.rangeEnd);
   const [newDate, setNewDate] = useState("");
   const [dirtyDates, setDirtyDates] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
