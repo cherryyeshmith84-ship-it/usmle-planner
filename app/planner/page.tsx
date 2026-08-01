@@ -46,7 +46,7 @@ export default async function PlannerPage() {
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
-  const [columnsRes, entriesRes, blocksRes, mentorNotesRes, planTasksRes, resourcesRes] = await Promise.all([
+  const [columnsRes, entriesRes, blocksRes, mentorNotesRes, planTasksRes, resourcesRes, plannerSettingsRes] = await Promise.all([
     // Global defaults plus this student's own customized columns, if their
     // mentor has set any up for them (see resolvePlannerColumns below and
     // MentorPlannerColumnsEditor, which is where those get created).
@@ -60,6 +60,7 @@ export default async function PlannerPage() {
     supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
     supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
+    supabase.from("student_planner_settings").select("start_date").eq("student_id", user.id).maybeSingle(),
   ]);
 
   const columns = resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id);
@@ -68,6 +69,7 @@ export default async function PlannerPage() {
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
   const studyResources = (resourcesRes.data ?? []) as StudyResource[];
+  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
   const today = new Date().toISOString().slice(0, 10);
   const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
   const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
@@ -96,6 +98,7 @@ export default async function PlannerPage() {
           initialMentorNotes={mentorNotes}
           initialPlanTasks={planTasks}
           studyResources={studyResources}
+          startDate={plannerStartDate}
         />
       </main>
     </AppShell>
