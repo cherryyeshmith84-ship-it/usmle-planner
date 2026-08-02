@@ -132,6 +132,43 @@ export default function MentorScoreReportRow({
               </div>
             </div>
           )}
+
+          {/* Finer-grained than Systems above - only question-level reports
+              (e.g. an NBME CBSE/CCSE "Examinee Question-Level Feedback
+              Report") have this, keyed by the exact named topic within a
+              system (e.g. "diseases of the myocardium" within Cardio) rather
+              than the system as a whole. Sorted weakest-first so a mentor
+              planning a session can see exactly which named topics to assign,
+              not just which broad system. */}
+          {report.exam_type === "question_level" &&
+            report.content_breakdown &&
+            Object.keys(report.content_breakdown).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                  Topics (weakest first)
+                </p>
+                <div className="space-y-1.5">
+                  {Object.values(report.content_breakdown)
+                    .sort((a, b) => a.percent - b.percent)
+                    .map((item, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-slate-400 truncate">
+                          {item.system ? `${item.system} - ` : ""}
+                          {item.subtopic}
+                        </span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {item.national_pct !== null && (
+                            <span className="text-[10px] text-slate-600">Natl {item.national_pct}%</span>
+                          )}
+                          <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${scoreBadgeClass(item.percent)}`}>
+                            {item.percent}% ({item.correct}/{item.total})
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
         </div>
       )}
 
