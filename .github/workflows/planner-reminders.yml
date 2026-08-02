@@ -1,0 +1,36 @@
+name: Planner Reminders
+
+# Vercel's own Cron Jobs are capped at 2 per project on the Hobby plan,
+# and both are already used (plan-reminders, mentor-slot-reminders) - so
+# these two new daily reminders are triggered from here instead, over a
+# plain HTTPS request to the same Next.js API routes a Vercel cron would
+# hit. GitHub Actions schedules are UTC only, same as Vercel's, so the
+# times below drift by an hour for a few weeks around the March/November
+# US Daylight Saving changeovers - update by +/-1 hour then if exact
+# timing matters.
+on:
+  schedule:
+    # 01:30 UTC = 9:30 PM Eastern (EDT, UTC-4). Evening "update your planner" reminder.
+    - cron: "30 1 * * *"
+    # 12:30 UTC = 8:30 AM Eastern (EDT, UTC-4). Morning "here's what's scheduled" reminder.
+    - cron: "30 12 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  evening-reminder:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 1 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger evening planner reminder
+        run: |
+          curl -fsS -X GET "https://master-grid.vercel.app/api/cron/planner-evening-reminder" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  morning-reminder:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 12 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger morning planner reminder
+        run: |
+          curl -fsS -X GET "https://master-grid.vercel.app/api/cron/planner-morning-reminder" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
