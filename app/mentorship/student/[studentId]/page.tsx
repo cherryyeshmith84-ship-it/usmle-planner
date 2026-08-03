@@ -23,6 +23,12 @@ import PlannerGridClient from "@/components/PlannerGridClient";
 
 export const dynamic = "force-dynamic";
 
+const STAGE_LABEL: Record<string, string> = {
+  beginning: "Just starting",
+  middle: "In the middle",
+  end: "Final stretch",
+};
+
 const TREND_LABEL: Record<string, string> = {
   improving: "↑ Improving",
   declining: "↓ Declining",
@@ -84,7 +90,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const { data: studentData } = await supabase
     .from("profiles")
-    .select("id, full_name, email, status_update, status_updated_at")
+    .select(
+      "id, full_name, email, status_update, status_updated_at, exam_track, subject_name, prep_stage, exam_date, daily_hour_goal, resources, completed_so_far, weak_areas, strong_areas, goals_notes"
+    )
     .eq("id", params.studentId)
     .maybeSingle();
   // RLS on profiles only returns a row here if this mentor actually has a
@@ -94,7 +102,21 @@ export default async function StudentProgressPage({ params }: { params: { studen
   if (!studentData) notFound();
   const student = studentData as Pick<
     Profile,
-    "id" | "full_name" | "email" | "status_update" | "status_updated_at"
+    | "id"
+    | "full_name"
+    | "email"
+    | "status_update"
+    | "status_updated_at"
+    | "exam_track"
+    | "subject_name"
+    | "prep_stage"
+    | "exam_date"
+    | "daily_hour_goal"
+    | "resources"
+    | "completed_so_far"
+    | "weak_areas"
+    | "strong_areas"
+    | "goals_notes"
   >;
 
   const [
@@ -207,6 +229,69 @@ export default async function StudentProgressPage({ params }: { params: { studen
               <p className="text-xs text-slate-600 mt-1">
                 Updated {formatSlotDate(student.status_updated_at)} at {formatSlotTime(student.status_updated_at)}
               </p>
+            )}
+          </div>
+        )}
+
+        {/* Intake - what this student filled in on "Tell us about your prep"
+            during onboarding (app/onboarding/OnboardingForm.tsx). Previously
+            only visible to admins on AdminStudentDetail.tsx - mirrored here
+            so a mentor can see it without asking the student to repeat it. */}
+        <div className="card grid sm:grid-cols-2 gap-4 mb-8">
+          <div>
+            <p className="label">Track</p>
+            <p className="text-sm">
+              {student.exam_track === "subject"
+                ? `Subject exams${student.subject_name ? ` - ${student.subject_name}` : ""}`
+                : student.exam_track === "step1"
+                ? "Step 1 (CBSE)"
+                : "Not set"}
+            </p>
+          </div>
+          <div>
+            <p className="label">Prep stage</p>
+            <p className="text-sm">{student.prep_stage ? STAGE_LABEL[student.prep_stage] : "Not set"}</p>
+          </div>
+          <div>
+            <p className="label">Exam date</p>
+            <p className="text-sm">{student.exam_date || "Not set"}</p>
+          </div>
+          <div>
+            <p className="label">Daily hour goal</p>
+            <p className="text-sm">{student.daily_hour_goal ? `${student.daily_hour_goal}h` : "Not set"}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="label">Resources</p>
+            <p className="text-sm">{student.resources?.length ? student.resources.join(", ") : "Not set"}</p>
+          </div>
+        </div>
+
+        {(student.completed_so_far || student.strong_areas || student.weak_areas || student.goals_notes) && (
+          <div className="card space-y-3 mb-8">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
+            {student.completed_so_far && (
+              <div>
+                <p className="label">Completed so far</p>
+                <p className="text-sm text-slate-300">{student.completed_so_far}</p>
+              </div>
+            )}
+            {student.strong_areas && (
+              <div>
+                <p className="label">Strong in</p>
+                <p className="text-sm text-slate-300">{student.strong_areas}</p>
+              </div>
+            )}
+            {student.weak_areas && (
+              <div>
+                <p className="label">Struggling with</p>
+                <p className="text-sm text-slate-300">{student.weak_areas}</p>
+              </div>
+            )}
+            {student.goals_notes && (
+              <div>
+                <p className="label">Goals / wants</p>
+                <p className="text-sm text-slate-300">{student.goals_notes}</p>
+              </div>
             )}
           </div>
         )}
