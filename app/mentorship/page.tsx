@@ -116,7 +116,7 @@ export default async function MentorshipPage() {
 
     return (
       <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+        <main className="flex-1 px-6 py-8 w-full">
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
               <h1 className="text-xl font-bold mb-1">Your mentor dashboard</h1>
