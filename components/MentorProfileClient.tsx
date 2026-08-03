@@ -4,8 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
-  BIGGEST_CHALLENGE_OPTIONS,
-  PREP_STAGE_OPTIONS,
   formatSlotDate,
   formatSlotTime,
   groupSlotsByDate,
@@ -55,17 +53,6 @@ export default function MentorProfileClient({
   const [bookError, setBookError] = useState<string | null>(null);
   const [bookedMsg, setBookedMsg] = useState<string | null>(null);
 
-  // Structured pre-booking questionnaire - required before any slot can be
-  // booked, same "fill in once, applies to whichever slot you book" idea as
-  // before, just with real structured fields instead of one packed string.
-  const [stage, setStage] = useState("");
-  const [currentNbme, setCurrentNbme] = useState("");
-  const [targetExamDate, setTargetExamDate] = useState("");
-  const [challenge, setChallenge] = useState("");
-  const [challengeOther, setChallengeOther] = useState("");
-  const [note, setNote] = useState("");
-  const readyToBook = stage.trim().length > 0 && challenge.trim().length > 0;
-
   const photoUrl = mentorPhotoUrl(mentor.photo_path, SUPABASE_URL);
   const languages = mentor.languages || [];
   const helpAreas = mentor.help_areas || [];
@@ -76,14 +63,6 @@ export default function MentorProfileClient({
   }
 
   async function book(slotId: string) {
-    if (!readyToBook) {
-      setBookError("Fill in your current stage and biggest challenge before booking.");
-      return;
-    }
-    if (challenge === "Other" && !challengeOther.trim()) {
-      setBookError("Say a bit about what your biggest challenge is.");
-      return;
-    }
     const targetSlot = slots.find((s) => s.id === slotId);
     if (targetSlot && hasBookingInWeekOf(targetSlot.start_time)) {
       setBookError(
@@ -100,11 +79,6 @@ export default function MentorProfileClient({
         is_booked: true,
         booked_by: currentUserId,
         booked_at: new Date().toISOString(),
-        current_stage: stage,
-        current_nbme: currentNbme.trim() || null,
-        target_exam_date: targetExamDate || null,
-        biggest_challenge: challenge === "Other" ? `Other: ${challengeOther.trim()}` : challenge,
-        student_note: note.trim() || null,
       })
       .eq("id", slotId)
       .eq("is_booked", false)
@@ -253,7 +227,7 @@ export default function MentorProfileClient({
         {slots.length === 0 ? (
           <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
         ) : (
-          <div className="space-y-4 mb-6">
+          <div className="space-y-4">
             {groupSlotsByDate(slots).map(({ date, slots }) => (
               <div key={date}>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
@@ -285,78 +259,6 @@ export default function MentorProfileClient({
             ))}
           </div>
         )}
-
-        {/* Pre-booking questionnaire - shown alongside availability instead
-            of gating it, so a student can see open times right away. Still
-            required to actually book (enforced in book() above): clicking
-            "Book Session" before this is filled in shows bookError telling
-            them what's missing. */}
-        <div className="border-t border-slate-800 pt-4">
-          <p className="text-sm font-semibold mb-1">Before you book</p>
-          <p className="text-xs text-slate-500 mb-3">
-            Required so your mentor knows where you&apos;re at before the session - fill this in once,
-            it applies to whichever slot you book.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="label">Current stage</label>
-              <div className="flex flex-wrap gap-3">
-                {PREP_STAGE_OPTIONS.map((s) => (
-                  <label key={s} className="flex items-center gap-1.5 text-sm text-slate-300">
-                    <input type="radio" name="stage" checked={stage === s} onChange={() => setStage(s)} />
-                    {s}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="label">Current NBME (optional)</label>
-              <input
-                className="input"
-                value={currentNbme}
-                onChange={(e) => setCurrentNbme(e.target.value)}
-                placeholder="e.g. Form 26: 220"
-              />
-            </div>
-            <div>
-              <label className="label">Target exam date (optional)</label>
-              <input
-                type="date"
-                className="input"
-                value={targetExamDate}
-                onChange={(e) => setTargetExamDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">Biggest challenge</label>
-              <div className="flex flex-wrap gap-3">
-                {BIGGEST_CHALLENGE_OPTIONS.map((c) => (
-                  <label key={c} className="flex items-center gap-1.5 text-sm text-slate-300">
-                    <input type="radio" name="challenge" checked={challenge === c} onChange={() => setChallenge(c)} />
-                    {c}
-                  </label>
-                ))}
-              </div>
-              {challenge === "Other" && (
-                <input
-                  className="input mt-2"
-                  value={challengeOther}
-                  onChange={(e) => setChallengeOther(e.target.value)}
-                  placeholder="Say more..."
-                />
-              )}
-            </div>
-            <div>
-              <label className="label">Anything you&apos;d like your mentor to know? (optional)</label>
-              <textarea
-                className="input"
-                rows={2}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       <MentorChatPanel mentorId={mentor.id} studentId={currentUserId} otherPartyLabel={mentor.name} />
