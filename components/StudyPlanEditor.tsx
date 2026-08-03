@@ -4,14 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-/**
- * Lets a mentor write (or update) the one current study plan for a specific
- * student, from that student's read-only progress page
- * (app/mentorship/student/[studentId]/page.tsx). Writing here is what makes
- * the student's Analysis page swap its computed "Default AI Study Plan" card
- * for this mentor-authored one instead - see mentor_study_plans table and
- * the "Study Plan" card in components/PerformanceClient.tsx.
- */
 export default function StudyPlanEditor({
   studentId,
   mentorId,
@@ -55,6 +47,20 @@ export default function StudyPlanEditor({
       return;
     }
     setEditing(false);
+
+    fetch("/api/notifications/relationship-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mentorId,
+        studentId,
+        type: "study_plan",
+        title: "Your mentor updated your study plan",
+        detail: content.trim().slice(0, 140),
+        link: "/history",
+      }),
+    }).catch(() => {});
+
     router.refresh();
   }
 
