@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   formatSlotDate,
@@ -34,6 +34,7 @@ export default function MentorAvailabilityClient({
   conversationPartners: ConversationPartner[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const slots = initialSlots;
 
   const [date, setDate] = useState("");
@@ -48,6 +49,18 @@ export default function MentorAvailabilityClient({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<ConversationPartner | null>(null);
+
+  // Deep-link support for "?student=..." (used by the notification bell -
+  // clicking a "New message from a student" notification lands here with
+  // that student pre-selected instead of just the bare student picker).
+  useEffect(() => {
+    const preselectId = searchParams.get("student");
+    if (preselectId && !selectedPartner) {
+      const match = conversationPartners.find((p) => p.id === preselectId);
+      if (match) setSelectedPartner(match);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Editing an existing open slot in place - only offered for slots that
   // aren't booked yet (same restriction as the Remove button), since
@@ -216,6 +229,22 @@ export default function MentorAvailabilityClient({
       setError(insertError.message);
       return;
     }
+
+    // Fire-and-forget in-app notification to whichever students this slot
+    // is actually visible to (existing-only, new-only, or everyone -
+    // mirrors slotVisibleToStudent()'s own rule). A failure here shouldn't
+    // block the slot itself, which already saved successfully above.
+    fetch("/api/notifications/new-availability", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mentorId: mentor.id,
+        audience: audience || null,
+        dateLabel: formatSlotDate(start.toISOString()),
+        timeLabel: `${formatSlotTime(start.toISOString())} - ${formatSlotTime(end.toISOString())}`,
+      }),
+    }).catch(() => {});
+
     setDate("");
     setStartTime("");
     setEndTime("");
