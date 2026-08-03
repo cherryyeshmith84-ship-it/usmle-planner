@@ -210,6 +210,25 @@ export default function MentorProfileClient({
         </div>
       )}
 
+      {/* Meeting link - only for this mentor's own existing students (same
+          "linked their email under Settings" rule as reserved availability
+          slots), not shown to anyone just browsing the directory. Always
+          visible here, independent of whether they currently have a slot
+          booked - it's the mentor's permanent room, not tied to one session. */}
+      {isExistingStudent && mentor.meeting_link && (
+        <div className="card">
+          <p className="text-sm font-semibold mb-2">Meeting link</p>
+          <a
+            href={mentor.meeting_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-brand-400 hover:text-brand-300 break-all"
+          >
+            {mentor.meeting_link}
+          </a>
+        </div>
+      )}
+
       <div className="card">
         <p className="text-sm font-semibold mb-3">Availability</p>
         <p className="text-xs text-slate-500 mb-3">
