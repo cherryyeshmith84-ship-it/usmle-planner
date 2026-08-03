@@ -45,6 +45,12 @@ export interface Profile {
   // is_mentor_of_student() in Postgres, which checks this alongside the
   // older booking/message paths.
   mentor_email?: string | null;
+  // Free-text status the student sets for their own mentor to see - not
+  // tied to a specific day, just "the latest thing I want my mentor to
+  // know" (e.g. "Feeling behind on Biochem this week"). Editable from
+  // Settings and the Home dashboard (see components/StatusUpdateCard.tsx).
+  status_update?: string | null;
+  status_updated_at?: string | null;
 }
 
 export interface TemplateTask {
