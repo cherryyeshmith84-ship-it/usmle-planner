@@ -75,7 +75,6 @@ export default function MentorAvailabilityClient({
   const [profileWhyMentor, setProfileWhyMentor] = useState(mentor.why_mentor || "");
   const [profileLanguages, setProfileLanguages] = useState((mentor.languages || []).join(", "));
   const [profileHelpAreas, setProfileHelpAreas] = useState<string[]>(mentor.help_areas || []);
-  const [profileMeetingLink, setProfileMeetingLink] = useState(mentor.meeting_link || "");
   const [profileResponseTime, setProfileResponseTime] = useState(mentor.response_time_note || "");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -104,7 +103,6 @@ export default function MentorAvailabilityClient({
     setProfileWhyMentor(displayWhyMentor);
     setProfileLanguages(displayLanguages.join(", "));
     setProfileHelpAreas(displayHelpAreas);
-    setProfileMeetingLink(displayMeetingLink);
     setProfileResponseTime(displayResponseTime);
     setProfileError(null);
     setEditingProfile(true);
@@ -160,7 +158,6 @@ export default function MentorAvailabilityClient({
         why_mentor: profileWhyMentor.trim() || null,
         languages: languagesArray,
         help_areas: profileHelpAreas,
-        meeting_link: profileMeetingLink.trim() || null,
         response_time_note: profileResponseTime.trim() || null,
       })
       .eq("id", mentor.id);
@@ -183,7 +180,6 @@ export default function MentorAvailabilityClient({
     setDisplayWhyMentor(profileWhyMentor.trim());
     setDisplayLanguages(languagesArray);
     setDisplayHelpAreas(profileHelpAreas);
-    setDisplayMeetingLink(profileMeetingLink.trim());
     setDisplayResponseTime(profileResponseTime.trim());
     setProfileSaving(false);
     setEditingProfile(false);
@@ -191,6 +187,39 @@ export default function MentorAvailabilityClient({
   }
 
   const photoUrl = mentorPhotoUrl(photoPath, SUPABASE_URL);
+
+  // Meeting link - its own standalone box, separate from the rest of the
+  // profile editor, since it's the one thing here a mentor typically sets
+  // once and rarely touches again (a permanent Zoom/Meet room), not
+  // something that belongs mixed in with bio/photo/help-areas edits.
+  const [meetingLinkEditing, setMeetingLinkEditing] = useState(false);
+  const [meetingLinkDraft, setMeetingLinkDraft] = useState(displayMeetingLink);
+  const [meetingLinkSaving, setMeetingLinkSaving] = useState(false);
+  const [meetingLinkError, setMeetingLinkError] = useState<string | null>(null);
+
+  function startEditMeetingLink() {
+    setMeetingLinkDraft(displayMeetingLink);
+    setMeetingLinkError(null);
+    setMeetingLinkEditing(true);
+  }
+
+  async function saveMeetingLink() {
+    setMeetingLinkSaving(true);
+    setMeetingLinkError(null);
+    const supabase = createClient();
+    const { error: updateError } = await supabase
+      .from("mentors")
+      .update({ meeting_link: meetingLinkDraft.trim() || null })
+      .eq("id", mentor.id);
+    setMeetingLinkSaving(false);
+    if (updateError) {
+      setMeetingLinkError(updateError.message);
+      return;
+    }
+    setDisplayMeetingLink(meetingLinkDraft.trim());
+    setMeetingLinkEditing(false);
+    router.refresh();
+  }
 
   async function addSlot() {
     if (!date || !startTime || !endTime) {
@@ -401,25 +430,14 @@ export default function MentorAvailabilityClient({
                 ))}
               </div>
             </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="label">Meeting link (used for every session)</label>
-                <input
-                  className="input"
-                  value={profileMeetingLink}
-                  onChange={(e) => setProfileMeetingLink(e.target.value)}
-                  placeholder="https://meet.google.com/..."
-                />
-              </div>
-              <div>
-                <label className="label">Typical response time</label>
-                <input
-                  className="input"
-                  value={profileResponseTime}
-                  onChange={(e) => setProfileResponseTime(e.target.value)}
-                  placeholder="e.g. Usually within a few hours"
-                />
-              </div>
+            <div>
+              <label className="label">Typical response time</label>
+              <input
+                className="input"
+                value={profileResponseTime}
+                onChange={(e) => setProfileResponseTime(e.target.value)}
+                placeholder="e.g. Usually within a few hours"
+              />
             </div>
             {profileError && <p className="text-xs text-red-400">{profileError}</p>}
             <div className="flex items-center gap-3">
@@ -459,6 +477,66 @@ export default function MentorAvailabilityClient({
               Edit profile
             </button>
           </div>
+        )}
+      </div>
+
+      <div className="card">
+        <p className="text-sm font-semibold mb-1">Meeting link</p>
+        <p className="text-xs text-slate-500 mb-3">
+          A permanent link (Zoom, Google Meet, etc.) used for every session. Visible to your existing
+          students on your profile, not just once they've booked a slot.
+        </p>
+        {meetingLinkEditing ? (
+          <div className="space-y-2">
+            <input
+              className="input"
+              value={meetingLinkDraft}
+              onChange={(e) => setMeetingLinkDraft(e.target.value)}
+              placeholder="https://meet.google.com/..."
+              autoFocus
+            />
+            {meetingLinkError && <p className="text-xs text-red-400">{meetingLinkError}</p>}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={saveMeetingLink}
+                disabled={meetingLinkSaving}
+                className="btn-primary text-sm"
+              >
+                {meetingLinkSaving ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMeetingLinkEditing(false)}
+                disabled={meetingLinkSaving}
+                className="btn-secondary text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : displayMeetingLink ? (
+          <div className="flex items-center justify-between gap-3">
+            <a
+              href={displayMeetingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-brand-400 hover:text-brand-300 truncate"
+            >
+              {displayMeetingLink}
+            </a>
+            <button
+              type="button"
+              onClick={startEditMeetingLink}
+              className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
+            >
+              Edit
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={startEditMeetingLink} className="btn-secondary text-sm">
+            Add a meeting link
+          </button>
         )}
       </div>
 
