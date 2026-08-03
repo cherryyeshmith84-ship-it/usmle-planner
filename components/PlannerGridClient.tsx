@@ -531,7 +531,7 @@ export default function PlannerGridClient({
                     </td>
                     <td
                       onClick={() => toggleRowHighlight(date)}
-                      className="px-3 py-1.5 text-xs text-slate-400 whitespace-nowrap sticky left-0 bg-[#0a0a0a] cursor-pointer hover:text-amber-400"
+                      className="px-3 py-1.5 text-xs text-slate-400 whitespace-nowrap sticky left-0 bg-white cursor-pointer hover:text-amber-400"
                       title="Click to highlight this row"
                     >
                       {weekdayOf(date)}
