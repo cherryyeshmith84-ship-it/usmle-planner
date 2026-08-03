@@ -4,20 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatMessageTime, type MentorMessage } from "@/lib/mentorMessages";
 
-/**
- * Reusable chat thread for one (mentor, student) pair - used both from the
- * student side (MentorBrowseClient, once they've picked a mentor) and the
- * mentor side (MentorAvailabilityClient, once they've picked a student to
- * reply to). One thread per mentor+student pair, not per booked slot, so a
- * mentor can share a meeting link or answer a question any time, not just
- * around a specific session.
- *
- * No websocket/Realtime subscription here on purpose - keeping this to a
- * plain fetch-on-mount + short poll interval is simpler to hand-deliver and
- * debug through manual GitHub pastes than wiring up Supabase Realtime
- * channels, at the cost of messages taking a few seconds to appear instead
- * of being instant.
- */
 export default function MentorChatPanel({
   mentorId,
   studentId,
@@ -88,6 +74,12 @@ export default function MentorChatPanel({
     }
     setText("");
     loadMessages();
+
+    fetch("/api/notifications/message-sent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mentorId, studentId, preview: body }),
+    }).catch(() => {});
   }
 
   return (
