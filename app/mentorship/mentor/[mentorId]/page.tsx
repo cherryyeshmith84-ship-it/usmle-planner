@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { Mentor, MentorSlot, SessionFeedback } from "@/lib/mentors";
-import { averageRating } from "@/lib/mentors";
+import { averageRating, isExistingStudentOf, slotVisibleToStudent } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import MentorProfileClient from "@/components/MentorProfileClient";
@@ -24,10 +24,10 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
 
   const { data: profileData } = await supabase
     .from("profiles")
-    .select("is_admin, full_name")
+    .select("is_admin, full_name, mentor_email")
     .eq("id", user.id)
     .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
+  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
   const { data: mentorData } = await supabase
@@ -48,7 +48,14 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
     .eq("is_booked", false)
     .gte("end_time", now)
     .order("start_time", { ascending: true });
-  const openSlots = (slotsData ?? []) as MentorSlot[];
+  const allOpenSlots = (slotsData ?? []) as MentorSlot[];
+
+  // Existing-students-only slots and new-students-only slots are filtered
+  // out here, server-side, before anything reaches the client - a slot
+  // reserved for this mentor's existing students never even reaches a
+  // browsing student who hasn't linked them yet, and vice versa.
+  const isExistingStudent = isExistingStudentOf(profile?.mentor_email, mentor.email);
+  const openSlots = allOpenSlots.filter((s) => slotVisibleToStudent(s, isExistingStudent));
 
   // "Helped X students" - distinct students across this mentor's past
   // (already happened) booked sessions. Counted client-side (in this server
@@ -80,7 +87,7 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+      <main className="flex-1 px-6 py-8 w-full">
         <MentorProfileClient
           mentor={mentor}
           openSlots={openSlots}
@@ -89,6 +96,7 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
           currentUserId={user.id}
           avgRating={avgRating}
           reviews={reviews}
+          isExistingStudent={isExistingStudent}
         />
       </main>
     </AppShell>
