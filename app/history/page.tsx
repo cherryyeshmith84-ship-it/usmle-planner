@@ -37,27 +37,38 @@ export default async function HistoryPage() {
   const reports = (data ?? []) as ScoreReport[];
 
   // Resolve the student's own mentor (if any) for the "Mentor Recommendation"
-  // card - checked the same two ways is_mentor_of_student does server-side
-  // (a booked session, or a message thread), so a student who's only ever
-  // messaged a mentor without booking yet still gets routed to that same
-  // mentor instead of the empty directory. A booked session wins if both
-  // exist, since that's the firmer relationship.
+  // card. Used to also fall back to "have they ever sent this mentor a
+  // message" - that turned out to be too weak a signal (a student who'd
+  // only ever sent one message, never linked a mentor in Settings and never
+  // booked a session, was still permanently shown "Discuss With <name>").
+  // Now this only considers the two things that actually mean a student
+  // picked a mentor: an explicit link (Settings -> "Your mentor's email",
+  // the same profiles.mentor_email source of truth used everywhere else in
+  // the app) or an actual booked session. Either one is a real commitment;
+  // just messaging someone isn't.
   let mentorId: string | null = null;
-  const { data: mySlots } = await supabase
-    .from("mentor_slots")
-    .select("mentor_id")
-    .eq("booked_by", user.id)
-    .order("start_time", { ascending: false })
-    .limit(1);
-  mentorId = mySlots?.[0]?.mentor_id ?? null;
+  const { data: myProfileForMentor } = await supabase
+    .from("profiles")
+    .select("mentor_email")
+    .eq("id", user.id)
+    .maybeSingle();
+  const linkedMentorEmail = (myProfileForMentor as { mentor_email: string | null } | null)?.mentor_email;
+  if (linkedMentorEmail) {
+    const { data: linkedMentorRow } = await supabase
+      .from("mentors")
+      .select("id")
+      .ilike("email", linkedMentorEmail)
+      .maybeSingle();
+    mentorId = (linkedMentorRow as { id: string } | null)?.id ?? null;
+  }
   if (!mentorId) {
-    const { data: myMessages } = await supabase
-      .from("mentor_messages")
+    const { data: mySlots } = await supabase
+      .from("mentor_slots")
       .select("mentor_id")
-      .eq("student_id", user.id)
-      .order("created_at", { ascending: false })
+      .eq("booked_by", user.id)
+      .order("start_time", { ascending: false })
       .limit(1);
-    mentorId = myMessages?.[0]?.mentor_id ?? null;
+    mentorId = mySlots?.[0]?.mentor_id ?? null;
   }
   let myMentor: { id: string; name: string | null } | null = null;
   if (mentorId) {
@@ -80,7 +91,7 @@ export default async function HistoryPage() {
 
   return (
     <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
+      <main className="flex-1 px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-1">Analysis</h1>
         <p className="text-sm text-slate-400 mb-6">
           Upload your NBME, UWSA, Free 120, and UWorld self-assessment results to track your weak and
