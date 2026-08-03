@@ -40,6 +40,30 @@ export interface MentorSlot {
   // stays distinguishable from a slot that was simply never booked.
   cancelled_at?: string | null;
   cancelled_by?: string | null;
+  // Who this open slot is for: "existing" = only students already linked to
+  // this mentor (via their Settings "mentor's email" field), "new" = only
+  // students who aren't linked to this mentor yet, null/undefined = open to
+  // everyone (the default for every slot created before this existed).
+  audience?: "existing" | "new" | null;
+}
+
+/** Whether a student counts as an "existing student" of a given mentor -
+ *  same definition used for the mentor dashboard's "My students" list: the
+ *  student has linked this mentor's email under their own Settings. Shared
+ *  here so slot-visibility filtering (existing vs new audience) always
+ *  agrees with that list. */
+export function isExistingStudentOf(studentMentorEmail: string | null | undefined, mentorEmail: string): boolean {
+  if (!studentMentorEmail) return false;
+  return studentMentorEmail.trim().toLowerCase() === mentorEmail.trim().toLowerCase();
+}
+
+/** Whether a given slot should be visible/bookable by a student, based on
+ *  its audience setting and whether that student is already linked to the
+ *  mentor. A null/undefined audience (every slot created before this
+ *  feature existed) stays open to everyone. */
+export function slotVisibleToStudent(slot: Pick<MentorSlot, "audience">, isExistingStudent: boolean): boolean {
+  if (!slot.audience) return true;
+  return slot.audience === "existing" ? isExistingStudent : !isExistingStudent;
 }
 
 /** Fixed options for the pre-booking questionnaire and mentor "help areas"
