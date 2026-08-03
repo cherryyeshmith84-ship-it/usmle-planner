@@ -17,18 +17,6 @@ function toDraft(t: PlanTask): DraftTask {
   return { key: t.id, id: t.id, title: t.title, isOptional: t.is_optional, completed: t.completed };
 }
 
-/**
- * "Mentor Assignments" (Study Planner v1 item 6) - the mentor's side, on
- * the student-progress page. Lets a mentor set the checklist of tasks a
- * student sees (and checks off) for one specific day.
- *
- * Deliberately diffs against the original list on save (update changed
- * titles, insert new rows, delete removed ones) instead of the "delete
- * everything then reinsert" approach UWorldBlockTracker uses - a student
- * may have already checked some of these off, and blowing away every row
- * would silently wipe that completed/completed_at state every time a
- * mentor tweaks the list.
- */
 export default function MentorAssignmentsEditor({
   studentId,
   mentorId,
@@ -114,6 +102,20 @@ export default function MentorAssignmentsEditor({
 
     setSaving(false);
     setSaveMessage("Assignments saved.");
+
+    fetch("/api/notifications/relationship-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mentorId,
+        studentId,
+        type: "task_update",
+        title: "Your mentor updated your tasks",
+        detail: `Tasks for ${date} were added or changed.`,
+        link: "/planner",
+      }),
+    }).catch(() => {});
+
     router.refresh();
   }
 
