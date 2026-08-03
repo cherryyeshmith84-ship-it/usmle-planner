@@ -54,6 +54,34 @@ export function nyWallTimeToUtcIso(dateStr: string, timeStr: string): string {
   return new Date(guessMs + offsetMs).toISOString();
 }
 
+/**
+ * The inverse of nyWallTimeToUtcIso: given a true UTC ISO instant, returns
+ * the Eastern-time wall-clock date ("YYYY-MM-DD") and time ("HH:MM", 24h)
+ * that instant displays as. Used to pre-fill the date/time inputs when
+ * editing an existing slot, so the form shows the same values a mentor
+ * would've typed to create it in the first place.
+ */
+export function utcIsoToNyWallParts(iso: string): { date: string; time: string } {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: EASTERN_TZ,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const p of fmt.formatToParts(new Date(iso))) {
+    if (p.type !== "literal") parts[p.type] = p.value;
+  }
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${hour}:${parts.minute}`,
+  };
+}
+
 /** Today's calendar date in Eastern Time, as "YYYY-MM-DD". Used by the
  *  midnight-ET cron to find "today's" bookings regardless of what UTC date
  *  the server clock thinks it is. */
