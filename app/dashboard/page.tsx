@@ -46,7 +46,7 @@ function isoAddDays(date: string, n: number): string {
 }
 
 type Booking = MentorSlot & {
-  mentors: Pick<Mentor, "id" | "name" | "photo_path" | "meeting_link"> | null;
+  mentors: Pick<Mentor, "id" | "name" | "photo_path"> | null;
 };
 
 /**
@@ -93,17 +93,19 @@ export default async function DashboardPage() {
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = isoAddDays(today, -1);
 
-  const [entriesRes, blocksRes, planTasksRes, dailyNotesRes, scoreReportsRes, bookingsRes] = await Promise.all([
-    supabase.from("planner_entries").select("*").eq("user_id", user.id),
-    supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
-    supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
-    supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
-    supabase.from("score_reports").select("*").eq("user_id", user.id).order("taken_date", { ascending: false }),
-    supabase
-      .from("mentor_slots")
-      .select("*, mentors(id, name, photo_path, meeting_link)")
-      .eq("booked_by", user.id),
-  ]);
+  const [entriesRes, blocksRes, planTasksRes, dailyNotesRes, scoreReportsRes, bookingsRes, meetingLinkRes] =
+    await Promise.all([
+      supabase.from("planner_entries").select("*").eq("user_id", user.id),
+      supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
+      supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
+      supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
+      supabase.from("score_reports").select("*").eq("user_id", user.id).order("taken_date", { ascending: false }),
+      supabase.from("mentor_slots").select("*, mentors(id, name, photo_path)").eq("booked_by", user.id),
+      // This student's own permanent meeting link (mentor_meeting_links) -
+      // not read off the mentor row, since different students of the same
+      // mentor can have different links.
+      supabase.from("mentor_meeting_links").select("meeting_link").eq("student_id", user.id).maybeSingle(),
+    ]);
 
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
   const blocks = (blocksRes.data ?? []) as UWorldBlock[];
@@ -111,6 +113,7 @@ export default async function DashboardPage() {
   const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
   const bookings = (bookingsRes.data ?? []) as Booking[];
+  const myMeetingLink = (meetingLinkRes.data as { meeting_link: string } | null)?.meeting_link ?? null;
 
   const todaysEntry = entries.find((e) => e.log_date === today);
   const yesterdayEntry = entries.find((e) => e.log_date === yesterday);
@@ -197,7 +200,7 @@ export default async function DashboardPage() {
                     startTime: nextBooking.start_time,
                     endTime: nextBooking.end_time,
                     mentorName: nextBooking.mentors?.name ?? "Your mentor",
-                    meetingLink: nextBooking.mentors?.meeting_link ?? null,
+                    meetingLink: myMeetingLink,
                   }
                 : null
             }
