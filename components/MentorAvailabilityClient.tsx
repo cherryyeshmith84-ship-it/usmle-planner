@@ -39,6 +39,11 @@ export default function MentorAvailabilityClient({
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  // Who a new slot is for: "existing" = only students who've already linked
+  // your email under their Settings, "new" = only students who haven't,
+  // "" (Everyone) = no restriction, same as every slot created before this
+  // existed.
+  const [audience, setAudience] = useState<"" | "existing" | "new">("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -197,6 +202,7 @@ export default function MentorAvailabilityClient({
       mentor_id: mentor.id,
       start_time: start.toISOString(),
       end_time: end.toISOString(),
+      audience: audience || null,
     });
     setSaving(false);
     if (insertError) {
@@ -206,6 +212,7 @@ export default function MentorAvailabilityClient({
     setDate("");
     setStartTime("");
     setEndTime("");
+    setAudience("");
     router.refresh();
   }
 
@@ -404,6 +411,32 @@ export default function MentorAvailabilityClient({
             <input type="time" className="input" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </div>
         </div>
+        <div className="mb-3">
+          <label className="label">Who can book this slot?</label>
+          <div className="flex flex-wrap gap-3">
+            <label className="flex items-center gap-1.5 text-sm text-slate-300">
+              <input type="radio" name="audience" checked={audience === ""} onChange={() => setAudience("")} />
+              Everyone
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-slate-300">
+              <input
+                type="radio"
+                name="audience"
+                checked={audience === "existing"}
+                onChange={() => setAudience("existing")}
+              />
+              My existing students only
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-slate-300">
+              <input type="radio" name="audience" checked={audience === "new"} onChange={() => setAudience("new")} />
+              New students only
+            </label>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            "Existing students" means anyone who&apos;s linked your email under their Settings.
+            "New students" means anyone browsing who hasn&apos;t linked you yet.
+          </p>
+        </div>
         {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
         <button type="button" onClick={addSlot} disabled={saving} className="btn-primary text-sm">
           {saving ? "Adding..." : "Add slot"}
@@ -423,8 +456,13 @@ export default function MentorAvailabilityClient({
                   {slots.map((s) => (
                     <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
                       <div>
-                        <p className="text-sm">
+                        <p className="text-sm flex items-center gap-2 flex-wrap">
                           {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                          {s.audience && (
+                            <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-slate-800 text-slate-400">
+                              {s.audience === "existing" ? "Existing students" : "New students"}
+                            </span>
+                          )}
                         </p>
                         {s.is_booked && (
                           <>
