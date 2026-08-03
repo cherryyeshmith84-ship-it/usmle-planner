@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { EXAM_TYPE_LABEL, type ScoreReport } from "@/lib/scoreReports";
+import { systemQuestionCounts } from "@/lib/questionLevelReports";
 import MentorReviewButton from "./MentorReviewButton";
 
 function scoreBadgeClass(pct: number | null) {
@@ -106,14 +107,32 @@ export default function MentorScoreReportRow({
               {Object.entries(report.system_breakdown ?? {}).length === 0 ? (
                 <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
               ) : (
-                Object.entries(report.system_breakdown).map(([system, pct]) => (
-                  <div key={system} className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-400 truncate">{system}</span>
-                    <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${scoreBadgeClass(pct)}`}>
-                      {pct}%
-                    </span>
-                  </div>
-                ))
+                (() => {
+                  // Only a question-level report has raw per-question counts
+                  // behind its system percentages - a regular NBME/UWSA
+                  // image upload only ever stores the percent itself, so
+                  // questionCounts is empty for those and the count badge
+                  // just doesn't render.
+                  const questionCounts =
+                    report.exam_type === "question_level" && report.content_breakdown
+                      ? systemQuestionCounts(report.content_breakdown)
+                      : {};
+                  return Object.entries(report.system_breakdown).map(([system, pct]) => (
+                    <div key={system} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400 truncate">{system}</span>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        {questionCounts[system] !== undefined && (
+                          <span className="text-[10px] text-slate-600">
+                            {questionCounts[system]} Q{questionCounts[system] === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${scoreBadgeClass(pct)}`}>
+                          {pct}%
+                        </span>
+                      </span>
+                    </div>
+                  ));
+                })()
               )}
             </div>
           </div>
