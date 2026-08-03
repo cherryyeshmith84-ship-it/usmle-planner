@@ -166,7 +166,7 @@ export default async function DashboardPage() {
 
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-4xl mx-auto px-6 py-8 space-y-6 w-full">
+      <main className="flex-1 px-6 py-8 space-y-6 w-full">
         <TodaysPlanCard
           plannedSystem={plannedSystem}
           tasks={todaysTasks}
