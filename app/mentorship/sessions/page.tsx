@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
 type MyBooking = MentorSlot & {
-  mentors?: { id: string; name: string; photo_path: string | null; meeting_link: string | null } | null;
+  mentors?: { id: string; name: string; photo_path: string | null } | null;
 };
 type BookedByMe = MentorSlot & {
   booked_by_profile?: { full_name: string | null; email: string | null } | null;
@@ -79,12 +79,23 @@ export default async function UpcomingSessionsPage() {
       (feedbackData ?? []).map((f: any) => [f.slot_id, f])
     );
 
+    // Every meeting link this mentor has set, keyed by student - different
+    // students can have different permanent links (mentor_meeting_links),
+    // so this is never a single value shared across every row below.
+    const { data: linksData } = await supabase
+      .from("mentor_meeting_links")
+      .select("student_id, meeting_link")
+      .eq("mentor_id", myMentorRecord.id);
+    const meetingLinkByStudent = new Map<string, string>(
+      (linksData ?? []).map((l: any) => [l.student_id, l.meeting_link])
+    );
+
     const rows: SessionRow[] = sessions.map((s) => ({
       slot: s,
       title: s.booked_by_profile?.full_name || "A student",
       subtitle: s.booked_by_profile?.email ?? null,
       note: s.student_note,
-      meetingLink: myMentorRecord.meeting_link ?? null,
+      meetingLink: (s.booked_by && meetingLinkByStudent.get(s.booked_by)) ?? null,
       sessionNote: notesBySlotId.get(s.id) ?? null,
       studentId: s.booked_by,
       feedback: feedbackBySlotId.get(s.id) ?? null,
@@ -92,7 +103,7 @@ export default async function UpcomingSessionsPage() {
 
     return (
       <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+        <main className="flex-1 px-6 py-8 w-full">
           <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
           <p className="text-sm text-slate-400 mb-6">
             Students who&apos;ve booked a slot with you, soonest first. Once a session is marked
@@ -106,10 +117,20 @@ export default async function UpcomingSessionsPage() {
 
   const { data: myBookingsData } = await supabase
     .from("mentor_slots")
-    .select("*, mentors(id, name, photo_path, meeting_link)")
+    .select("*, mentors(id, name, photo_path)")
     .eq("booked_by", user.id)
     .order("start_time", { ascending: true });
   const myBookings = (myBookingsData ?? []) as MyBooking[];
+
+  // This student's own permanent meeting link (mentor_meeting_links) - one
+  // row total per student, so it applies to every row below regardless of
+  // which slot/mentor it is.
+  const { data: myMeetingLinkData } = await supabase
+    .from("mentor_meeting_links")
+    .select("meeting_link")
+    .eq("student_id", user.id)
+    .maybeSingle();
+  const myMeetingLink = (myMeetingLinkData as { meeting_link: string } | null)?.meeting_link ?? null;
 
   const { data: myNotesData } = await supabase
     .from("mentor_session_notes")
@@ -129,7 +150,7 @@ export default async function UpcomingSessionsPage() {
     slot: b,
     title: b.mentors?.name ?? "Mentor",
     photoUrl: mentorPhotoUrl(b.mentors?.photo_path ?? null, SUPABASE_URL),
-    meetingLink: b.mentors?.meeting_link ?? null,
+    meetingLink: myMeetingLink,
     rescheduleMentorId: b.mentors?.id ?? null,
     sessionNote: myNotesBySlotId.get(b.id) ?? null,
     feedback: myFeedbackBySlotId.get(b.id) ?? null,
@@ -137,7 +158,7 @@ export default async function UpcomingSessionsPage() {
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
+      <main className="flex-1 px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-1">Upcoming sessions</h1>
         <p className="text-sm text-slate-400 mb-6">
           Every mentorship session you&apos;ve booked, soonest first. Your mentor&apos;s notes from
