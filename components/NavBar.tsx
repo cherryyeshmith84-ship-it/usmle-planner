@@ -108,7 +108,7 @@ export default function NavBar({
     // column scroll, so this just needs to be exactly one viewport tall and
     // never move at all. The nav below still scrolls internally
     // (overflow-y-auto) if there are ever more links than fit.
-    <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#050505] h-screen flex flex-col">
+    <aside className="w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col">
       <div className="px-5 py-6">
         <div className="flex items-center gap-2">
           <Image
