@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
+import StatusUpdateCard from "@/components/StatusUpdateCard";
 import SettingsForm from "./SettingsForm";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +35,13 @@ export default async function SettingsPage() {
 
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-6">Settings</h1>
+      <main className="flex-1 max-w-3xl mx-auto px-6 py-8 w-full space-y-6">
+        <h1 className="text-xl font-bold">Settings</h1>
+        <StatusUpdateCard
+          userId={user.id}
+          initialStatus={profile.status_update ?? null}
+          initialUpdatedAt={profile.status_updated_at ?? null}
+        />
         <SettingsForm profile={profile} userId={user.id} email={user.email ?? ""} />
       </main>
     </AppShell>
