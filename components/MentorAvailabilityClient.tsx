@@ -12,7 +12,7 @@ import {
   type Mentor,
   type MentorSlot,
 } from "@/lib/mentors";
-import { nyWallTimeToUtcIso } from "@/lib/timezone";
+import { nyWallTimeToUtcIso, utcIsoToNyWallParts } from "@/lib/timezone";
 import MentorChatPanel from "./MentorChatPanel";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -48,6 +48,18 @@ export default function MentorAvailabilityClient({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<ConversationPartner | null>(null);
+
+  // Editing an existing open slot in place - only offered for slots that
+  // aren't booked yet (same restriction as the Remove button), since
+  // changing the time or audience of a slot a student already booked would
+  // silently move something they've already committed to.
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editAudience, setEditAudience] = useState<"" | "existing" | "new">("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Profile editing. Email and active status are intentionally left out
   // here (and are blocked server-side too, even if someone tried to force
@@ -222,6 +234,65 @@ export default function MentorAvailabilityClient({
     const supabase = createClient();
     await supabase.from("mentor_slots").delete().eq("id", id);
     setBusyId(null);
+    router.refresh();
+  }
+
+  function startEditSlot(s: SlotWithBooker) {
+    const startParts = utcIsoToNyWallParts(s.start_time);
+    const endParts = utcIsoToNyWallParts(s.end_time);
+    setEditDate(startParts.date);
+    setEditStartTime(startParts.time);
+    setEditEndTime(endParts.time);
+    setEditAudience((s.audience as "existing" | "new" | undefined) || "");
+    setEditError(null);
+    setEditingSlotId(s.id);
+  }
+
+  function cancelEditSlot() {
+    setEditingSlotId(null);
+    setEditError(null);
+  }
+
+  async function saveEditSlot(id: string) {
+    if (!editDate || !editStartTime || !editEndTime) {
+      setEditError("Pick a date, start time, and end time.");
+      return;
+    }
+    const start = new Date(nyWallTimeToUtcIso(editDate, editStartTime));
+    const end = new Date(nyWallTimeToUtcIso(editDate, editEndTime));
+    if (end <= start) {
+      setEditError("End time has to be after the start time.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    const supabase = createClient();
+    // The is_booked=false guard matters here even though this button only
+    // shows for open slots in the UI - it stops a race where a student
+    // books the slot in the moment between the mentor opening the edit form
+    // and hitting Save, instead of silently rewriting a session someone
+    // just committed to.
+    const { data, error: updateError } = await supabase
+      .from("mentor_slots")
+      .update({
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        audience: editAudience || null,
+      })
+      .eq("id", id)
+      .eq("is_booked", false)
+      .select();
+    setEditSaving(false);
+    if (updateError) {
+      setEditError(updateError.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      setEditError("Someone just booked this slot, so it can no longer be edited.");
+      router.refresh();
+      return;
+    }
+    setEditingSlotId(null);
     router.refresh();
   }
 
@@ -453,7 +524,92 @@ export default function MentorAvailabilityClient({
               <div key={date}>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
                 <div className="space-y-2">
-                  {slots.map((s) => (
+                  {slots.map((s) =>
+                    editingSlotId === s.id ? (
+                      <div key={s.id} className="card py-3">
+                        <p className="text-sm font-semibold mb-3">Edit slot</p>
+                        <div className="grid sm:grid-cols-3 gap-3 mb-3">
+                          <div>
+                            <label className="label">Date</label>
+                            <input
+                              type="date"
+                              className="input"
+                              value={editDate}
+                              onChange={(e) => setEditDate(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="label">Start time</label>
+                            <input
+                              type="time"
+                              className="input"
+                              value={editStartTime}
+                              onChange={(e) => setEditStartTime(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="label">End time</label>
+                            <input
+                              type="time"
+                              className="input"
+                              value={editEndTime}
+                              onChange={(e) => setEditEndTime(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <label className="label">Who can book this slot?</label>
+                          <div className="flex flex-wrap gap-3">
+                            <label className="flex items-center gap-1.5 text-sm text-slate-300">
+                              <input
+                                type="radio"
+                                name={`edit-audience-${s.id}`}
+                                checked={editAudience === ""}
+                                onChange={() => setEditAudience("")}
+                              />
+                              Everyone
+                            </label>
+                            <label className="flex items-center gap-1.5 text-sm text-slate-300">
+                              <input
+                                type="radio"
+                                name={`edit-audience-${s.id}`}
+                                checked={editAudience === "existing"}
+                                onChange={() => setEditAudience("existing")}
+                              />
+                              My existing students only
+                            </label>
+                            <label className="flex items-center gap-1.5 text-sm text-slate-300">
+                              <input
+                                type="radio"
+                                name={`edit-audience-${s.id}`}
+                                checked={editAudience === "new"}
+                                onChange={() => setEditAudience("new")}
+                              />
+                              New students only
+                            </label>
+                          </div>
+                        </div>
+                        {editError && <p className="text-xs text-red-400 mb-2">{editError}</p>}
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => saveEditSlot(s.id)}
+                            disabled={editSaving}
+                            className="btn-primary text-sm"
+                          >
+                            {editSaving ? "Saving..." : "Save changes"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEditSlot}
+                            disabled={editSaving}
+                            className="btn-secondary text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
                     <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
                       <div>
                         <p className="text-sm flex items-center gap-2 flex-wrap">
@@ -515,18 +671,28 @@ export default function MentorAvailabilityClient({
                           {s.cancelled_at ? "Cancelled" : s.is_booked ? "Booked" : "Open"}
                         </span>
                         {!s.is_booked && (
-                          <button
-                            type="button"
-                            onClick={() => removeSlot(s.id)}
-                            disabled={busyId === s.id}
-                            className="text-xs text-red-400 hover:text-red-300"
-                          >
-                            Remove
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEditSlot(s)}
+                              className="text-xs text-brand-400 hover:text-brand-300"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeSlot(s.id)}
+                              disabled={busyId === s.id}
+                              className="text-xs text-red-400 hover:text-red-300"
+                            >
+                              Remove
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
-                  ))}
+                    )
+                  )}
                 </div>
               </div>
             ))}
