@@ -103,8 +103,12 @@ export default async function DashboardPage() {
       supabase.from("mentor_slots").select("*, mentors(id, name, photo_path)").eq("booked_by", user.id),
       // This student's own permanent meeting link (mentor_meeting_links) -
       // not read off the mentor row, since different students of the same
-      // mentor can have different links.
-      supabase.from("mentor_meeting_links").select("meeting_link").eq("student_id", user.id).maybeSingle(),
+      // mentor can have different links. Selecting mentor_id too (not just
+      // meeting_link) so it can be checked against nextBooking's mentor
+      // below - the table only ever holds one row per student, so if this
+      // student switched mentors, this row may still belong to the OLD one
+      // until their new mentor sets a fresh link.
+      supabase.from("mentor_meeting_links").select("mentor_id, meeting_link").eq("student_id", user.id).maybeSingle(),
     ]);
 
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
@@ -113,7 +117,7 @@ export default async function DashboardPage() {
   const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
   const bookings = (bookingsRes.data ?? []) as Booking[];
-  const myMeetingLink = (meetingLinkRes.data as { meeting_link: string } | null)?.meeting_link ?? null;
+  const meetingLinkRow = meetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
 
   const todaysEntry = entries.find((e) => e.log_date === today);
   const yesterdayEntry = entries.find((e) => e.log_date === yesterday);
@@ -139,6 +143,14 @@ export default async function DashboardPage() {
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
   const nextBooking = upcomingBookings[0] ?? null;
   const mostRecentBooking = [...nonCancelledBookings].sort((a, b) => b.start_time.localeCompare(a.start_time))[0] ?? null;
+
+  // Only trust the fetched meeting-link row if it actually belongs to the
+  // mentor of the upcoming session being shown - otherwise it's a leftover
+  // from a mentor this student no longer has an upcoming session with (see
+  // meetingLinkRow comment above), and showing it would point them at the
+  // wrong room.
+  const myMeetingLink =
+    meetingLinkRow && nextBooking?.mentors?.id === meetingLinkRow.mentor_id ? meetingLinkRow.meeting_link : null;
 
   const mentorFromEmail = findMentorByEmail(mentors, profile.mentor_email);
   const currentMentorName = mentorFromEmail?.name ?? nextBooking?.mentors?.name ?? mostRecentBooking?.mentors?.name ?? null;
