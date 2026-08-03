@@ -167,8 +167,22 @@ export default async function StudentProgressPage({ params }: { params: { studen
     myMentorRecord
       ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
       : Promise.resolve({ data: null }),
+    // Scoped to THIS mentor specifically, not just the student - the table
+    // only ever holds one row per student (student_id is the primary key),
+    // so if this student previously had a different mentor who set a link,
+    // that row is still sitting there with the old mentor_id until
+    // overwritten. Without the mentor_id filter here, a new mentor opening
+    // this page would see the old mentor's stale link as if it were their
+    // own. Filtering it out entirely (rather than showing it) means the new
+    // mentor sees no link yet and adds their own, which then correctly
+    // overwrites the row via MeetingLinkEditor's upsert.
     myMentorRecord
-      ? supabase.from("mentor_meeting_links").select("*").eq("student_id", params.studentId).maybeSingle()
+      ? supabase
+          .from("mentor_meeting_links")
+          .select("*")
+          .eq("student_id", params.studentId)
+          .eq("mentor_id", myMentorRecord.id)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
