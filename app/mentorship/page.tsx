@@ -89,10 +89,13 @@ export default async function MentorshipPage() {
     // planner immediately.
     const { data: linkedStudentsData } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, full_name, email, status_update, status_updated_at")
       .not("mentor_email", "is", null)
       .order("full_name", { ascending: true });
-    const linkedStudents = (linkedStudentsData ?? []) as Pick<Profile, "id" | "full_name" | "email">[];
+    const linkedStudents = (linkedStudentsData ?? []) as Pick<
+      Profile,
+      "id" | "full_name" | "email" | "status_update" | "status_updated_at"
+    >[];
 
     const todayLabel = formatSlotDate(new Date().toISOString());
     const nonCancelled = bookedSlots.filter((s) => !s.cancelled_at);
@@ -160,10 +163,17 @@ export default async function MentorshipPage() {
             ) : (
               <div className="space-y-2">
                 {linkedStudents.map((s) => (
-                  <div key={s.id} className="card py-2.5 flex items-center justify-between text-sm">
-                    <div>
-                      <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
-                      <span className="text-slate-500">&middot; {s.email}</span>
+                  <div key={s.id} className="card py-2.5 flex items-start justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p>
+                        <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
+                        <span className="text-slate-500">&middot; {s.email}</span>
+                      </p>
+                      {s.status_update && (
+                        <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                          &ldquo;{s.status_update}&rdquo;
+                        </p>
+                      )}
                     </div>
                     <a
                       href={`/mentorship/student/${s.id}`}
@@ -353,7 +363,7 @@ export default async function MentorshipPage() {
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-5xl mx-auto px-6 py-8 w-full">
+      <main className="flex-1 px-6 py-8 w-full">
         <h1 className="text-xl font-bold mb-1">Mentorship</h1>
         <p className="text-sm text-slate-400 mb-6">
           Pick a mentor to view their profile and book a session.
