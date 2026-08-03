@@ -34,6 +34,7 @@ export default function MentorProfileClient({
   currentUserId,
   avgRating,
   reviews,
+  isExistingStudent,
 }: {
   mentor: Mentor;
   openSlots: MentorSlot[];
@@ -42,6 +43,11 @@ export default function MentorProfileClient({
   currentUserId: string;
   avgRating: number | null;
   reviews: SessionFeedback[];
+  // Whether the viewer already links this mentor's email under their own
+  // Settings - openSlots has already been filtered server-side based on
+  // this, but the availability card uses it too to explain why the list
+  // might look different than expected.
+  isExistingStudent: boolean;
 }) {
   const router = useRouter();
   const [slots, setSlots] = useState(openSlots);
@@ -235,6 +241,12 @@ export default function MentorProfileClient({
         <p className="text-xs text-slate-500 mb-3">
           All times shown are Eastern Time (ET) - EST or EDT depending on the time of year.
         </p>
+        {isExistingStudent && (
+          <p className="text-xs text-brand-400 mb-3">
+            You&apos;re one of {mentor.name}&apos;s students, so this includes any slots they&apos;ve set
+            aside just for their existing students.
+          </p>
+        )}
         {!readyToBook ? (
           <div>
             <p className="text-sm font-semibold mb-1">Before you see {mentor.name}&apos;s availability</p>
