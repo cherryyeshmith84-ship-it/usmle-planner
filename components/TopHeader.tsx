@@ -42,7 +42,7 @@ export default function TopHeader({
   }, []);
 
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-end gap-3 px-6 py-3 border-b border-slate-800 bg-black/80 backdrop-blur">
+    <header className="sticky top-0 z-20 flex items-center justify-end gap-3 px-6 py-3 border-b border-slate-800 bg-white/80 backdrop-blur">
       {typeof streak === "number" && streak > 0 && (
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 bg-amber-900/20 rounded-full px-2.5 py-1">
           🔥 {streak} day{streak === 1 ? "" : "s"}
@@ -60,7 +60,7 @@ export default function TopHeader({
           {initials(userName)}
         </button>
         {menuOpen && (
-          <div className="absolute right-0 mt-2 w-52 rounded-lg border border-slate-800 bg-[#0a0a0a] shadow-lg py-1 z-30">
+          <div className="absolute right-0 mt-2 w-52 rounded-lg border border-slate-800 bg-white shadow-lg py-1 z-30">
             <p className="px-3 py-2 text-xs text-slate-500 truncate border-b border-slate-800">
               {userName || "Your profile"}
             </p>
