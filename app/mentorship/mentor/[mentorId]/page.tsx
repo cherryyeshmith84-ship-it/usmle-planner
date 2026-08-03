@@ -72,6 +72,20 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
   const { data: myBookingsData } = await supabase.from("mentor_slots").select("*").eq("booked_by", user.id);
   const myBookings = (myBookingsData ?? []) as MentorSlot[];
 
+  // This viewer's own permanent meeting link with this specific mentor, if
+  // one's been set - never read off the mentor row itself, since different
+  // students of the same mentor can have different links (mentor_meeting_links,
+  // one row per student, RLS-gated to auth.uid() = student_id). The
+  // mentor_id filter guards against showing a stale link left over from a
+  // previous mentor if this student ever switches.
+  const { data: meetingLinkData } = await supabase
+    .from("mentor_meeting_links")
+    .select("meeting_link")
+    .eq("student_id", user.id)
+    .eq("mentor_id", mentor.id)
+    .maybeSingle();
+  const meetingLink = (meetingLinkData as { meeting_link: string } | null)?.meeting_link ?? null;
+
   // Public reviews - needs the "Authenticated can view mentor feedback" RLS
   // policy (mentor_feedback_public_read_for_profiles migration), since
   // feedback used to be readable only by the mentor themselves or the
@@ -97,6 +111,7 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
           avgRating={avgRating}
           reviews={reviews}
           isExistingStudent={isExistingStudent}
+          meetingLink={meetingLink}
         />
       </main>
     </AppShell>
