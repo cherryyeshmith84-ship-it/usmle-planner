@@ -13,6 +13,7 @@ import type { PlanTask } from "@/lib/planTasks";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
+import MeetingLinkEditor from "@/components/MeetingLinkEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
@@ -103,6 +104,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
     slotsRes,
     notesRes,
     studyPlanRes,
+    meetingLinkRes,
     dailyNotesRes,
     planTasksRes,
     plannerSettingsRes,
@@ -143,6 +145,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
     myMentorRecord
       ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
       : Promise.resolve({ data: null }),
+    myMentorRecord
+      ? supabase.from("mentor_meeting_links").select("*").eq("student_id", params.studentId).maybeSingle()
+      : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
     supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
@@ -159,6 +164,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const sessions = (slotsRes.data ?? []) as MentorSlot[];
   const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
   const studyPlan = studyPlanRes.data as { content: string; updated_at: string } | null;
+  const meetingLink = meetingLinkRes.data as { meeting_link: string; updated_at: string } | null;
   const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
@@ -202,6 +208,22 @@ export default async function StudentProgressPage({ params }: { params: { studen
                 Updated {formatSlotDate(student.status_updated_at)} at {formatSlotTime(student.status_updated_at)}
               </p>
             )}
+          </div>
+        )}
+
+        {/* Meeting link - permanent per-(mentor, student) room, different
+            students of the same mentor can have different links. Only the
+            mentor can set/edit it here; the student sees the saved value on
+            their Dashboard, Sessions page, and this mentor's profile. */}
+        {myMentorRecord && (
+          <div className="mb-8">
+            <MeetingLinkEditor
+              studentId={params.studentId}
+              mentorId={myMentorRecord.id}
+              currentUserId={user.id}
+              initialLink={meetingLink?.meeting_link ?? null}
+              initialUpdatedAt={meetingLink?.updated_at ?? null}
+            />
           </div>
         )}
 
