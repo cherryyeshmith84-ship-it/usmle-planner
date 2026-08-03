@@ -202,7 +202,7 @@ export default function QBankCreateTestForm({
       </div>
 
       {/* Sticky bottom action bar - stays visible while scrolling through filters above */}
-      <div className="sticky bottom-0 z-10 -mx-6 px-6 py-4 bg-black/90 backdrop-blur border-t border-slate-800">
+      <div className="sticky bottom-0 z-10 -mx-6 px-6 py-4 bg-white/90 backdrop-blur border-t border-slate-800">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div className="flex items-end gap-4 flex-wrap">
             <div>
