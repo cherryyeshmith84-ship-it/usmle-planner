@@ -200,9 +200,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
                 </p>
                 <div className="space-y-1.5">
                   {systemStrengths.map((s) => (
-                    <div key={s.system} className="flex items-center justify-between text-sm gap-2">
-                      <span>{s.system}</span>
-                      <span className="flex items-center gap-2">
+                    <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
+                      <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
+                      <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                         <span className="text-slate-400">
                           {s.averagePercent}%{" "}
                           <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
@@ -231,9 +231,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
                     <p className="text-sm text-slate-500">No discipline breakdown available.</p>
                   ) : (
                     disciplineStrengths.map((s) => (
-                      <div key={s.system} className="flex items-center justify-between text-sm gap-2">
-                        <span>{s.system}</span>
-                        <span className="flex items-center gap-2">
+                      <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
+                        <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
+                        <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                           <span className="text-slate-400">
                             {s.averagePercent}%{" "}
                             <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
