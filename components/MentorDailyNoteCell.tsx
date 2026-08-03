@@ -11,20 +11,6 @@ const STATUS_BADGE: Record<DayStatus, string> = {
   rescheduled: "bg-slate-700 text-slate-300",
 };
 
-/**
- * One editable "Mentor Note" cell in the mentor's read-only Study Planner
- * table (app/mentorship/student/[studentId]/page.tsx) - the one write
- * exception on that otherwise-read-only page, scoped to just this table
- * (see mentor_daily_notes RLS, which only lets a mentor touch a student
- * they actually have a relationship with). Separate from the student's own
- * Student Notes journal - a student can read this but never edit it, and a
- * mentor can never see or touch the student's own notes here.
- *
- * Also carries the "Mentor Checklist" day rating (Study Planner v1 item 7,
- * mentor_daily_notes.status) alongside the free-text note - a mentor
- * rating a day and leaving a note about it is naturally one action, and
- * the rating is what Weekly Progress (item 8) will roll up later.
- */
 export default function MentorDailyNoteCell({
   studentId,
   mentorId,
@@ -56,9 +42,6 @@ export default function MentorDailyNoteCell({
   async function save() {
     setSaving(true);
     setError(null);
-    // reviewed_at is set the moment "Reviewed" is first checked, not
-    // hand-entered - it should reflect when the mentor actually looked at
-    // the day, not be backdatable.
     const nextReviewedAt = reviewed ? reviewedAt ?? new Date().toISOString() : null;
     const supabase = createClient();
     const { error: upsertError } = await supabase.from("mentor_daily_notes").upsert(
@@ -81,6 +64,21 @@ export default function MentorDailyNoteCell({
     }
     setReviewedAt(nextReviewedAt);
     setEditing(false);
+
+    if (content.trim()) {
+      fetch("/api/notifications/relationship-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mentorId,
+          studentId,
+          type: "daily_note",
+          title: "Your mentor left you a note",
+          detail: `${date}: ${content.trim()}`,
+          link: "/dashboard",
+        }),
+      }).catch(() => {});
+    }
   }
 
   if (!editing) {
