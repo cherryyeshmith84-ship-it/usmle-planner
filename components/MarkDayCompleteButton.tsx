@@ -4,24 +4,18 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-/**
- * "Mark Day Complete" button on the Home dashboard's Today's Plan card -
- * one click sets today's "Study Status" checkbox (task_completed) without
- * making the student go open the full planner grid just for that. Merges
- * into whatever's already saved for today (existingFieldValues) instead of
- * overwriting the row, so it never clobbers Planned System/Hours/etc. the
- * student already entered.
- */
 export default function MarkDayCompleteButton({
   userId,
   todayIso,
   existingFieldValues,
   alreadyComplete,
+  mentorId,
 }: {
   userId: string;
   todayIso: string;
   existingFieldValues: Record<string, string | number | boolean | null>;
   alreadyComplete: boolean;
+  mentorId?: string | null;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -46,6 +40,22 @@ export default function MarkDayCompleteButton({
       return;
     }
     setDone(true);
+
+    if (mentorId) {
+      fetch("/api/notifications/relationship-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mentorId,
+          studentId: userId,
+          type: "planner_logged",
+          title: "Your student logged today's planner",
+          detail: `Marked ${todayIso} complete.`,
+          link: `/mentorship/student/${userId}`,
+        }),
+      }).catch(() => {});
+    }
+
     router.refresh();
   }
 
