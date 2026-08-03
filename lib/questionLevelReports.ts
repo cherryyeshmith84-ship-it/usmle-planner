@@ -154,6 +154,25 @@ export function aggregateQuestionLevelItems(items: QuestionLevelItem[]): {
   return { systemBreakdown, contentBreakdown };
 }
 
+/**
+ * How many questions on this report were filed under each system - summed
+ * from contentBreakdown's per-topic totals (grouped by each item's
+ * `system`), rather than stored separately, since aggregateQuestionLevelItems
+ * already has this exact number in-hand at parse time and it's cheap to
+ * re-derive. Used to show "(14 Qs)" next to a system's percent so a mentor
+ * can tell a 100% on 1 question apart from a 100% on 12. Only meaningful for
+ * exam_type "question_level" reports - regular NBME/UWSA image uploads only
+ * ever have a percent per system, never a raw count.
+ */
+export function systemQuestionCounts(contentBreakdown: ContentBreakdown): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const stat of Object.values(contentBreakdown)) {
+    if (!stat.system) continue;
+    counts[stat.system] = (counts[stat.system] ?? 0) + stat.total;
+  }
+  return counts;
+}
+
 export interface ContentAreaComparison {
   key: string;
   subtopic: string;
