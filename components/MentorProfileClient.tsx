@@ -33,6 +33,7 @@ export default function MentorProfileClient({
   avgRating,
   reviews,
   isExistingStudent,
+  meetingLink,
 }: {
   mentor: Mentor;
   openSlots: MentorSlot[];
@@ -46,6 +47,11 @@ export default function MentorProfileClient({
   // this, but the availability card uses it too to explain why the list
   // might look different than expected.
   isExistingStudent: boolean;
+  // This viewer's own permanent meeting link with this mentor, if the
+  // mentor has set one for them specifically (see mentor_meeting_links -
+  // different students of the same mentor can have different links, so
+  // this is never read off the Mentor object itself).
+  meetingLink: string | null;
 }) {
   const router = useRouter();
   const [slots, setSlots] = useState(openSlots);
@@ -210,21 +216,21 @@ export default function MentorProfileClient({
         </div>
       )}
 
-      {/* Meeting link - only for this mentor's own existing students (same
-          "linked their email under Settings" rule as reserved availability
-          slots), not shown to anyone just browsing the directory. Always
-          visible here, independent of whether they currently have a slot
-          booked - it's the mentor's permanent room, not tied to one session. */}
-      {isExistingStudent && mentor.meeting_link && (
+      {/* Meeting link - this viewer's own link, set by the mentor
+          specifically for them (mentor_meeting_links), not a link shared
+          across every one of the mentor's students. Always visible here,
+          independent of whether they currently have a slot booked - it's a
+          permanent room, not tied to one session. */}
+      {meetingLink && (
         <div className="card">
           <p className="text-sm font-semibold mb-2">Meeting link</p>
           <a
-            href={mentor.meeting_link}
+            href={meetingLink}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-brand-400 hover:text-brand-300 break-all"
           >
-            {mentor.meeting_link}
+            {meetingLink}
           </a>
         </div>
       )}
