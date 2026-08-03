@@ -122,15 +122,18 @@ export default async function UpcomingSessionsPage() {
     .order("start_time", { ascending: true });
   const myBookings = (myBookingsData ?? []) as MyBooking[];
 
-  // This student's own permanent meeting link (mentor_meeting_links) - one
-  // row total per student, so it applies to every row below regardless of
-  // which slot/mentor it is.
+  // This student's own permanent meeting link (mentor_meeting_links) - the
+  // table only ever holds one row total per student, so if this student
+  // switched mentors, this row may still carry the OLD mentor's mentor_id
+  // until their new mentor sets a fresh one. Selecting mentor_id too (not
+  // just meeting_link) so each row below only shows it when it actually
+  // matches that row's own mentor - never applied blindly to every row.
   const { data: myMeetingLinkData } = await supabase
     .from("mentor_meeting_links")
-    .select("meeting_link")
+    .select("mentor_id, meeting_link")
     .eq("student_id", user.id)
     .maybeSingle();
-  const myMeetingLink = (myMeetingLinkData as { meeting_link: string } | null)?.meeting_link ?? null;
+  const myMeetingLinkRow = myMeetingLinkData as { mentor_id: string; meeting_link: string } | null;
 
   const { data: myNotesData } = await supabase
     .from("mentor_session_notes")
@@ -150,7 +153,7 @@ export default async function UpcomingSessionsPage() {
     slot: b,
     title: b.mentors?.name ?? "Mentor",
     photoUrl: mentorPhotoUrl(b.mentors?.photo_path ?? null, SUPABASE_URL),
-    meetingLink: myMeetingLink,
+    meetingLink: myMeetingLinkRow && b.mentors?.id === myMeetingLinkRow.mentor_id ? myMeetingLinkRow.meeting_link : null,
     rescheduleMentorId: b.mentors?.id ?? null,
     sessionNote: myNotesBySlotId.get(b.id) ?? null,
     feedback: myFeedbackBySlotId.get(b.id) ?? null,
