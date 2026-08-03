@@ -261,7 +261,12 @@ export default function AssessmentTake({
       if (range.toString().trim().length === 0) return;
 
       const mark = document.createElement("mark");
-      mark.className = "bg-yellow-300/70 text-black rounded px-0.5 cursor-pointer";
+      // Locked to an explicit hex, not bg-yellow-300, so this stays a real
+      // pale highlighter-pen yellow regardless of the yellow scale being
+      // reversed for the app's light theme (see tailwind.config.ts) -
+      // this mark is meant to look the same as a real highlighter, in any
+      // theme, not shift with the surrounding page colors.
+      mark.className = "bg-[#fde047]/70 text-black rounded px-0.5 cursor-pointer";
       mark.title = "Click to remove highlight";
       try {
         range.surroundContents(mark);
