@@ -83,7 +83,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const { data: studentData } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, full_name, email, status_update, status_updated_at")
     .eq("id", params.studentId)
     .maybeSingle();
   // RLS on profiles only returns a row here if this mentor actually has a
@@ -91,7 +91,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
   // means either the student doesn't exist or there's no real relationship,
   // and either way a 404 is the right, non-leaky response.
   if (!studentData) notFound();
-  const student = studentData as Pick<Profile, "id" | "full_name" | "email">;
+  const student = studentData as Pick<
+    Profile,
+    "id" | "full_name" | "email" | "status_update" | "status_updated_at"
+  >;
 
   const [
     scoreReportsRes,
@@ -186,6 +189,21 @@ export default async function StudentProgressPage({ params }: { params: { studen
             ? "You can fill in this student's full study planner below - Planned System, Hours, Questions, and anything else in their layout. Score reports are still upload-only by the student."
             : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
         </p>
+
+        {/* Status - the student's own free-text update, from Settings or
+            their Home dashboard (components/StatusUpdateCard.tsx). Not
+            shown at all if they've never set one, rather than an empty card. */}
+        {student.status_update && (
+          <div className="card mb-8">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Status</p>
+            <p className="text-sm text-slate-300 whitespace-pre-wrap">{student.status_update}</p>
+            {student.status_updated_at && (
+              <p className="text-xs text-slate-600 mt-1">
+                Updated {formatSlotDate(student.status_updated_at)} at {formatSlotTime(student.status_updated_at)}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Analysis */}
         <div className="mb-8">
