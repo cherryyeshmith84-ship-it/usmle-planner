@@ -247,117 +247,116 @@ export default function MentorProfileClient({
             aside just for their existing students.
           </p>
         )}
-        {!readyToBook ? (
-          <div>
-            <p className="text-sm font-semibold mb-1">Before you see {mentor.name}&apos;s availability</p>
-            <p className="text-xs text-slate-500 mb-3">
-              Required so your mentor knows where you&apos;re at before the session - fill this in once,
-              it applies to whichever slot you book.
-            </p>
-            <div className="space-y-3">
-              <div>
-                <label className="label">Current stage</label>
-                <div className="flex flex-wrap gap-3">
-                  {PREP_STAGE_OPTIONS.map((s) => (
-                    <label key={s} className="flex items-center gap-1.5 text-sm text-slate-300">
-                      <input type="radio" name="stage" checked={stage === s} onChange={() => setStage(s)} />
-                      {s}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="label">Current NBME (optional)</label>
-                <input
-                  className="input"
-                  value={currentNbme}
-                  onChange={(e) => setCurrentNbme(e.target.value)}
-                  placeholder="e.g. Form 26: 220"
-                />
-              </div>
-              <div>
-                <label className="label">Target exam date (optional)</label>
-                <input
-                  type="date"
-                  className="input"
-                  value={targetExamDate}
-                  onChange={(e) => setTargetExamDate(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="label">Biggest challenge</label>
-                <div className="flex flex-wrap gap-3">
-                  {BIGGEST_CHALLENGE_OPTIONS.map((c) => (
-                    <label key={c} className="flex items-center gap-1.5 text-sm text-slate-300">
-                      <input type="radio" name="challenge" checked={challenge === c} onChange={() => setChallenge(c)} />
-                      {c}
-                    </label>
-                  ))}
-                </div>
-                {challenge === "Other" && (
-                  <input
-                    className="input mt-2"
-                    value={challengeOther}
-                    onChange={(e) => setChallengeOther(e.target.value)}
-                    placeholder="Say more..."
-                  />
-                )}
-              </div>
-              <div>
-                <label className="label">Anything you&apos;d like your mentor to know? (optional)</label>
-                <textarea
-                  className="input"
-                  rows={2}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </div>
-            </div>
-            <p className="text-xs text-amber-400 mt-3">
-              Fill in your stage and biggest challenge to unlock {mentor.name}&apos;s availability.
-            </p>
-          </div>
+
+        {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
+        {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
+        {slots.length === 0 ? (
+          <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
         ) : (
-          <>
-            {bookError && <p className="text-xs text-red-400 mb-2">{bookError}</p>}
-            {bookedMsg && <p className="text-xs text-green-400 mb-2">{bookedMsg}</p>}
-            {slots.length === 0 ? (
-              <p className="text-sm text-slate-400">No open slots right now - check back later.</p>
-            ) : (
-              <div className="space-y-4">
-                {groupSlotsByDate(slots).map(({ date, slots }) => (
-                  <div key={date}>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
-                    <div className="space-y-2">
-                      {slots.map((s) => {
-                        const weekClash = hasBookingInWeekOf(s.start_time);
-                        return (
-                          <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                            <p className="text-sm">
-                              {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                            </p>
-                            {weekClash ? (
-                              <span className="text-xs text-slate-500">Already booked this week</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => book(s.id)}
-                                disabled={bookingId === s.id}
-                                className="btn-primary text-xs"
-                              >
-                                {bookingId === s.id ? "Booking..." : "Book Session"}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+          <div className="space-y-4 mb-6">
+            {groupSlotsByDate(slots).map(({ date, slots }) => (
+              <div key={date}>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{date}</p>
+                <div className="space-y-2">
+                  {slots.map((s) => {
+                    const weekClash = hasBookingInWeekOf(s.start_time);
+                    return (
+                      <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                        <p className="text-sm">
+                          {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
+                        </p>
+                        {weekClash ? (
+                          <span className="text-xs text-slate-500">Already booked this week</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => book(s.id)}
+                            disabled={bookingId === s.id}
+                            className="btn-primary text-xs"
+                          >
+                            {bookingId === s.id ? "Booking..." : "Book Session"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Pre-booking questionnaire - shown alongside availability instead
+            of gating it, so a student can see open times right away. Still
+            required to actually book (enforced in book() above): clicking
+            "Book Session" before this is filled in shows bookError telling
+            them what's missing. */}
+        <div className="border-t border-slate-800 pt-4">
+          <p className="text-sm font-semibold mb-1">Before you book</p>
+          <p className="text-xs text-slate-500 mb-3">
+            Required so your mentor knows where you&apos;re at before the session - fill this in once,
+            it applies to whichever slot you book.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="label">Current stage</label>
+              <div className="flex flex-wrap gap-3">
+                {PREP_STAGE_OPTIONS.map((s) => (
+                  <label key={s} className="flex items-center gap-1.5 text-sm text-slate-300">
+                    <input type="radio" name="stage" checked={stage === s} onChange={() => setStage(s)} />
+                    {s}
+                  </label>
                 ))}
               </div>
-            )}
-          </>
-        )}
+            </div>
+            <div>
+              <label className="label">Current NBME (optional)</label>
+              <input
+                className="input"
+                value={currentNbme}
+                onChange={(e) => setCurrentNbme(e.target.value)}
+                placeholder="e.g. Form 26: 220"
+              />
+            </div>
+            <div>
+              <label className="label">Target exam date (optional)</label>
+              <input
+                type="date"
+                className="input"
+                value={targetExamDate}
+                onChange={(e) => setTargetExamDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Biggest challenge</label>
+              <div className="flex flex-wrap gap-3">
+                {BIGGEST_CHALLENGE_OPTIONS.map((c) => (
+                  <label key={c} className="flex items-center gap-1.5 text-sm text-slate-300">
+                    <input type="radio" name="challenge" checked={challenge === c} onChange={() => setChallenge(c)} />
+                    {c}
+                  </label>
+                ))}
+              </div>
+              {challenge === "Other" && (
+                <input
+                  className="input mt-2"
+                  value={challengeOther}
+                  onChange={(e) => setChallengeOther(e.target.value)}
+                  placeholder="Say more..."
+                />
+              )}
+            </div>
+            <div>
+              <label className="label">Anything you&apos;d like your mentor to know? (optional)</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <MentorChatPanel mentorId={mentor.id} studentId={currentUserId} otherPartyLabel={mentor.name} />
