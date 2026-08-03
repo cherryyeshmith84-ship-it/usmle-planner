@@ -87,7 +87,6 @@ export default function MentorAvailabilityClient({
   const [displayWhyMentor, setDisplayWhyMentor] = useState(mentor.why_mentor || "");
   const [displayLanguages, setDisplayLanguages] = useState(mentor.languages || []);
   const [displayHelpAreas, setDisplayHelpAreas] = useState(mentor.help_areas || []);
-  const [displayMeetingLink, setDisplayMeetingLink] = useState(mentor.meeting_link || "");
   const [displayResponseTime, setDisplayResponseTime] = useState(mentor.response_time_note || "");
 
   function toggleHelpArea(area: string) {
@@ -187,39 +186,6 @@ export default function MentorAvailabilityClient({
   }
 
   const photoUrl = mentorPhotoUrl(photoPath, SUPABASE_URL);
-
-  // Meeting link - its own standalone box, separate from the rest of the
-  // profile editor, since it's the one thing here a mentor typically sets
-  // once and rarely touches again (a permanent Zoom/Meet room), not
-  // something that belongs mixed in with bio/photo/help-areas edits.
-  const [meetingLinkEditing, setMeetingLinkEditing] = useState(false);
-  const [meetingLinkDraft, setMeetingLinkDraft] = useState(displayMeetingLink);
-  const [meetingLinkSaving, setMeetingLinkSaving] = useState(false);
-  const [meetingLinkError, setMeetingLinkError] = useState<string | null>(null);
-
-  function startEditMeetingLink() {
-    setMeetingLinkDraft(displayMeetingLink);
-    setMeetingLinkError(null);
-    setMeetingLinkEditing(true);
-  }
-
-  async function saveMeetingLink() {
-    setMeetingLinkSaving(true);
-    setMeetingLinkError(null);
-    const supabase = createClient();
-    const { error: updateError } = await supabase
-      .from("mentors")
-      .update({ meeting_link: meetingLinkDraft.trim() || null })
-      .eq("id", mentor.id);
-    setMeetingLinkSaving(false);
-    if (updateError) {
-      setMeetingLinkError(updateError.message);
-      return;
-    }
-    setDisplayMeetingLink(meetingLinkDraft.trim());
-    setMeetingLinkEditing(false);
-    router.refresh();
-  }
 
   async function addSlot() {
     if (!date || !startTime || !endTime) {
@@ -480,65 +446,13 @@ export default function MentorAvailabilityClient({
         )}
       </div>
 
-      <div className="card">
-        <p className="text-sm font-semibold mb-1">Meeting link</p>
-        <p className="text-xs text-slate-500 mb-3">
-          A permanent link (Zoom, Google Meet, etc.) used for every session. Visible to your existing
-          students on your profile, not just once they've booked a slot.
-        </p>
-        {meetingLinkEditing ? (
-          <div className="space-y-2">
-            <input
-              className="input"
-              value={meetingLinkDraft}
-              onChange={(e) => setMeetingLinkDraft(e.target.value)}
-              placeholder="https://meet.google.com/..."
-              autoFocus
-            />
-            {meetingLinkError && <p className="text-xs text-red-400">{meetingLinkError}</p>}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={saveMeetingLink}
-                disabled={meetingLinkSaving}
-                className="btn-primary text-sm"
-              >
-                {meetingLinkSaving ? "Saving..." : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMeetingLinkEditing(false)}
-                disabled={meetingLinkSaving}
-                className="btn-secondary text-sm"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : displayMeetingLink ? (
-          <div className="flex items-center justify-between gap-3">
-            <a
-              href={displayMeetingLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-brand-400 hover:text-brand-300 truncate"
-            >
-              {displayMeetingLink}
-            </a>
-            <button
-              type="button"
-              onClick={startEditMeetingLink}
-              className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
-            >
-              Edit
-            </button>
-          </div>
-        ) : (
-          <button type="button" onClick={startEditMeetingLink} className="btn-secondary text-sm">
-            Add a meeting link
-          </button>
-        )}
-      </div>
+      <p className="text-xs text-slate-500">
+        Looking for meeting links? Each student can have their own - open a student from{" "}
+        <a href="/mentorship" className="text-brand-400 hover:text-brand-300">
+          your dashboard
+        </a>{" "}
+        and set it there.
+      </p>
 
       <div className="card">
         <p className="text-sm font-semibold mb-1">Add an open slot</p>
