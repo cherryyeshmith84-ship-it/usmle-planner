@@ -77,8 +77,8 @@ export default async function Home() {
   return (
     <main className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="max-w-6xl mx-auto w-full px-6 py-5 flex items-center justify-between sticky top-0 z-20 bg-black/80 backdrop-blur">
-        <span className="font-extrabold text-xl tracking-tight text-white">
+      <header className="max-w-6xl mx-auto w-full px-6 py-5 flex items-center justify-between sticky top-0 z-20 bg-white/80 backdrop-blur">
+        <span className="font-extrabold text-xl tracking-tight text-slate-100">
           Master<span className="text-brand-400">Grid</span>
         </span>
         <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-300">
