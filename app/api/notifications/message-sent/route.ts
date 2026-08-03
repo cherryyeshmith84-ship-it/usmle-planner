@@ -1,84 +1,111 @@
-"use client";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient as createServerClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import NotificationsBell from "./NotificationsBell";
-
-function initials(name: string | null | undefined) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
-  return (first + last).toUpperCase() || "?";
-}
+export const dynamic = "force-dynamic";
 
 /**
- * Thin persistent bar above the main content area (sidebar stays as-is) -
- * shows the streak + the notifications bell (see NotificationsBell.tsx -
- * new chat messages either direction, and audience-filtered "mentor added
- * availability" pings) + an avatar that opens a small dropdown (Profile &
- * Settings, Sign out). This is what makes individual pages feel like one
- * connected platform instead of disconnected screens each just starting
- * with a NavBar + content.
+ * Fired by MentorChatPanel.tsx right after a mentor_messages insert
+ * succeeds - in BOTH directions, since it's the same component and the
+ * same send() function whether a student or a mentor is sending. Who the
+ * recipient actually is comes entirely from the caller's own session (via
+ * the SSR client below), never from the request body - a client claiming
+ * "I'm the mentor" or "I'm the student" in the payload can't be trusted,
+ * since that would let anyone insert a notification for anyone else.
+ *
+ * Inserting the notification row itself needs the service-role client
+ * (see lib below) because the recipient is a DIFFERENT user than whoever's
+ * making this request - notifications' RLS only allows a user to read/mark
+ * their own rows (see add_notifications_table migration), same as every
+ * other cross-user write in this app (booking emails, etc.).
  */
-export default function TopHeader({
-  userName,
-  streak,
-}: {
-  userName?: string | null;
-  streak?: number;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+export async function POST(req: NextRequest) {
+  const supabase = createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  }
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  let body: { mentorId?: string; studentId?: string; preview?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  const { mentorId, studentId, preview } = body;
+  if (!mentorId || !studentId) {
+    return NextResponse.json({ error: "Missing mentorId/studentId." }, { status: 400 });
+  }
 
-  return (
-    <header className="sticky top-0 z-20 flex items-center justify-end gap-3 px-6 py-3 border-b border-slate-800 bg-black/80 backdrop-blur">
-      {typeof streak === "number" && streak > 0 && (
-        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 bg-amber-900/20 rounded-full px-2.5 py-1">
-          🔥 {streak} day{streak === 1 ? "" : "s"}
-        </span>
-      )}
+  const { data: mentorData } = await supabase
+    .from("mentors")
+    .select("id, name, email")
+    .eq("id", mentorId)
+    .maybeSingle();
+  if (!mentorData) {
+    return NextResponse.json({ error: "Mentor not found." }, { status: 404 });
+  }
+  const mentor = mentorData as { id: string; name: string; email: string };
 
-      <NotificationsBell />
+  const isMentorCaller = (user.email || "").trim().toLowerCase() === mentor.email.trim().toLowerCase();
+  const isStudentCaller = user.id === studentId;
+  if (!isMentorCaller && !isStudentCaller) {
+    return NextResponse.json({ error: "Not a participant in this thread." }, { status: 403 });
+  }
 
-      <div className="relative" ref={menuRef}>
-        <button
-          type="button"
-          onClick={() => setMenuOpen((v) => !v)}
-          className="w-8 h-8 rounded-full bg-brand-900/50 text-brand-300 text-xs font-bold flex items-center justify-center hover:bg-brand-900/70 transition"
-        >
-          {initials(userName)}
-        </button>
-        {menuOpen && (
-          <div className="absolute right-0 mt-2 w-52 rounded-lg border border-slate-800 bg-[#0a0a0a] shadow-lg py-1 z-30">
-            <p className="px-3 py-2 text-xs text-slate-500 truncate border-b border-slate-800">
-              {userName || "Your profile"}
-            </p>
-            <Link
-              href="/settings"
-              onClick={() => setMenuOpen(false)}
-              className="block px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
-            >
-              Profile &amp; Settings
-            </Link>
-            <form action="/auth/signout" method="post">
-              <button className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:bg-slate-800">
-                Sign out
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
-    </header>
-  );
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceUrl || !serviceKey) {
+    return NextResponse.json({ notified: false, reason: "Service role not configured." });
+  }
+  const serviceClient = createServiceClient(serviceUrl, serviceKey);
+
+  let recipientId: string | null = null;
+  let senderName = "Someone";
+
+  if (isStudentCaller) {
+    // Recipient is the mentor's own login account. Mentors don't have a
+    // direct user_id column on the mentors table - every other place in
+    // this app that needs "is the logged-in user this mentor" resolves it
+    // by matching auth email to mentors.email (see findMentorByEmail in
+    // lib/mentors.ts), so this does the reverse of that same match.
+    const { data: mentorProfile } = await serviceClient
+      .from("profiles")
+      .select("id")
+      .ilike("email", mentor.email)
+      .maybeSingle();
+    recipientId = (mentorProfile as { id: string } | null)?.id ?? null;
+
+    const { data: studentProfile } = await serviceClient
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+    senderName = (studentProfile as { full_name: string | null } | null)?.full_name || "A student";
+  } else {
+    recipientId = studentId;
+    senderName = mentor.name;
+  }
+
+  if (!recipientId || recipientId === user.id) {
+    return NextResponse.json({ notified: false, reason: "No valid recipient." });
+  }
+
+  const link = isStudentCaller ? `/mentorship/availability?student=${studentId}` : `/mentorship/mentor/${mentorId}`;
+  const trimmedPreview = (preview || "").trim().slice(0, 140);
+
+  const { error: insertError } = await serviceClient.from("notifications").insert({
+    user_id: recipientId,
+    type: "message",
+    title: `New message from ${senderName}`,
+    body: trimmedPreview || null,
+    link,
+  });
+
+  if (insertError) {
+    return NextResponse.json({ notified: false, reason: insertError.message });
+  }
+  return NextResponse.json({ notified: true });
 }
