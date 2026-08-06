@@ -14,12 +14,22 @@ import type { PlanTask } from "@/lib/planTasks";
  * edit the assignment's actual title/detail - only their mentor can do
  * that (see MentorAssignmentsEditor.tsx).
  */
-export default function AssignmentsChecklist({ tasks }: { tasks: PlanTask[] }) {
+export default function AssignmentsChecklist({
+  tasks,
+  editable = true,
+}: {
+  tasks: PlanTask[];
+  // False once this day has fallen outside the student's edit window (see
+  // isDateEditable in lib/planProgress.ts) - the checklist still shows what
+  // was (or wasn't) completed, it just can't be changed anymore.
+  editable?: boolean;
+}) {
   const router = useRouter();
   const [localTasks, setLocalTasks] = useState(tasks);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   async function toggle(task: PlanTask) {
+    if (!editable) return;
     const next = !task.completed;
     setSavingId(task.id);
     setLocalTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed: next } : t)));
@@ -47,11 +57,14 @@ export default function AssignmentsChecklist({ tasks }: { tasks: PlanTask[] }) {
   return (
     <div className="space-y-1.5">
       {localTasks.map((task) => (
-        <label key={task.id} className="flex items-start gap-2 text-sm cursor-pointer">
+        <label
+          key={task.id}
+          className={`flex items-start gap-2 text-sm ${editable ? "cursor-pointer" : "cursor-not-allowed"}`}
+        >
           <input
             type="checkbox"
             checked={task.completed}
-            disabled={savingId === task.id}
+            disabled={savingId === task.id || !editable}
             onChange={() => toggle(task)}
             className="w-4 h-4 mt-0.5"
           />
@@ -62,6 +75,9 @@ export default function AssignmentsChecklist({ tasks }: { tasks: PlanTask[] }) {
           </span>
         </label>
       ))}
+      {!editable && (
+        <p className="text-[11px] text-slate-500 pt-0.5">This day is locked and can no longer be updated.</p>
+      )}
     </div>
   );
 }
