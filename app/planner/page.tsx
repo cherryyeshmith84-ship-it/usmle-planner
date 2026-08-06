@@ -9,6 +9,7 @@ import type { PlanTask } from "@/lib/planTasks";
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { computeTodayStatus } from "@/lib/plannerStatus";
 import { getContentPublished } from "@/lib/platformSettings";
+import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
 import WeeklyProgress from "@/components/WeeklyProgress";
@@ -70,13 +71,16 @@ export default async function PlannerPage() {
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
   const studyResources = (resourcesRes.data ?? []) as StudyResource[];
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
-  const today = new Date().toISOString().slice(0, 10);
+  // Eastern Time, not the server's UTC clock - otherwise "today" (and the
+  // weekly progress/status header above the grid) can silently roll over to
+  // tomorrow's date hours before it actually is tomorrow in ET.
+  const today = easternDateStringNow();
   const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
   const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 max-w-6xl mx-auto px-6 py-8 w-full">
+      <main className="flex-1 px-6 py-8 w-full">
         <div className="mb-6">
           <h1 className="text-xl font-bold mb-1">My Study Plan</h1>
           <p className="text-sm text-slate-400">
