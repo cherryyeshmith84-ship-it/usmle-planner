@@ -103,6 +103,7 @@ export default async function PlannerPage() {
           initialPlanTasks={planTasks}
           studyResources={studyResources}
           startDate={plannerStartDate}
+          enforceEditWindow
         />
       </main>
     </AppShell>
