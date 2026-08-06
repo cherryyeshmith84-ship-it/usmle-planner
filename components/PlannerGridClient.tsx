@@ -18,7 +18,9 @@ import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
 import DailyReflection from "./DailyReflection";
 import { computeInitialPlannerRange } from "@/lib/plannerSettings";
 import { easternDateStringNow } from "@/lib/timezone";
+import { computeMentorPlanProgress, computeDayBadge, isDateEditable } from "@/lib/planProgress";
 import MentorDailyNoteCell from "./MentorDailyNoteCell";
+import StudyPlanProgressBar from "./StudyPlanProgressBar";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -133,6 +135,7 @@ export default function PlannerGridClient({
   canEdit = true,
   startDate = null,
   mentorId = null,
+  enforceEditWindow = false,
 }: {
   targetUserId: string;
   columns: PlannerColumn[];
@@ -154,6 +157,12 @@ export default function PlannerGridClient({
   // Left null for the student's own /planner view and the plain admin view,
   // both of which keep the old read-only-display behavior.
   mentorId?: string | null;
+  // Locks every day older than yesterday to read-only (see isDateEditable
+  // in lib/planProgress.ts) - only ever turned on for a student editing
+  // their OWN grid (app/planner/page.tsx). Left off for mentors/admins
+  // editing a student's grid on their behalf, since they legitimately need
+  // to backfill or correct older days.
+  enforceEditWindow?: boolean;
 }) {
   // Eastern Time, not the browser's local clock - two students in different
   // timezones (or a server-rendered "today" vs. a browser's) should always
@@ -204,6 +213,22 @@ export default function PlannerGridClient({
   const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
   const mentorNotesByDate = useMemo(() => groupNotesByDate(initialMentorNotes), [initialMentorNotes]);
   const planTasksByDate = useMemo(() => groupTasksByDate(initialPlanTasks), [initialPlanTasks]);
+  const entryByDate = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const e of initialEntries) map[e.log_date] = e.field_values?.["task_completed"] === true;
+    return map;
+  }, [initialEntries]);
+  // How much of the mentor's plan is actually done so far (see
+  // lib/planProgress.ts) - grows on its own as the mentor assigns further
+  // days and those days arrive, since only task_date <= today counts.
+  const mentorPlanProgress = useMemo(
+    () => computeMentorPlanProgress(initialPlanTasks, today),
+    [initialPlanTasks, today]
+  );
+  // A day is only actually locked when the caller opted into the edit
+  // window (enforceEditWindow - see prop doc above) AND it's outside
+  // today/yesterday.
+  const isLocked = (date: string) => enforceEditWindow && !isDateEditable(date, today);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
 
   function toggleExpanded(date: string) {
@@ -438,7 +463,7 @@ export default function PlannerGridClient({
 
   function renderCell(date: string, col: PlannerColumn) {
     const raw = valuesByDate[date]?.[col.key];
-    const disabled = !canEdit;
+    const disabled = !canEdit || isLocked(date);
     const colHighlighted = highlightedCols.has(col.key);
 
     if (col.field_type === "checkbox") {
@@ -493,6 +518,8 @@ export default function PlannerGridClient({
 
   return (
     <div className="space-y-3">
+      <StudyPlanProgressBar progress={mentorPlanProgress} />
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <button
@@ -608,6 +635,19 @@ export default function PlannerGridClient({
                       {date === today && (
                         <span className="ml-1.5 text-[10px] font-semibold text-brand-400">TODAY</span>
                       )}
+                      {isLocked(date) &&
+                        (() => {
+                          const badge = computeDayBadge(planTasksByDate[date] ?? [], entryByDate[date]);
+                          return badge === "done" ? (
+                            <span className="ml-1.5 text-green-500" title="Completed - this day is locked">
+                              ✓
+                            </span>
+                          ) : (
+                            <span className="ml-1.5 text-red-500" title="Not completed - this day is locked">
+                              ✗
+                            </span>
+                          );
+                        })()}
                     </td>
                     {mainColumns.map((c) => (
                       <td key={c.id} className="px-2 py-1">
@@ -619,8 +659,8 @@ export default function PlannerGridClient({
                         <button
                           type="button"
                           onClick={() => clearDay(date)}
-                          disabled={clearingDate === date}
-                          className="text-xs text-red-400 hover:text-red-300 whitespace-nowrap"
+                          disabled={clearingDate === date || isLocked(date)}
+                          className="text-xs text-red-400 hover:text-red-300 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {clearingDate === date ? "Clearing..." : "Clear"}
                         </button>
@@ -656,7 +696,7 @@ export default function PlannerGridClient({
                                 </p>
                                 <MoodPicker
                                   value={(rowValues["mood"] as string) ?? ""}
-                                  disabled={!canEdit}
+                                  disabled={!canEdit || isLocked(date)}
                                   onChange={(mood) => setCellValueAndSave(date, "mood", mood)}
                                 />
                               </div>
@@ -668,7 +708,7 @@ export default function PlannerGridClient({
                                 </p>
                                 <StudyIssueSelector
                                   value={(rowValues["study_issue"] as string) ?? ""}
-                                  disabled={!canEdit}
+                                  disabled={!canEdit || isLocked(date)}
                                   onChange={(issue) => setCellValueAndSave(date, "study_issue", issue)}
                                 />
                               </div>
@@ -681,7 +721,7 @@ export default function PlannerGridClient({
                                 <ResourcesUsedChecklist
                                   resources={studyResources}
                                   value={(rowValues["resources_used"] as string) ?? ""}
-                                  disabled={!canEdit}
+                                  disabled={!canEdit || isLocked(date)}
                                   onChange={(csv) => setCellValueAndSave(date, "resources_used", csv)}
                                 />
                               </div>
@@ -690,14 +730,17 @@ export default function PlannerGridClient({
                               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                                 Assignments
                               </p>
-                              <AssignmentsChecklist tasks={planTasksByDate[date] ?? []} />
+                              <AssignmentsChecklist
+                                tasks={planTasksByDate[date] ?? []}
+                                editable={canEdit && !isLocked(date)}
+                              />
                             </div>
                             <div className="pt-3 border-t border-slate-800">
                               <UWorldBlockTracker
                                 targetUserId={targetUserId}
                                 date={date}
                                 initialBlocks={dayBlocks}
-                                canEdit={canEdit}
+                                canEdit={canEdit && !isLocked(date)}
                               />
                             </div>
                             {notesColumn && (
@@ -710,7 +753,7 @@ export default function PlannerGridClient({
                                   // Always read-only when a mentor is viewing (mentorId set), even
                                   // though everything else on this grid is mentor-editable - this is
                                   // the student's own journal, kept one-directional on purpose.
-                                  disabled={!canEdit || !!mentorId}
+                                  disabled={!canEdit || !!mentorId || isLocked(date)}
                                   onChange={(e) => setCellValue(date, "student_notes", e.target.value)}
                                   rows={4}
                                   placeholder="Today's goals, what you struggled with, what to review tomorrow..."
@@ -732,7 +775,7 @@ export default function PlannerGridClient({
                                   wentWell={(rowValues["reflection_went_well"] as string) ?? ""}
                                   slowedDown={(rowValues["reflection_slowed_down"] as string) ?? ""}
                                   improve={(rowValues["reflection_improve"] as string) ?? ""}
-                                  disabled={!canEdit}
+                                  disabled={!canEdit || isLocked(date)}
                                   onChangeWentWell={(v) => setCellValue(date, "reflection_went_well", v)}
                                   onChangeSlowedDown={(v) => setCellValue(date, "reflection_slowed_down", v)}
                                   onChangeImprove={(v) => setCellValue(date, "reflection_improve", v)}
@@ -750,7 +793,7 @@ export default function PlannerGridClient({
                                 </p>
                                 <textarea
                                   value={(rowValues["tomorrow_goal"] as string) ?? ""}
-                                  disabled={!canEdit}
+                                  disabled={!canEdit || isLocked(date)}
                                   onChange={(e) => setCellValue(date, "tomorrow_goal", e.target.value)}
                                   rows={2}
                                   placeholder="What's the plan for tomorrow?"
@@ -820,7 +863,12 @@ export default function PlannerGridClient({
                                 )}
                               </div>
                             )}
-                            {canEdit && (
+                            {canEdit && isLocked(date) && (
+                              <p className="text-xs text-slate-500 pt-3 border-t border-slate-800">
+                                This day is locked - you can only update today's and yesterday's planner.
+                              </p>
+                            )}
+                            {canEdit && !isLocked(date) && (
                               <div className="flex items-center gap-3 pt-3 border-t border-slate-800">
                                 <button
                                   type="button"
