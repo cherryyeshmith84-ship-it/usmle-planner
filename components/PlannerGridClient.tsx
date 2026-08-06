@@ -17,6 +17,7 @@ import StudyIssueSelector from "./StudyIssueSelector";
 import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
 import DailyReflection from "./DailyReflection";
 import { computeInitialPlannerRange } from "@/lib/plannerSettings";
+import { easternDateStringNow } from "@/lib/timezone";
 import MentorDailyNoteCell from "./MentorDailyNoteCell";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -41,6 +42,47 @@ function addDays(date: string, n: number): string {
 
 function weekdayOf(date: string): string {
   return WEEKDAY[new Date(date + "T00:00:00").getDay()];
+}
+
+/**
+ * Remembers the range a student/mentor last explicitly jumped to (via "Jump
+ * to date"), so reloading the page doesn't silently snap back to the
+ * mentor-anchored start date or the default "centered on today" window -
+ * the whole point of jumping somewhere was to keep looking at it. Scoped
+ * per-student (targetUserId) so a mentor browsing several students' grids
+ * from the same browser doesn't cross-contaminate each other's saved spot.
+ */
+function plannerRangeStorageKey(targetUserId: string): string {
+  return `master-grid-planner-range-${targetUserId}`;
+}
+
+function loadPersistedRange(targetUserId: string): { rangeStart: string; rangeEnd: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(plannerRangeStorageKey(targetUserId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.rangeStart === "string" && typeof parsed?.rangeEnd === "string") {
+      return { rangeStart: parsed.rangeStart, rangeEnd: parsed.rangeEnd };
+    }
+  } catch {
+    // Malformed or unavailable storage (e.g. private browsing) - just fall
+    // back to the default range below.
+  }
+  return null;
+}
+
+function savePersistedRange(targetUserId: string, rangeStart: string, rangeEnd: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      plannerRangeStorageKey(targetUserId),
+      JSON.stringify({ rangeStart, rangeEnd })
+    );
+  } catch {
+    // Storage unavailable - jumping still works for this session, it just
+    // won't survive a reload.
+  }
 }
 
 /** Turns a row's raw string/boolean values into what the DB should store (numbers coerced, blanks dropped). */
@@ -113,7 +155,10 @@ export default function PlannerGridClient({
   // both of which keep the old read-only-display behavior.
   mentorId?: string | null;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Eastern Time, not the browser's local clock - two students in different
+  // timezones (or a server-rendered "today" vs. a browser's) should always
+  // agree on which row is "TODAY".
+  const today = easternDateStringNow();
   const activeColumns = useMemo(
     () => columns.filter((c) => c.active).sort((a, b) => a.sort_order - b.sort_order),
     [columns]
@@ -224,6 +269,21 @@ export default function PlannerGridClient({
     setScrollTarget(null);
   }, [scrollTarget, dates]);
 
+  // Restores whatever date range was last explicitly jumped to, if any -
+  // client-only (runs after the initial render) so the server-rendered
+  // markup still matches on first paint and there's no hydration mismatch.
+  // Without this, refreshing the page after "Jump to date" silently snapped
+  // back to the default range (mentor-anchored start date, or today ± a
+  // week), discarding where the student/mentor had navigated to.
+  useEffect(() => {
+    const persisted = loadPersistedRange(targetUserId);
+    if (persisted) {
+      setRangeStart(persisted.rangeStart);
+      setRangeEnd(persisted.rangeEnd);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetUserId]);
+
   function setCellValue(date: string, key: string, value: CellValue) {
     setSaveMessage(null);
     setValuesByDate((prev) => ({ ...prev, [date]: { ...(prev[date] ?? {}), [key]: value } }));
@@ -327,12 +387,16 @@ export default function PlannerGridClient({
     // that was the actual ask ("get dates from that date"), not merely
     // scrolling to a row that might already be showing. Keeps at least ~2
     // weeks visible past it, same minimum window the initial load uses.
-    setRangeStart(newDate);
     const minimumEnd = addDays(newDate, 13);
-    if (rangeEnd < minimumEnd) setRangeEnd(minimumEnd);
+    const nextRangeEnd = rangeEnd < minimumEnd ? minimumEnd : rangeEnd;
+    setRangeStart(newDate);
+    if (rangeEnd < minimumEnd) setRangeEnd(nextRangeEnd);
     setValuesByDate((prev) => (prev[newDate] ? prev : { ...prev, [newDate]: {} }));
     setScrollTarget(newDate);
     setNewDate("");
+    // Remember this jump so refreshing the page doesn't lose it (see
+    // loadPersistedRange/savePersistedRange above).
+    savePersistedRange(targetUserId, newDate, nextRangeEnd);
   }
 
   async function clearDay(date: string) {
