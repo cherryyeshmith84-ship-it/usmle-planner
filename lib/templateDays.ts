@@ -53,11 +53,13 @@ export function templateTasksToStudyTasks(tasks: TemplateTask[]): StudyTask[] {
   }));
 }
 
-/** Calendar date (ISO) that a given day number of the sequence falls on. */
+/** Calendar date (ISO) that a given day number of the sequence falls on.
+ *  Pure UTC arithmetic - never touches the browser's local timezone (see
+ *  the matching comment in PlannerGridClient.tsx's addDays for why the old
+ *  version broke for anyone in a timezone ahead of UTC). */
 export function dateForDay(startDate: string, dayNumber: number): string {
-  const d = new Date(startDate + "T00:00:00");
-  d.setDate(d.getDate() + (dayNumber - 1));
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = startDate.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + (dayNumber - 1))).toISOString().slice(0, 10);
 }
 
 export interface RoadmapEntry {
