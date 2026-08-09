@@ -13,13 +13,16 @@ export interface WeeklyProgressSummary {
   averageUWorldPercent: number | null;
 }
 
+// Pure UTC date-string arithmetic - never touches the browser's local
+// timezone (see the matching comment in PlannerGridClient.tsx's addDays for
+// why the old "parse local, round-trip through toISOString" version broke
+// for anyone in a timezone ahead of UTC, e.g. returning the same date for
+// every day in the loop instead of 7 distinct ones).
 function last7Dates(endDateIso: string): string[] {
+  const [y, m, d] = endDateIso.split("-").map(Number);
   const out: string[] = [];
-  const end = new Date(endDateIso + "T00:00:00");
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(end);
-    d.setDate(d.getDate() - i);
-    out.push(d.toISOString().slice(0, 10));
+    out.push(new Date(Date.UTC(y, m - 1, d - i)).toISOString().slice(0, 10));
   }
   return out;
 }
