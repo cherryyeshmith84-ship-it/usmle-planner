@@ -32,8 +32,8 @@ export default function StudyPlanProgressBar({ progress }: { progress: PlanProgr
         />
       </div>
       <p className="text-[11px] text-slate-500 mt-2">
-        A day only counts once every box in the grid below is filled in for it - this grows
-        automatically each day and readjusts if your mentor changes the plan.
+        A day only counts once every box in the grid below is filled in for it - this covers
+        every day your mentor has planned so far, and grows the moment they plan further ahead.
       </p>
     </div>
   );
