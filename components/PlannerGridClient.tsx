@@ -18,7 +18,7 @@ import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
 import DailyReflection from "./DailyReflection";
 import { computeInitialPlannerRange } from "@/lib/plannerSettings";
 import { easternDateStringNow } from "@/lib/timezone";
-import { computeMentorPlanProgress, computeDayBadge, isDateEditable } from "@/lib/planProgress";
+import { computeGridPlanProgress, computeDayBadge, isDateEditable } from "@/lib/planProgress";
 import MentorDailyNoteCell from "./MentorDailyNoteCell";
 import StudyPlanProgressBar from "./StudyPlanProgressBar";
 
@@ -214,16 +214,18 @@ export default function PlannerGridClient({
   const mentorNotesByDate = useMemo(() => groupNotesByDate(initialMentorNotes), [initialMentorNotes]);
   const planTasksByDate = useMemo(() => groupTasksByDate(initialPlanTasks), [initialPlanTasks]);
   const entryByDate = useMemo(() => {
-    const map: Record<string, boolean> = {};
-    for (const e of initialEntries) map[e.log_date] = e.field_values?.["task_completed"] === true;
+    const map: Record<string, PlannerEntry> = {};
+    for (const e of initialEntries) map[e.log_date] = e;
     return map;
   }, [initialEntries]);
-  // How much of the mentor's plan is actually done so far (see
-  // lib/planProgress.ts) - grows on its own as the mentor assigns further
-  // days and those days arrive, since only task_date <= today counts.
+  // How many days of the full grid have been completely filled in, from
+  // whenever the mentor set this student's plan start date through today
+  // (see lib/planProgress.ts) - grows on its own as more days pass, and
+  // readjusts immediately if the mentor moves the start date or changes
+  // which columns are active.
   const mentorPlanProgress = useMemo(
-    () => computeMentorPlanProgress(initialPlanTasks, today),
-    [initialPlanTasks, today]
+    () => computeGridPlanProgress(initialEntries, mainColumns, startDate, today),
+    [initialEntries, mainColumns, startDate, today]
   );
   // A day is only actually locked when the caller opted into the edit
   // window (enforceEditWindow - see prop doc above) AND it's outside
@@ -637,7 +639,7 @@ export default function PlannerGridClient({
                       )}
                       {isLocked(date) &&
                         (() => {
-                          const badge = computeDayBadge(planTasksByDate[date] ?? [], entryByDate[date]);
+                          const badge = computeDayBadge(mainColumns, entryByDate[date]);
                           return badge === "done" ? (
                             <span className="ml-1.5 text-green-500" title="Completed - this day is locked">
                               ✓
