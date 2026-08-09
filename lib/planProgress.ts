@@ -1,4 +1,4 @@
-import type { PlanTask } from "./planTasks";
+import type { PlannerColumn, PlannerEntry } from "./plannerColumns";
 
 function addDaysIso(date: string, n: number): string {
   const d = new Date(date + "T00:00:00");
@@ -6,25 +6,32 @@ function addDaysIso(date: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Whether a single grid cell counts as "filled in" - a checkbox has to be
+ *  checked, a number/text field has to be non-blank. */
+function isBoxFilled(column: PlannerColumn, raw: string | number | boolean | null | undefined): boolean {
+  if (column.field_type === "checkbox") return raw === true;
+  if (raw === null || raw === undefined) return false;
+  if (typeof raw === "string") return raw.trim() !== "";
+  return true; // a present number counts, including 0
+}
+
 /**
- * A day only "counts" as complete if everything mentor-required for it is
- * done - no partial credit. Tasks the mentor marked Optional don't block
- * this (that's what "optional" means), unless literally every task that day
- * happens to be optional, in which case those still have to all be checked
- * off - otherwise a day where a mentor only assigned optional items would
- * count as automatically "done" with nothing actually completed.
+ * A day only "counts" as complete if every box in the grid row is filled in
+ * - no partial credit for logging half the day. `columns` should already be
+ * the active main grid columns (Planned System, Questions, Hours, etc.) -
+ * the ones pulled into the expanded panel (Mood, Notes, Reflection...)
+ * aren't part of this since those aren't "boxes" in the flat row.
  */
-function isDayFullyCompleted(tasksForDay: PlanTask[]): boolean {
-  if (tasksForDay.length === 0) return false;
-  const required = tasksForDay.filter((t) => !t.is_optional);
-  const graded = required.length > 0 ? required : tasksForDay;
-  return graded.every((t) => t.completed);
+function isDayFullyLogged(entry: PlannerEntry | undefined, columns: PlannerColumn[]): boolean {
+  if (columns.length === 0) return false;
+  const values = entry?.field_values ?? {};
+  return columns.every((col) => isBoxFilled(col, values[col.key]));
 }
 
 export interface PlanProgressDay {
   date: string;
-  totalTasks: number;
-  completedTasks: number;
+  filledBoxes: number;
+  totalBoxes: number;
   done: boolean;
 }
 
@@ -34,75 +41,65 @@ export interface PlanProgress {
   totalDays: number;
   percent: number; // 0-100, rounded; 0 when there's nothing to track yet
   planStart: string | null;
-  planHorizon: string | null; // latest date the mentor has assigned anything for, even if that's still in the future
 }
 
 /**
- * "Study Plan Progress" bar - how much of the mentor's plan the student has
- * actually completed, from whenever the mentor started assigning tasks
- * through today. Only mentor-sourced tasks count (source === "mentor"),
- * not the AI-default or student-added ones - this is specifically tracking
- * the mentor's plan, not the student's whole planner.
+ * "Study Plan Progress" bar - how many of the days since the mentor set a
+ * plan start date (student_planner_settings.start_date, set via
+ * PlannerStartDateControl) have been fully logged, from that start date
+ * through today. A day only counts once every active grid column for it is
+ * filled in - matching what the mentor actually laid out in the grid, not
+ * just some of it.
  *
- * Deliberately only counts days that have already arrived (task_date <=
- * today): a day the mentor already pre-planned for next week isn't
- * "missed" yet, it just hasn't happened. That's also what makes the bar
- * "readjust" as the mentor plans further ahead - a future day the mentor
- * just assigned doesn't touch the percentage at all until its date arrives,
- * at which point it joins the denominator like any other day.
+ * The denominator grows on its own every day that passes (today keeps
+ * moving forward) and readjusts immediately if the mentor moves the start
+ * date or changes which columns are active - there's no separate "end
+ * date" to track, this always runs through today.
+ *
+ * Renders nothing (totalDays: 0) until a mentor has actually set a start
+ * date - before that there's no "plan" to measure against yet.
  */
-export function computeMentorPlanProgress(allPlanTasks: PlanTask[], todayIso: string): PlanProgress {
-  const mentorTasks = allPlanTasks.filter((t) => t.source === "mentor");
-  if (mentorTasks.length === 0) {
-    return { days: [], completedDays: 0, totalDays: 0, percent: 0, planStart: null, planHorizon: null };
+export function computeGridPlanProgress(
+  entries: PlannerEntry[],
+  activeColumns: PlannerColumn[],
+  startDate: string | null,
+  todayIso: string
+): PlanProgress {
+  if (!startDate || activeColumns.length === 0 || startDate > todayIso) {
+    return { days: [], completedDays: 0, totalDays: 0, percent: 0, planStart: startDate };
   }
 
-  const byDate = new Map<string, PlanTask[]>();
-  for (const t of mentorTasks) {
-    const list = byDate.get(t.task_date) ?? [];
-    list.push(t);
-    byDate.set(t.task_date, list);
+  const entryByDate = new Map(entries.map((e) => [e.log_date, e]));
+  const days: PlanProgressDay[] = [];
+  let cursor = startDate;
+  let guard = 0;
+  while (cursor <= todayIso && guard < 3000) {
+    const entry = entryByDate.get(cursor);
+    const values = entry?.field_values ?? {};
+    const filledBoxes = activeColumns.filter((col) => isBoxFilled(col, values[col.key])).length;
+    days.push({
+      date: cursor,
+      filledBoxes,
+      totalBoxes: activeColumns.length,
+      done: filledBoxes === activeColumns.length,
+    });
+    cursor = addDaysIso(cursor, 1);
+    guard++;
   }
-
-  const allDates = [...byDate.keys()].sort();
-  const planStart = allDates[0];
-  const planHorizon = allDates[allDates.length - 1];
-  const countedDates = allDates.filter((d) => d <= todayIso);
-
-  const days: PlanProgressDay[] = countedDates.map((date) => {
-    const tasks = byDate.get(date) ?? [];
-    return {
-      date,
-      totalTasks: tasks.length,
-      completedTasks: tasks.filter((t) => t.completed).length,
-      done: isDayFullyCompleted(tasks),
-    };
-  });
 
   const completedDays = days.filter((d) => d.done).length;
   const totalDays = days.length;
   const percent = totalDays === 0 ? 0 : Math.round((completedDays / totalDays) * 100);
 
-  return { days, completedDays, totalDays, percent, planStart, planHorizon };
+  return { days, completedDays, totalDays, percent, planStart: startDate };
 }
 
 export type DayBadge = "done" | "missed";
 
-/**
- * Per-row done/missed badge for a locked (past) day - shown regardless of
- * whether the mentor assigned anything, so every locked day resolves to one
- * of the two, not a blank. Prefers the mentor-assignment signal (same
- * all-required-tasks-complete rule as the progress bar above); falls back
- * to the day's own "Study Status" checkbox (planner_entries.task_completed)
- * when the mentor didn't assign anything that day, so there's still a
- * meaningful answer instead of just always showing a red X on days the
- * mentor never touched.
- */
-export function computeDayBadge(mentorTasksForDate: PlanTask[], entryTaskCompleted: boolean | undefined): DayBadge {
-  if (mentorTasksForDate.length > 0) {
-    return isDayFullyCompleted(mentorTasksForDate) ? "done" : "missed";
-  }
-  return entryTaskCompleted === true ? "done" : "missed";
+/** Per-row done/missed badge for a locked (past) day - same all-boxes-filled
+ *  rule as the progress bar above, so the badge and the bar always agree. */
+export function computeDayBadge(activeColumns: PlannerColumn[], entry: PlannerEntry | undefined): DayBadge {
+  return isDayFullyLogged(entry, activeColumns) ? "done" : "missed";
 }
 
 /**
