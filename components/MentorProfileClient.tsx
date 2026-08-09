@@ -104,14 +104,22 @@ export default function MentorProfileClient({
 
     const bookedSlot = slots.find((s) => s.id === slotId);
     if (bookedSlot) {
+      const dateLabel = formatSlotDate(bookedSlot.start_time);
+      const timeLabel = `${formatSlotTime(bookedSlot.start_time)} - ${formatSlotTime(bookedSlot.end_time)}`;
+      // Email (mentor + student) - separate from the in-app notification
+      // below since they hit different services and one failing shouldn't
+      // block the other.
       fetch("/api/mentorship/notify-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slotId,
-          dateLabel: formatSlotDate(bookedSlot.start_time),
-          timeLabel: `${formatSlotTime(bookedSlot.start_time)} - ${formatSlotTime(bookedSlot.end_time)}`,
-        }),
+        body: JSON.stringify({ slotId, dateLabel, timeLabel }),
+      }).catch(() => {});
+      // In-app bell notification (mentor + student) - fire-and-forget, same
+      // as everywhere else notifications get sent from this app.
+      fetch("/api/notifications/booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotId, dateLabel, timeLabel }),
       }).catch(() => {});
     }
 
