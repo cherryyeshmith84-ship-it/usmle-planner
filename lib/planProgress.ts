@@ -1,9 +1,12 @@
 import type { PlannerColumn, PlannerEntry } from "./plannerColumns";
 
+// Pure UTC date-string arithmetic - never touches the browser's local
+// timezone (see the matching comment in PlannerGridClient.tsx's addDays for
+// why the old "parse local, round-trip through toISOString" version broke
+// for anyone in a timezone ahead of UTC).
 function addDaysIso(date: string, n: number): string {
-  const d = new Date(date + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
 /** Whether a single grid cell counts as "filled in" - a checkbox has to be
