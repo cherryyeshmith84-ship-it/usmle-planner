@@ -36,14 +36,23 @@ const MENTOR_STATUS_BADGE: Record<DayStatus, string> = {
 type CellValue = string | boolean;
 type RowValues = Record<string, CellValue>;
 
+// Pure UTC date-string arithmetic - deliberately never touches the
+// browser's local timezone. The old version (`new Date(date+"T00:00:00")`
+// then `.toISOString()`) parsed as LOCAL midnight but read back out in UTC,
+// which silently shifts the date backward a day for anyone in a timezone
+// ahead of UTC (India, most of Asia/Australia) - for +1-day steps that
+// shift exactly cancels the step, so the "next day" comes back as the SAME
+// day forever, freezing the whole grid on one date/weekday (see the bug
+// report where every row showed "Saturday"). Building the date purely from
+// its Y/M/D parts via Date.UTC sidesteps the local clock entirely.
 function addDays(date: string, n: number): string {
-  const d = new Date(date + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
 function weekdayOf(date: string): string {
-  return WEEKDAY[new Date(date + "T00:00:00").getDay()];
+  const [y, m, d] = date.split("-").map(Number);
+  return WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
 }
 
 /**
@@ -219,10 +228,11 @@ export default function PlannerGridClient({
     return map;
   }, [initialEntries]);
   // How many days of the full grid have been completely filled in, from
-  // whenever the mentor set this student's plan start date through today
-  // (see lib/planProgress.ts) - grows on its own as more days pass, and
-  // readjusts immediately if the mentor moves the start date or changes
-  // which columns are active.
+  // whenever the mentor set this student's plan start date through the last
+  // date the mentor has actually planned out (see lib/planProgress.ts) -
+  // NOT capped at today, so it grows the moment the mentor plans further
+  // ahead, and readjusts immediately if the mentor moves the start date or
+  // changes which columns are active.
   const mentorPlanProgress = useMemo(
     () => computeGridPlanProgress(initialEntries, mainColumns, startDate, today),
     [initialEntries, mainColumns, startDate, today]
