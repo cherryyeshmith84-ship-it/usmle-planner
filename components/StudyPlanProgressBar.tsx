@@ -1,15 +1,15 @@
 import type { PlanProgress } from "@/lib/planProgress";
 
 /**
- * "Study Plan Progress" - how much of the mentor's plan (mentor-assigned
- * tasks, from wherever they started assigning through today) the student
- * has actually completed. A day only counts once everything the mentor
- * assigned for it is checked off - no partial credit - and the bar's total
- * grows on its own as the mentor plans further ahead and those days arrive.
- * See lib/planProgress.ts for the actual computation.
+ * "Study Plan Progress" - how many days of the full study planner grid have
+ * been completely filled in, from the date your mentor set your plan to
+ * start through today. A day only counts once every box in that day's row
+ * is filled in - no partial credit - and the total grows on its own as more
+ * days pass (or readjusts right away if your mentor moves the start date or
+ * changes which columns are active). See lib/planProgress.ts.
  *
- * Renders nothing if the mentor hasn't assigned anything yet - there's
- * nothing meaningful to show until there's a plan to measure against.
+ * Renders nothing until a mentor has actually set a plan start date -
+ * there's nothing meaningful to measure before that.
  */
 export default function StudyPlanProgressBar({ progress }: { progress: PlanProgress }) {
   if (progress.totalDays === 0) return null;
@@ -18,7 +18,7 @@ export default function StudyPlanProgressBar({ progress }: { progress: PlanProgr
     <div className="card mb-6">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-          Study Plan Progress <span className="normal-case text-slate-500">(your mentor's plan so far)</span>
+          Study Plan Progress <span className="normal-case text-slate-500">(since {progress.planStart})</span>
         </p>
         <p className="text-sm font-semibold">
           {progress.completedDays} / {progress.totalDays} days
@@ -32,8 +32,8 @@ export default function StudyPlanProgressBar({ progress }: { progress: PlanProgr
         />
       </div>
       <p className="text-[11px] text-slate-500 mt-2">
-        A day only counts once you've completed everything your mentor assigned for it - this grows
-        automatically as your mentor plans further ahead.
+        A day only counts once every box in the grid below is filled in for it - this grows
+        automatically each day and readjusts if your mentor changes the plan.
       </p>
     </div>
   );
