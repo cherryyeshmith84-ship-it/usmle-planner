@@ -44,20 +44,22 @@ export interface PlanProgress {
 }
 
 /**
- * "Study Plan Progress" bar - how many of the days since the mentor set a
- * plan start date (student_planner_settings.start_date, set via
- * PlannerStartDateControl) have been fully logged, from that start date
- * through today. A day only counts once every active grid column for it is
- * filled in - matching what the mentor actually laid out in the grid, not
- * just some of it.
+ * "Study Plan Progress" bar - how many of the days the mentor has actually
+ * planned out (student_planner_settings.start_date, set via
+ * PlannerStartDateControl, through the LAST date the mentor gave the
+ * student a plan for) have been fully logged. A day only counts once every
+ * active grid column for it is filled in - matching what the mentor
+ * actually laid out in the grid, not just some of it.
  *
- * The denominator grows on its own every day that passes (today keeps
- * moving forward) and readjusts immediately if the mentor moves the start
- * date or changes which columns are active - there's no separate "end
- * date" to track, this always runs through today.
+ * The end of the range is NOT "today" - it's whatever the last date is that
+ * has any planner_entries data on/after the start date. That means the
+ * moment a mentor plans further ahead (even into the future), the bar's
+ * total grows to match immediately - it doesn't wait for those days to
+ * arrive. Future days just won't be "done" yet until they're actually
+ * logged, so the percentage naturally dips until then.
  *
- * Renders nothing (totalDays: 0) until a mentor has actually set a start
- * date - before that there's no "plan" to measure against yet.
+ * Renders nothing (totalDays: 0) until a mentor has both set a start date
+ * AND entered at least one day of plan data on/after it.
  */
 export function computeGridPlanProgress(
   entries: PlannerEntry[],
@@ -65,15 +67,32 @@ export function computeGridPlanProgress(
   startDate: string | null,
   todayIso: string
 ): PlanProgress {
-  if (!startDate || activeColumns.length === 0 || startDate > todayIso) {
+  if (!startDate || activeColumns.length === 0) {
     return { days: [], completedDays: 0, totalDays: 0, percent: 0, planStart: startDate };
   }
+
+  // Last date on/after the start date that the mentor has actually put
+  // something in the grid for - this is "until the day mentor gives
+  // planner", not a fixed cutoff at today.
+  let lastPlannedDate: string | null = null;
+  for (const e of entries) {
+    if (e.log_date < startDate) continue;
+    const values = e.field_values ?? {};
+    const hasAnything = activeColumns.some((col) => isBoxFilled(col, values[col.key]));
+    if (hasAnything && (!lastPlannedDate || e.log_date > lastPlannedDate)) {
+      lastPlannedDate = e.log_date;
+    }
+  }
+  if (!lastPlannedDate) {
+    return { days: [], completedDays: 0, totalDays: 0, percent: 0, planStart: startDate };
+  }
+  const endDate = lastPlannedDate;
 
   const entryByDate = new Map(entries.map((e) => [e.log_date, e]));
   const days: PlanProgressDay[] = [];
   let cursor = startDate;
   let guard = 0;
-  while (cursor <= todayIso && guard < 3000) {
+  while (cursor <= endDate && guard < 3000) {
     const entry = entryByDate.get(cursor);
     const values = entry?.field_values ?? {};
     const filledBoxes = activeColumns.filter((col) => isBoxFilled(col, values[col.key])).length;
