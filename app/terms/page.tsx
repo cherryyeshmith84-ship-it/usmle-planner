@@ -18,7 +18,7 @@ export default function TermsPage() {
 
       <article className="max-w-3xl mx-auto w-full px-6 py-8 space-y-6 text-sm text-slate-300">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-1">Terms of Service</h1>
+          <h1 className="text-2xl font-bold text-slate-100 mb-1">Terms of Service</h1>
           <p className="text-slate-500">Last updated: July 2026</p>
         </div>
 
@@ -29,7 +29,7 @@ export default function TermsPage() {
         </p>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">1. What Master Grid is</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">1. What Master Grid is</h2>
           <p>
             Master Grid is an independent educational study platform for exam preparation,
             including a question bank, self-assessments, performance analytics, and a study
@@ -39,7 +39,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">2. Not medical advice</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">2. Not medical advice</h2>
           <p>
             Content on Master Grid is provided solely for educational and exam-preparation
             purposes. It is not medical advice and should not be relied on for clinical
@@ -49,7 +49,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">3. Your account</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">3. Your account</h2>
           <p className="mb-2">
             You&apos;re responsible for maintaining the confidentiality of your account
             credentials and for all activity that happens under your account.
@@ -61,7 +61,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">4. Acceptable use</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">4. Acceptable use</h2>
           <p className="mb-2">You agree not to:</p>
           <p className="mb-2">Copy, redistribute, or resell any question content from the Service without permission.</p>
           <p className="mb-2">Attempt to disrupt, reverse-engineer, or gain unauthorized access to the Service.</p>
@@ -69,7 +69,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">5. Content ownership</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">5. Content ownership</h2>
           <p>
             All question content, explanations, and platform materials are the property of
             Master Grid or its licensors. Your own study data (answers, notes, logs) belongs to
@@ -79,7 +79,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">6. Service availability</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">6. Service availability</h2>
           <p>
             Master Grid is provided on an &quot;as is&quot; and &quot;as available&quot; basis.
             We do not guarantee the Service will be uninterrupted or error-free, and features
@@ -88,7 +88,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">7. Limitation of liability</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">7. Limitation of liability</h2>
           <p>
             To the fullest extent permitted by law, Master Grid is not liable for any indirect,
             incidental, or consequential damages arising from your use of the Service, including
@@ -97,7 +97,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">8. Changes to these Terms</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">8. Changes to these Terms</h2>
           <p>
             We may update these Terms from time to time. Continued use of the Service after
             changes are posted means you accept the updated Terms.
@@ -105,11 +105,11 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">9. Contact us</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">9. Contact us</h2>
           <p>
             Questions about these Terms can be sent to{" "}
-            <a href="mailto:cherryyeshmith84@gmail.com" className="text-brand-400 hover:text-brand-300">
-              cherryyeshmith84@gmail.com
+            <a href="mailto:mastergridsupport@gmail.com" className="text-brand-400 hover:text-brand-300">
+              mastergridsupport@gmail.com
             </a>
             .
           </p>
