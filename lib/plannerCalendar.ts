@@ -1,4 +1,5 @@
 import type { PlanTask } from "./planTasks";
+import type { PlannerEntry } from "./plannerColumns";
 
 // Pure UTC date-string arithmetic - never touches the browser/server's local
 // timezone (see the matching comment in PlannerGridClient.tsx's addDays for
@@ -131,4 +132,52 @@ export function monthGridEnd(anyDateInMonth: string): string {
 
 export function addDaysIso(date: string, n: number): string {
   return addDays(date, n);
+}
+
+/** Monday ("YYYY-MM-DD") on/before the given date - the start of that
+ *  calendar week for the Weekly View strip. Pure UTC day-of-week math, same
+ *  approach as monthGridStart above. */
+export function weekStartMonday(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun..6=Sat
+  const diffToMonday = dow === 0 ? -6 : 1 - dow;
+  return addDays(date, diffToMonday);
+}
+
+/** Which week of the plan a date falls in (week 1 = the 7 days starting at
+ *  the mentor-set start date), or null if there's no start date yet. */
+export function weekNumberInPlan(date: string, startDate: string | null): number | null {
+  if (!startDate) return null;
+  const [sy, sm, sd] = startDate.split("-").map(Number);
+  const [dy, dm, dd] = date.split("-").map(Number);
+  const diffDays = Math.round(
+    (Date.UTC(dy, dm - 1, dd) - Date.UTC(sy, sm - 1, sd)) / (1000 * 60 * 60 * 24)
+  );
+  return diffDays >= 0 ? Math.floor(diffDays / 7) + 1 : null;
+}
+
+export interface MonthStats {
+  completedDays: number;
+  missedDays: number;
+  partialDays: number;
+  studyHours: number;
+}
+
+/** Aggregate stats over an already-built set of calendar days (see
+ *  buildCalendarRange) - pass in just the days you want counted (e.g. the
+ *  days that actually fall within the target month, not the padded
+ *  leading/trailing days from monthGridStart/End). Study hours are pulled
+ *  from planner_entries' "hours" column (the flat grid), not from
+ *  mentor_plan_tasks - hours studied isn't tracked per-task. */
+export function computeMonthStats(days: CalendarDay[], entries: PlannerEntry[]): MonthStats {
+  const dateSet = new Set(days.map((d) => d.date));
+  const studyHours = entries
+    .filter((e) => dateSet.has(e.log_date))
+    .reduce((sum, e) => sum + (Number(e.field_values?.["hours"]) || 0), 0);
+  return {
+    completedDays: days.filter((d) => d.status === "completed").length,
+    missedDays: days.filter((d) => d.status === "missed").length,
+    partialDays: days.filter((d) => d.status === "partial").length,
+    studyHours: Math.round(studyHours * 10) / 10,
+  };
 }
