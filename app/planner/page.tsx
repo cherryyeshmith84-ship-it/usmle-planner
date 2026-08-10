@@ -8,11 +8,22 @@ import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { computeTodayStatus } from "@/lib/plannerStatus";
+import { computeStreaks } from "@/lib/streaks";
+import { groupTasksByDate } from "@/lib/planTasks";
+import {
+  addDaysIso,
+  buildCalendarRange,
+  computeMonthStats,
+  monthGridStart,
+  weekNumberInPlan,
+  weekStartMonday,
+} from "@/lib/plannerCalendar";
 import { getContentPublished } from "@/lib/platformSettings";
 import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
 import PlannerCalendar from "@/components/PlannerCalendar";
+import { WeekStrip, MonthStatsGrid, Heatmap } from "@/components/PlannerInsights";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 
@@ -79,6 +90,34 @@ export default async function PlannerPage() {
   const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
   const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
 
+  // Weekly View / Monthly Statistics / Heatmap (Study Planner v2, phase 2) -
+  // all derived from the same mentor_plan_tasks day-status logic as the
+  // calendar above (see lib/plannerCalendar.ts).
+  const tasksByDate = groupTasksByDate(planTasks);
+  const weekStart = weekStartMonday(today);
+  const weekDays = buildCalendarRange(tasksByDate, weekStart, addDaysIso(weekStart, 6), today);
+  const currentWeekNumber = weekNumberInPlan(today, plannerStartDate);
+
+  const monthGridBegin = monthGridStart(today);
+  const currentMonthPrefix = today.slice(0, 7);
+  const monthDays = buildCalendarRange(tasksByDate, monthGridBegin, addDaysIso(monthGridBegin, 41), today).filter(
+    (d) => d.date.startsWith(currentMonthPrefix)
+  );
+  const monthStats = computeMonthStats(monthDays, entries);
+  const streaks = computeStreaks([...entries.map((e) => e.log_date), ...blocks.map((b) => b.log_date)], today);
+  const [monthYear, monthMonth] = today.split("-").map(Number);
+  const monthLabel = new Date(Date.UTC(monthYear, monthMonth - 1, 1)).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+  // Last ~12 weeks (84 days), starting on a Monday, for the GitHub-style
+  // heatmap - deliberately its own range from the month grid above since it
+  // spans months.
+  const heatmapStart = weekStartMonday(addDaysIso(today, -83));
+  const heatmapDays = buildCalendarRange(tasksByDate, heatmapStart, today, today);
+
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 w-full">
@@ -94,6 +133,17 @@ export default async function PlannerPage() {
         <PlannerStatusHeader status={todayStatus} />
 
         <PlannerCalendar initialTasks={planTasks} startDate={plannerStartDate} todayIso={today} />
+
+        <WeekStrip weekNumber={currentWeekNumber} days={weekDays} />
+
+        <MonthStatsGrid
+          monthLabel={monthLabel}
+          stats={monthStats}
+          currentStreak={streaks.current}
+          longestStreak={streaks.longest}
+        />
+
+        <Heatmap days={heatmapDays} />
 
         <WeeklyProgress summary={weeklySummary} />
 
