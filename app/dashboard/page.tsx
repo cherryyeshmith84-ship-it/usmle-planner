@@ -7,13 +7,15 @@ import { getContentPublished } from "@/lib/platformSettings";
 import type { PlannerEntry } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { PlanTask } from "@/lib/planTasks";
-import { sortTasks } from "@/lib/planTasks";
+import { computeTaskProgress, groupTasksByDate, sortTasks } from "@/lib/planTasks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { ScoreReport } from "@/lib/scoreReports";
 import { computeImmediateExamReview, computeSystemStrengths } from "@/lib/scoreReports";
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { computeTodayStatus } from "@/lib/plannerStatus";
 import { computeStreaks } from "@/lib/streaks";
+import { computeSchedulePaceDays } from "@/lib/plannerCalendar";
+import { easternDateStringNow, timeOfDayGreeting } from "@/lib/timezone";
 import {
   computeAiReminder,
   computeRecentActivity,
@@ -26,6 +28,7 @@ import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import MarkDayCompleteButton from "@/components/MarkDayCompleteButton";
 import {
+  WelcomeCard,
   TodaysPlanCard,
   LatestAnalysisCard,
   UpcomingMentorshipCard,
@@ -46,6 +49,17 @@ export const dynamic = "force-dynamic";
 function isoAddDays(date: string, n: number): string {
   const [y, m, d] = date.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+// Whole calendar days from `from` to `to` (positive if `to` is later) - same
+// UTC-only approach as isoAddDays above, so it's not thrown off by a
+// timezone offset that happens to straddle midnight.
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const fromUtc = Date.UTC(fy, fm - 1, fd);
+  const toUtc = Date.UTC(ty, tm - 1, td);
+  return Math.round((toUtc - fromUtc) / (1000 * 60 * 60 * 24));
 }
 
 type Booking = MentorSlot & {
@@ -93,10 +107,13 @@ export default async function DashboardPage() {
 
   const contentPublished = profile.is_admin ? true : await getContentPublished(supabase);
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Eastern Time, not the server's UTC clock - otherwise "today" can
+  // silently roll over to tomorrow's date hours early for anyone in a
+  // timezone ahead of UTC (see the same fix applied across the planner).
+  const today = easternDateStringNow();
   const yesterday = isoAddDays(today, -1);
 
-  const [entriesRes, blocksRes, planTasksRes, dailyNotesRes, scoreReportsRes, bookingsRes, meetingLinkRes] =
+  const [entriesRes, blocksRes, planTasksRes, dailyNotesRes, scoreReportsRes, bookingsRes, meetingLinkRes, plannerSettingsRes] =
     await Promise.all([
       supabase.from("planner_entries").select("*").eq("user_id", user.id),
       supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
@@ -112,6 +129,7 @@ export default async function DashboardPage() {
       // student switched mentors, this row may still belong to the OLD one
       // until their new mentor sets a fresh link.
       supabase.from("mentor_meeting_links").select("mentor_id, meeting_link").eq("student_id", user.id).maybeSingle(),
+      supabase.from("student_planner_settings").select("start_date").eq("student_id", user.id).maybeSingle(),
     ]);
 
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
@@ -121,6 +139,7 @@ export default async function DashboardPage() {
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
   const bookings = (bookingsRes.data ?? []) as Booking[];
   const meetingLinkRow = meetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
+  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
 
   const todaysEntry = entries.find((e) => e.log_date === today);
   const yesterdayEntry = entries.find((e) => e.log_date === yesterday);
@@ -183,9 +202,45 @@ export default async function DashboardPage() {
   const plannedSystemRaw = todaysEntry?.field_values?.["planned_system"];
   const plannedSystem = typeof plannedSystemRaw === "string" && plannedSystemRaw.trim() ? plannedSystemRaw : null;
 
+  // Dashboard header (Study Planner v2) - greeting, exam countdown, streak,
+  // today's progress, and a rough "ahead/behind schedule" pace signal. Pace
+  // and today's progress are both derived from mentor_plan_tasks (the same
+  // Assignments data as TodaysPlanCard below), NOT the flat grid's columns -
+  // see lib/plannerCalendar.ts for why.
+  const firstName = (profile.full_name || user.email || "there").trim().split(/\s+/)[0];
+  const examLabel = profile.exam_track === "subject" ? `Subject${profile.subject_name ? `: ${profile.subject_name}` : ""}` : "Step 1";
+  const daysRemaining = profile.exam_date ? daysBetween(today, profile.exam_date) : null;
+  const statusLabel = todayStatus.studyCompleted
+    ? "Today's plan complete"
+    : todayStatus.hasEntry
+    ? "In progress today"
+    : "Not started today yet";
+  const statusTone: "good" | "warning" | "neutral" = todayStatus.studyCompleted
+    ? "good"
+    : todayStatus.hasEntry
+    ? "warning"
+    : "neutral";
+  const tasksByDate = groupTasksByDate(planTasks);
+  const pace = computeSchedulePaceDays(tasksByDate, plannerStartDate, today);
+  const todayTaskProgress = computeTaskProgress(todaysTasks);
+
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 space-y-6 w-full">
+        <WelcomeCard
+          greeting={timeOfDayGreeting()}
+          firstName={firstName}
+          examLabel={examLabel}
+          examDate={profile.exam_date}
+          daysRemaining={daysRemaining}
+          mentorName={currentMentorName}
+          statusLabel={statusLabel}
+          statusTone={statusTone}
+          streakDays={streaks.current}
+          todayProgress={todayTaskProgress}
+          pace={pace}
+        />
+
         <StatusUpdateCard
           userId={user.id}
           initialStatus={profile.status_update ?? null}
