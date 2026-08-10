@@ -18,7 +18,7 @@ export default function ContactPage() {
 
       <article className="max-w-3xl mx-auto w-full px-6 py-8 space-y-6 text-sm text-slate-300">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-1">Contact us</h1>
+          <h1 className="text-2xl font-bold text-slate-100 mb-1">Contact us</h1>
           <p className="text-slate-500">Last updated: July 2026</p>
         </div>
 
@@ -28,21 +28,21 @@ export default function ContactPage() {
         </p>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">Email</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">Email</h2>
           <p>
             The fastest way to reach us is{" "}
             <a
-              href="mailto:cherryyeshmith84@gmail.com"
+              href="mailto:mastergridsupport@gmail.com"
               className="text-brand-400 hover:text-brand-300"
             >
-              cherryyeshmith84@gmail.com
+              mastergridsupport@gmail.com
             </a>
             .
           </p>
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">What to include</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">What to include</h2>
           <p className="mb-2">
             If you&apos;re reporting a bug or a problem with a specific question, it helps a lot
             to include:
@@ -53,7 +53,7 @@ export default function ContactPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-2">Account and data requests</h2>
+          <h2 className="text-lg font-semibold text-slate-100 mb-2">Account and data requests</h2>
           <p>
             For account deletion, data export, or other privacy-related requests, see our{" "}
             <Link href="/privacy" className="text-brand-400 hover:text-brand-300">
