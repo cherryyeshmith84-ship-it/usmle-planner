@@ -43,6 +43,7 @@ export function WelcomeCard({
   streakDays,
   todayProgress,
   pace,
+  motivationMessage,
 }: {
   greeting: string;
   firstName: string;
@@ -57,6 +58,9 @@ export function WelcomeCard({
   streakDays?: number;
   todayProgress?: { completedCount: number; totalCount: number; percent: number };
   pace?: number; // + = ahead of schedule, - = behind, 0/undefined = don't show
+  // Phase 3's rule-based "real analytics, not quotes" nudge - see
+  // computeMotivationMessage in lib/homeInsights.ts.
+  motivationMessage?: string;
 }) {
   return (
     <div className="card">
@@ -106,6 +110,8 @@ export function WelcomeCard({
           </span>
         )}
       </div>
+
+      {motivationMessage && <p className="text-sm text-slate-400 mt-3">{motivationMessage}</p>}
     </div>
   );
 }
