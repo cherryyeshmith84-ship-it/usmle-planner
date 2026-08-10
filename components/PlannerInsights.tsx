@@ -1,5 +1,6 @@
 import type { CalendarDay, MonthStats } from "@/lib/plannerCalendar";
 import { DAY_STATUS_COLOR } from "@/lib/plannerCalendar";
+import type { Achievement } from "@/lib/achievements";
 
 /**
  * Weekly View / Monthly Statistics / Heatmap (Study Planner v2, phase 2) -
@@ -70,6 +71,34 @@ export function MonthStatsGrid({
           <div key={it.label}>
             <p className="text-[11px] text-slate-500">{it.label}</p>
             <p className="text-lg font-semibold">{it.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Achievement badges (Study Planner v2, phase 3) - config-driven via
+ * lib/achievements.ts's computeAchievements. Earned badges show in full
+ * color; unearned ones stay visible but dimmed/grayscale, so a student can
+ * see what's still ahead instead of the badge just not existing yet.
+ */
+export function AchievementBadges({ achievements }: { achievements: Achievement[] }) {
+  return (
+    <div className="card mb-6">
+      <p className="font-bold mb-4">Achievements</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {achievements.map((a) => (
+          <div
+            key={a.id}
+            title={a.description}
+            className={`rounded-lg p-3 text-center ${a.earned ? "bg-brand-900/30" : "bg-slate-900/60"}`}
+          >
+            <p className={`text-2xl mb-1 ${a.earned ? "" : "grayscale opacity-40"}`}>{a.emoji}</p>
+            <p className={`text-[11px] font-semibold ${a.earned ? "text-slate-100" : "text-slate-600"}`}>
+              {a.label}
+            </p>
           </div>
         ))}
       </div>
