@@ -95,6 +95,31 @@ export function easternDateStringNow(): string {
   return fmt.format(new Date()); // en-CA formats as YYYY-MM-DD
 }
 
+/** Current hour (0-23) in Eastern Time - used only for picking "Good
+ *  Morning/Afternoon/Evening" on the dashboard greeting, so it matches the
+ *  time the student actually sees on their own clock most of the time
+ *  (most of this app's students are US/Caribbean-adjacent) rather than
+ *  whatever timezone the server happens to run in. */
+export function easternHourNow(): number {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: EASTERN_TZ,
+    hour: "numeric",
+    hour12: false,
+  });
+  // "24" shows up for midnight in some environments instead of "0".
+  const hour = Number(fmt.format(new Date()));
+  return hour === 24 ? 0 : hour;
+}
+
+/** "Good Morning" / "Good Afternoon" / "Good Evening" based on the current
+ *  Eastern-time hour. */
+export function timeOfDayGreeting(): string {
+  const hour = easternHourNow();
+  if (hour < 12) return "Good Morning";
+  if (hour < 18) return "Good Afternoon";
+  return "Good Evening";
+}
+
 /**
  * Returns the Monday date ("YYYY-MM-DD") that starts the Eastern-time
  * calendar week (Mon-Sun) containing the given instant. Two timestamps are
