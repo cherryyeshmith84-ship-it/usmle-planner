@@ -72,7 +72,7 @@ export default async function Home() {
         </span>
         <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-300">
           {NAV_LINKS.map((l) => (
-            <a key={l.href} href={l.href} className="hover:text-white transition">
+            <a key={l.href} href={l.href} className="hover:text-slate-100 transition">
               {l.label}
             </a>
           ))}
@@ -85,7 +85,7 @@ export default async function Home() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-10 text-center">
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.05] mb-6">
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-slate-100 leading-[1.05] mb-6">
           Pass Step 1 with a Personalized Learning System
         </h1>
         <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-4">
@@ -176,7 +176,7 @@ export default async function Home() {
               <span className="text-slate-600">&#8595;</span>
               <span className="font-semibold text-brand-300">Higher NBME Scores</span>
               <span className="text-slate-600">&#8595;</span>
-              <span className="font-semibold text-white">Step 1</span>
+              <span className="font-semibold text-slate-100">Step 1</span>
             </div>
           </div>
         </div>
