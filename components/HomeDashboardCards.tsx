@@ -40,6 +40,9 @@ export function WelcomeCard({
   mentorName,
   statusLabel,
   statusTone,
+  streakDays,
+  todayProgress,
+  pace,
 }: {
   greeting: string;
   firstName: string;
@@ -49,22 +52,59 @@ export function WelcomeCard({
   mentorName: string | null;
   statusLabel: string;
   statusTone: StatusTone;
+  // New for the Study Planner v2 dashboard header - all optional so this
+  // card still works anywhere it might be used without them.
+  streakDays?: number;
+  todayProgress?: { completedCount: number; totalCount: number; percent: number };
+  pace?: number; // + = ahead of schedule, - = behind, 0/undefined = don't show
 }) {
   return (
     <div className="card">
       <p className="text-2xl font-bold mb-4">
         {greeting}, {firstName} 👋
       </p>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <Stat label="Exam" value={examLabel} />
-        <Stat label="Target Exam Date" value={examDate ?? "Not set"} />
-        <Stat label="Days Remaining" value={daysRemaining !== null ? String(daysRemaining) : "—"} />
+        <Stat
+          label={`${examLabel} Countdown`}
+          value={daysRemaining !== null ? `${daysRemaining} Days` : "—"}
+        />
+        {streakDays !== undefined && <Stat label="Current Streak" value={`🔥 ${streakDays} Days`} />}
         <Stat label="Current Mentor" value={mentorName ?? "None yet"} />
       </div>
-      <div className="mt-4">
+
+      {todayProgress && todayProgress.totalCount > 0 && (
+        <div className="mb-4">
+          <div className="flex justify-between text-xs text-slate-400 mb-1">
+            <span>Today&apos;s Progress</span>
+            <span>
+              {todayProgress.completedCount} / {todayProgress.totalCount} ({todayProgress.percent}%)
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div
+              className="h-full bg-brand-500 transition-all"
+              style={{ width: `${todayProgress.percent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 flex-wrap">
         <span className={`text-xs font-semibold rounded-full px-3 py-1 ${TONE_CLASS[statusTone]}`}>
           {statusLabel}
         </span>
+        {!!pace && (
+          <span
+            className={`text-xs font-semibold rounded-full px-3 py-1 ${
+              pace > 0 ? "bg-green-900/40 text-green-400" : "bg-red-900/40 text-red-400"
+            }`}
+          >
+            {pace > 0
+              ? `Ahead of schedule by ${pace} day${pace === 1 ? "" : "s"}`
+              : `Behind schedule by ${Math.abs(pace)} day${Math.abs(pace) === 1 ? "" : "s"}`}
+          </span>
+        )}
       </div>
     </div>
   );
