@@ -20,10 +20,11 @@ import {
 } from "@/lib/plannerCalendar";
 import { getContentPublished } from "@/lib/platformSettings";
 import { easternDateStringNow } from "@/lib/timezone";
+import { computeAchievements } from "@/lib/achievements";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
 import PlannerCalendar from "@/components/PlannerCalendar";
-import { WeekStrip, MonthStatsGrid, Heatmap } from "@/components/PlannerInsights";
+import { WeekStrip, MonthStatsGrid, Heatmap, AchievementBadges } from "@/components/PlannerInsights";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 
@@ -118,6 +119,20 @@ export default async function PlannerPage() {
   const heatmapStart = weekStartMonday(addDaysIso(today, -83));
   const heatmapDays = buildCalendarRange(tasksByDate, heatmapStart, today, today);
 
+  // Achievement badges (Study Planner v2, phase 3) - "reward consistency,
+  // not perfection." Streak badges use the longest streak ever reached (see
+  // lib/achievements.ts); "Zero Missed Days" is scoped to just this week so
+  // it resets weekly instead of being unattainable forever after one miss.
+  const totalCompletedTasks = planTasks.filter((t) => t.completed).length;
+  const weekMissedDays = weekDays.filter((d) => d.status === "missed").length;
+  const weekHasAnyTasks = weekDays.some((d) => d.totalCount > 0);
+  const achievements = computeAchievements({
+    longestStreak: streaks.longest,
+    totalCompletedTasks,
+    weekHasAnyTasks,
+    weekMissedDays,
+  });
+
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 w-full">
@@ -144,6 +159,8 @@ export default async function PlannerPage() {
         />
 
         <Heatmap days={heatmapDays} />
+
+        <AchievementBadges achievements={achievements} />
 
         <WeeklyProgress summary={weeklySummary} />
 
