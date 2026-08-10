@@ -4,64 +4,53 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-const FEATURES = [
-  {
-    title: "1-on-1 Booked Sessions",
-    desc: "Reserve a weekly slot directly on your mentor's calendar - one session per week, no back-and-forth scheduling.",
-  },
-  {
-    title: "Personalized Study Plan",
-    desc: "Your mentor builds and adjusts your daily planner grid themselves - what to study, how many questions, what to review, and when.",
-  },
-  {
-    title: "Direct Chat & Meeting Link",
-    desc: "Message your mentor any time between sessions, and join the same standing video room every week - no new link to hunt down.",
-  },
-  {
-    title: "Progress Review & Accountability",
-    desc: "Your mentor sees your score reports and weak areas, and every planner day locks 48 hours after it passes - so what you logged is what actually happened.",
-  },
-  {
-    title: "Real Step 1 Experience",
-    desc: "Every mentor on Master Grid has already passed Step 1 - they've been exactly where you are.",
-  },
-  {
-    title: "Study Plan Progress, Visualized",
-    desc: "A shared progress bar shows both of you exactly how much of the plan has actually been completed, not just assigned.",
-  },
+const RECEIVES = [
+  "Personalized study roadmap",
+  "Weekly performance review",
+  "Daily accountability",
+  "Weak-topic analysis",
+  "Study schedule adjustments",
+  "Progress tracking dashboard",
+  "Mistake pattern analysis",
+  "Guidance until exam day",
+];
+
+const WHY_FAIL = [
+  "Review everything instead of weak topics",
+  "Repeat the same mistakes",
+  "Don't know if they're improving",
+  "Lose consistency",
+  "Have no one reviewing their progress",
+];
+
+const MENTOR_HELPS = [
+  "Plan every week",
+  "Track your progress",
+  "Find your weak concepts",
+  "Improve NBME performance",
+  "Stay accountable",
+  "Reach exam day with confidence",
+];
+
+const NUMBERS = [
+  { value: "100", label: "Students" },
+  { value: "6-Month", label: "Mentorship" },
+  { value: "Weekly", label: "Reviews" },
+  { value: "Daily", label: "Progress Tracking" },
+  { value: "Limited", label: "Founding Cohort" },
 ];
 
 const HOW_IT_WORKS = [
-  { title: "Get matched", desc: "Browse mentor profiles - background, languages, what they help with - and pick the one that fits you." },
-  { title: "Your mentor builds your plan", desc: "They lay out your daily planner: what to study, how many questions, what to review." },
-  { title: "Book your weekly session", desc: "Reserve a 1-on-1 slot directly from their availability - Monday through Sunday, one booking per week." },
-  { title: "Log your days", desc: "Fill in the grid as you study - your mentor sees it update, and every box has to be filled for the day to count." },
-  { title: "Review & adjust", desc: "Your mentor reviews your score reports and weak areas, and adjusts the plan as your prep evolves." },
-];
-
-const FAQS = [
-  {
-    q: "Do I get to pick my mentor?",
-    a: "Yes - browse mentor profiles (background, languages, what they help with) and book directly from whichever one fits you best.",
-  },
-  {
-    q: "How often can I meet with my mentor?",
-    a: "You can book one 1-on-1 session per week (Monday-Sunday), plus message your mentor any time in between through the chat.",
-  },
-  {
-    q: "Are the mentors actually qualified?",
-    a: "Every mentor on Master Grid has already passed USMLE Step 1 themselves before being added to the platform.",
-  },
-  {
-    q: "Is it free?",
-    a: "Right now, yes - mentorship and every other feature on Master Grid is free, with no paywall and no premium tier.",
-  },
+  { title: "Build Your Plan", desc: "Create a personalized study schedule based on your timeline and current performance." },
+  { title: "Learn with Purpose", desc: "Complete questions and identify knowledge gaps instead of studying everything equally." },
+  { title: "Review with Your Mentor", desc: "Get feedback, adjust your plan, and focus on the concepts that matter most." },
+  { title: "Improve Every Week", desc: "Track your progress through analytics, error patterns, and targeted revision." },
 ];
 
 const NAV_LINKS = [
   { href: "#how-it-works", label: "How it works" },
-  { href: "#features", label: "Features" },
-  { href: "#faq", label: "FAQ" },
+  { href: "#what-you-get", label: "What you get" },
+  { href: "#apply", label: "Apply" },
 ];
 
 export default async function Home() {
@@ -90,24 +79,28 @@ export default async function Home() {
         </nav>
         <div className="flex gap-3">
           <Link href="/login" className="btn-secondary">Log in</Link>
-          <Link href="/signup" className="btn-primary">Get Started Free</Link>
+          <Link href="/signup" className="btn-primary">Apply for Mentorship</Link>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-16 text-center">
+      <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-10 text-center">
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.05] mb-6">
-          You don&apos;t have to
-          <br />
-          crack Step 1 alone.
+          Pass Step 1 with a Personalized Learning System
         </h1>
-        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-          Get matched with a mentor who&apos;s already passed Step 1 - a personalized daily study
-          plan, a weekly 1-on-1 session, and someone actually reviewing your progress.
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-4">
+          You&apos;re not failing because you&apos;re studying less.
+          <br />
+          You&apos;re struggling because you don&apos;t know what to study next.
+        </p>
+        <p className="text-base text-slate-500 max-w-2xl mx-auto mb-10">
+          Master Grid combines experienced mentors, personalized study planning, performance
+          analytics, and structured review into one learning system designed to help you study
+          smarter every day.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
-            Get Started Free
+            Apply for Mentorship
           </Link>
           <a href="#how-it-works" className="btn-secondary text-base px-7 py-3.5">
             See How It Works
@@ -115,73 +108,126 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Product visual: the mentorship loop at a glance */}
-      <section className="max-w-5xl mx-auto w-full px-6 pb-20">
-        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest text-center mb-6">
-          The mentorship loop
-        </p>
-        <div className="grid sm:grid-cols-3 gap-4 items-stretch">
-          <div className="card">
-            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              1-on-1 Sessions
-            </p>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm bg-slate-800 rounded-lg px-3 py-2">
-                <span className="text-slate-300">Wed, 6:00 PM ET</span>
-                <span className="text-xs font-semibold text-green-400">Booked</span>
-              </div>
-              <div className="flex items-center justify-between text-sm border border-slate-800 rounded-lg px-3 py-2">
-                <span className="text-slate-400">Sat, 10:00 AM ET</span>
-                <span className="text-xs text-brand-400">Open</span>
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-3">One booking per week, straight from your mentor&apos;s calendar.</p>
-          </div>
+      {/* Founding cohort banner */}
+      <section id="apply" className="max-w-3xl mx-auto w-full px-6 pb-20 scroll-mt-20">
+        <div className="card text-center border-brand-500/50">
+          <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
+            🚀 Founding Cohort
+          </p>
+          <h2 className="text-2xl md:text-3xl font-extrabold mb-3">
+            Free for the First 100 Students
+          </h2>
+          <p className="text-sm text-slate-400 max-w-xl mx-auto mb-6">
+            Become one of our first members, help shape the platform, and receive complete
+            mentorship at no cost during the founding program.
+          </p>
+          <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
+            Apply for Mentorship
+          </Link>
+        </div>
+      </section>
 
-          <div className="card">
-            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              Personalized Plan
-            </p>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-slate-400 mb-1">
-                <span>Study Plan Progress</span>
-                <span>5 / 7 days (71%)</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                <div className="h-full rounded-full bg-brand-500" style={{ width: "71%" }} />
-              </div>
+      {/* Every student receives */}
+      <section id="what-you-get" className="max-w-4xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
+          Every Student Receives
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {RECEIVES.map((item) => (
+            <div key={item} className="flex items-center gap-3 card py-3">
+              <span className="text-green-500 shrink-0">&#10003;</span>
+              <p className="text-sm text-slate-200">{item}</p>
             </div>
-            <p className="text-xs text-slate-500 mt-3">Your mentor lays it out day by day - you just fill it in.</p>
-          </div>
+          ))}
+        </div>
+      </section>
 
+      {/* The journey */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <div className="grid sm:grid-cols-2 gap-6">
           <div className="card">
-            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              Direct Chat
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">
+              Most students study like this
             </p>
-            <div className="border border-slate-800 rounded-lg p-3">
-              <p className="text-xs text-slate-300 mb-1">
-                &ldquo;Nice work on endocrine this week - let&apos;s go over renal next session.&rdquo;
-              </p>
-              <p className="text-[10px] text-slate-500">Your mentor &middot; 2m ago</p>
+            <div className="flex flex-col items-center gap-2 text-sm text-slate-400">
+              <span>Study</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Forget</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Guess</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Repeat</span>
             </div>
-            <p className="text-xs text-slate-500 mt-3">Message any time, plus a standing meeting link for sessions.</p>
+          </div>
+          <div className="card border-brand-500/50">
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-4">
+              Master Grid students study like this
+            </p>
+            <div className="flex flex-col items-center gap-2 text-sm text-slate-200">
+              <span>Questions</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Analytics</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Weakness Detection</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Mentor Review</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Targeted Revision</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span className="font-semibold text-brand-300">Higher NBME Scores</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span className="font-semibold text-white">Step 1</span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Core features */}
-      <section id="features" className="max-w-5xl mx-auto w-full px-6 py-20 scroll-mt-20">
-        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
-          A real mentor in your corner
+      {/* Why students fail */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-4">
+          Why Students Fail
         </h2>
-        <p className="text-slate-400 text-center text-lg mb-12">
-          Not just a question bank - someone who&apos;s already passed Step 1, guiding your plan.
+        <p className="text-slate-400 text-center text-lg mb-8">
+          Students usually don&apos;t fail because they are lazy. They fail because they:
         </p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="card">
-              <h3 className="font-bold text-lg mb-1.5">{f.title}</h3>
-              <p className="text-sm text-slate-300 leading-relaxed">{f.desc}</p>
+        <div className="space-y-2 mb-8">
+          {WHY_FAIL.map((item) => (
+            <div key={item} className="flex items-center gap-3 card py-3">
+              <span className="text-red-400 shrink-0">&#8226;</span>
+              <p className="text-sm text-slate-300">{item}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-center text-slate-200 font-semibold">
+          Master Grid is built to solve these problems.
+        </p>
+      </section>
+
+      {/* Meet your mentor */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
+          Meet Your Mentor
+        </h2>
+        <p className="text-slate-400 text-center text-lg mb-10">
+          Your mentor doesn&apos;t just answer questions. They help you
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {MENTOR_HELPS.map((item) => (
+            <div key={item} className="flex items-center gap-3 card py-3">
+              <span className="text-brand-400 shrink-0">&#10003;</span>
+              <p className="text-sm text-slate-200">{item}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Numbers */}
+      <section className="max-w-4xl mx-auto w-full px-6 py-20">
+        <div className="grid sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {NUMBERS.map((n) => (
+            <div key={n.label} className="card text-center">
+              <p className="text-xl font-extrabold text-brand-400 mb-1">{n.value}</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide">{n.label}</p>
             </div>
           ))}
         </div>
@@ -190,7 +236,7 @@ export default async function Home() {
       {/* How it works */}
       <section id="how-it-works" className="max-w-3xl mx-auto w-full px-6 py-20 scroll-mt-20">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
-          How it works
+          How Master Grid Works
         </h2>
         <div className="space-y-6">
           {HOW_IT_WORKS.map((step, i) => (
@@ -207,74 +253,22 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Sample day */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-20">
-        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
-          See it in action
-        </h2>
-        <p className="text-slate-400 text-center text-lg mb-10">
-          A simplified example of what a day with a mentor looks like.
-        </p>
-        <div className="card">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-            Wednesday, planned by your mentor
-          </p>
-          <div className="grid sm:grid-cols-2 gap-3 mb-4">
-            <p className="text-sm text-slate-300">
-              <span className="text-slate-500">Planned system:</span> Endocrine, 20Q UWorld
-            </p>
-            <p className="text-sm text-slate-300">
-              <span className="text-slate-500">Extra task:</span> 8 pages of First Aid
-            </p>
-          </div>
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-green-500">&#10003;</span>
-            <p className="text-sm text-slate-300">Every box filled in - day counts toward your progress bar.</p>
-          </div>
-          <p className="text-sm text-slate-300">
-            Your mentor reviews it, sees where you&apos;re still weak, and adjusts what&apos;s next -
-            all before your session that week.
-          </p>
-        </div>
-      </section>
-
-      {/* What's included free */}
-      <section className="max-w-3xl mx-auto w-full px-6 py-20">
-        <div className="card text-center">
-          <h2 className="text-2xl font-extrabold mb-2">Everything is free right now</h2>
-          <p className="text-sm text-slate-400 mb-4">
-            No paywall, no premium tier. Every feature below is included:
-          </p>
-          <p className="text-sm text-slate-300">
-            Mentorship &middot; Question Bank &middot; Self-Assessments &middot; Master Grid
-            &middot; Error Notes &middot; Anki &middot; Visual Lab &middot; Study Planner
-          </p>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section id="faq" className="max-w-3xl mx-auto w-full px-6 py-20 scroll-mt-20">
-        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
-          Frequently asked questions
-        </h2>
-        <div className="space-y-4">
-          {FAQS.map((f) => (
-            <div key={f.q} className="card">
-              <h3 className="font-bold text-base mb-1.5">{f.q}</h3>
-              <p className="text-sm text-slate-400 leading-relaxed">{f.a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* Final CTA */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20 text-center">
-        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-6">
-          Ready to get a mentor in your corner?
+        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
+          Applications Open &middot; Founding Cohort
+        </p>
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
+          Only 100 students will be accepted.
         </h2>
+        <p className="text-slate-400 max-w-xl mx-auto mb-2">No payment required.</p>
+        <p className="text-slate-400 max-w-xl mx-auto mb-8">
+          Apply now and work directly with our mentors while helping build the next generation
+          of medical learning.
+        </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
-            Get Started Free
+            Apply Now
           </Link>
           <Link href="/login" className="btn-secondary text-base px-7 py-3.5">
             I already have an account
