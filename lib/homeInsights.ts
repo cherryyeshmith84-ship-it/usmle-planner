@@ -70,6 +70,30 @@ export function computeAiReminder(params: {
   return "You're on track - keep it up.";
 }
 
+/**
+ * "Daily Motivation" (Study Planner v2) - deliberately real analytics, not a
+ * quote bank, per the spec: "Not quotes. Real analytics." Built from the
+ * same today-completion + schedule-pace numbers already shown in the
+ * dashboard header (see lib/plannerCalendar.ts's computeSchedulePaceDays),
+ * so the message always agrees with what the header badge says.
+ */
+export function computeMotivationMessage(todayFullyComplete: boolean, pace: number): string {
+  if (todayFullyComplete) {
+    return pace > 0
+      ? `You're all caught up for today and ${pace} day${pace === 1 ? "" : "s"} ahead of schedule.`
+      : "You're all caught up for today - nice work.";
+  }
+  if (pace > 0) {
+    return `Finishing today's tasks keeps you ${pace} day${pace === 1 ? "" : "s"} ahead.`;
+  }
+  if (pace < 0) {
+    return `Finishing today's tasks brings you a day closer to catching up - you're ${Math.abs(
+      pace
+    )} day${Math.abs(pace) === 1 ? "" : "s"} behind right now.`;
+  }
+  return "If you finish today, your schedule stays on track.";
+}
+
 export interface RecentActivityItem {
   label: string;
 }
