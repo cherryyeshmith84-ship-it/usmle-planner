@@ -6,55 +6,55 @@ export const dynamic = "force-dynamic";
 
 const FEATURES = [
   {
-    title: "Question Bank",
-    desc: "Original Step 1-style questions with detailed, option-by-option explanations for every answer choice - not just why the right one is right.",
+    title: "1-on-1 Booked Sessions",
+    desc: "Reserve a weekly slot directly on your mentor's calendar - one session per week, no back-and-forth scheduling.",
   },
   {
-    title: "Master Grid",
-    desc: "See exactly which systems, topics, and concepts you're weak on, broken down as far as System → Topic → Concept.",
+    title: "Personalized Study Plan",
+    desc: "Your mentor builds and adjusts your daily planner grid themselves - what to study, how many questions, what to review, and when.",
   },
   {
-    title: "Error DNA",
-    desc: "Every wrong answer gets tagged with why you missed it, so the recurring patterns behind your mistakes become visible instead of invisible.",
+    title: "Direct Chat & Meeting Link",
+    desc: "Message your mentor any time between sessions, and join the same standing video room every week - no new link to hunt down.",
   },
   {
-    title: "Anki",
-    desc: "Flip-card flashcards on a spaced-repetition schedule - cards you're shaky on come back sooner, ones you know cold fade into the background.",
+    title: "Progress Review & Accountability",
+    desc: "Your mentor sees your score reports and weak areas, and every planner day locks 48 hours after it passes - so what you logged is what actually happened.",
   },
   {
-    title: "Visual Lab",
-    desc: "Train image recognition on its own - histology, gross pathology, and imaging, practiced separately from text questions.",
+    title: "Real Step 1 Experience",
+    desc: "Every mentor on Master Grid has already passed Step 1 - they've been exactly where you are.",
   },
   {
-    title: "Study Planner",
-    desc: "Organize your daily preparation around your actual weak points and your exam date, not just a generic checklist.",
+    title: "Study Plan Progress, Visualized",
+    desc: "A shared progress bar shows both of you exactly how much of the plan has actually been completed, not just assigned.",
   },
 ];
 
 const HOW_IT_WORKS = [
-  { title: "Answer questions", desc: "Practice with tagged, Step 1-style questions from the Question Bank." },
-  { title: "Diagnose the mistake", desc: "Every wrong answer gets an Error Note explaining exactly what you confused it with and why." },
-  { title: "Track the weak concept", desc: "That mistake feeds your Error DNA and Master Grid profile automatically - no extra work." },
-  { title: "Review it at the right time", desc: "Anki resurfaces the concept on a spaced-repetition schedule until you're reliably getting it right." },
-  { title: "Retest mastery", desc: "Your Master Grid score updates as you prove you've actually got it this time." },
+  { title: "Get matched", desc: "Browse mentor profiles - background, languages, what they help with - and pick the one that fits you." },
+  { title: "Your mentor builds your plan", desc: "They lay out your daily planner: what to study, how many questions, what to review." },
+  { title: "Book your weekly session", desc: "Reserve a 1-on-1 slot directly from their availability - Monday through Sunday, one booking per week." },
+  { title: "Log your days", desc: "Fill in the grid as you study - your mentor sees it update, and every box has to be filled for the day to count." },
+  { title: "Review & adjust", desc: "Your mentor reviews your score reports and weak areas, and adjusts the plan as your prep evolves." },
 ];
 
 const FAQS = [
   {
-    q: "Is Master Grid affiliated with the USMLE, NBME, or UWorld?",
-    a: "No. Master Grid is an independent, third-party study platform. It is not affiliated with, endorsed by, or sponsored by the NBME, USMLE, UWorld, or any other test-prep company.",
+    q: "Do I get to pick my mentor?",
+    a: "Yes - browse mentor profiles (background, languages, what they help with) and book directly from whichever one fits you best.",
   },
   {
-    q: "Where do the questions come from?",
-    a: "Every question is written and curated in-house, then tagged by subject, system, and concept so Master Grid can track your performance accurately.",
+    q: "How often can I meet with my mentor?",
+    a: "You can book one 1-on-1 session per week (Monday-Sunday), plus message your mentor any time in between through the chat.",
+  },
+  {
+    q: "Are the mentors actually qualified?",
+    a: "Every mentor on Master Grid has already passed USMLE Step 1 themselves before being added to the platform.",
   },
   {
     q: "Is it free?",
-    a: "Right now, yes - every feature on Master Grid is free, with no paywall and no premium tier.",
-  },
-  {
-    q: "Is this medical advice?",
-    a: "No. Master Grid is an educational study tool for exam preparation. Nothing on this platform is medical advice, and it should not be used as a substitute for your medical school curriculum.",
+    a: "Right now, yes - mentorship and every other feature on Master Grid is free, with no paywall and no premium tier.",
   },
 ];
 
@@ -97,13 +97,13 @@ export default async function Home() {
       {/* Hero */}
       <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-16 text-center">
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.05] mb-6">
-          Stop repeating the
+          You don&apos;t have to
           <br />
-          same Step 1 mistakes.
+          crack Step 1 alone.
         </h1>
         <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-          Master Grid identifies what you get wrong, why you get it wrong, and what you should
-          review next - so every hour you study actually moves the needle.
+          Get matched with a mentor who&apos;s already passed Step 1 - a personalized daily study
+          plan, a weekly 1-on-1 session, and someone actually reviewing your progress.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
@@ -115,79 +115,67 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Product visual: the core loop at a glance */}
+      {/* Product visual: the mentorship loop at a glance */}
       <section className="max-w-5xl mx-auto w-full px-6 pb-20">
         <p className="text-xs font-bold text-brand-400 uppercase tracking-widest text-center mb-6">
-          The core loop
+          The mentorship loop
         </p>
         <div className="grid sm:grid-cols-3 gap-4 items-stretch">
           <div className="card">
             <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              Master Grid
+              1-on-1 Sessions
             </p>
             <div className="space-y-2">
-              {[
-                { label: "Cardiovascular", pct: 82 },
-                { label: "Endocrine", pct: 54 },
-                { label: "Renal", pct: 71 },
-              ].map((row) => (
-                <div key={row.label}>
-                  <div className="flex justify-between text-xs text-slate-400 mb-1">
-                    <span>{row.label}</span>
-                    <span>{row.pct}%</span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-brand-500"
-                      style={{ width: `${row.pct}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+              <div className="flex items-center justify-between text-sm bg-slate-800 rounded-lg px-3 py-2">
+                <span className="text-slate-300">Wed, 6:00 PM ET</span>
+                <span className="text-xs font-semibold text-green-400">Booked</span>
+              </div>
+              <div className="flex items-center justify-between text-sm border border-slate-800 rounded-lg px-3 py-2">
+                <span className="text-slate-400">Sat, 10:00 AM ET</span>
+                <span className="text-xs text-brand-400">Open</span>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-3">Mastery by system, down to the concept.</p>
+            <p className="text-xs text-slate-500 mt-3">One booking per week, straight from your mentor&apos;s calendar.</p>
           </div>
 
           <div className="card">
             <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              Error DNA
+              Personalized Plan
             </p>
-            <p className="text-xs text-slate-400 mb-2">You picked: Increased PTH</p>
-            <p className="text-xs text-slate-400 mb-3">Actually asked: why the diarrhea?</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="text-xs text-slate-300 bg-slate-800 rounded-full px-2 py-1">
-                Confused with: MEN1
-              </span>
-              <span className="text-xs text-slate-300 bg-slate-800 rounded-full px-2 py-1">
-                Weak concept: VIPoma
-              </span>
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs text-slate-400 mb-1">
+                <span>Study Plan Progress</span>
+                <span>5 / 7 days (71%)</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="h-full rounded-full bg-brand-500" style={{ width: "71%" }} />
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-3">Tags why you missed it, every time.</p>
+            <p className="text-xs text-slate-500 mt-3">Your mentor lays it out day by day - you just fill it in.</p>
           </div>
 
           <div className="card">
             <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-3">
-              Anki
+              Direct Chat
             </p>
-            <div className="border border-purple-900/40 rounded-lg p-3 text-center">
-              <p className="text-xs font-semibold text-slate-200 mb-1">VIPoma / WDHA syndrome</p>
-              <p className="text-xs text-slate-500 mb-2">Tap to flip</p>
-              <span className="text-[10px] font-semibold bg-purple-900/30 text-purple-300 rounded-full px-2 py-0.5">
-                Due today
-              </span>
+            <div className="border border-slate-800 rounded-lg p-3">
+              <p className="text-xs text-slate-300 mb-1">
+                &ldquo;Nice work on endocrine this week - let&apos;s go over renal next session.&rdquo;
+              </p>
+              <p className="text-[10px] text-slate-500">Your mentor &middot; 2m ago</p>
             </div>
-            <p className="text-xs text-slate-500 mt-3">Spaced repetition, so it sticks.</p>
+            <p className="text-xs text-slate-500 mt-3">Message any time, plus a standing meeting link for sessions.</p>
           </div>
         </div>
       </section>
 
-      {/* Six core features */}
+      {/* Core features */}
       <section id="features" className="max-w-5xl mx-auto w-full px-6 py-20 scroll-mt-20">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
-          Everything you need in one platform
+          A real mentor in your corner
         </h2>
         <p className="text-slate-400 text-center text-lg mb-12">
-          Not just another question bank - a system that turns your mistakes into a plan.
+          Not just a question bank - someone who&apos;s already passed Step 1, guiding your plan.
         </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {FEATURES.map((f) => (
@@ -219,43 +207,34 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Sample explanation */}
+      {/* Sample day */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
           See it in action
         </h2>
         <p className="text-slate-400 text-center text-lg mb-10">
-          A simplified example of what you&apos;ll see after answering a question.
+          A simplified example of what a day with a mentor looks like.
         </p>
         <div className="card">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-            Example explanation format
+            Wednesday, planned by your mentor
           </p>
-          <p className="text-sm text-slate-300 mb-4">
-            A 62-year-old man presents with progressive shortness of breath and bilateral lower
-            extremity edema. Which of the following best explains the underlying mechanism?
-          </p>
-          <div className="space-y-2 mb-4">
-            <p className="text-sm text-red-400">
-              You picked: <span className="font-medium">Increased capillary permeability</span>
+          <div className="grid sm:grid-cols-2 gap-3 mb-4">
+            <p className="text-sm text-slate-300">
+              <span className="text-slate-500">Planned system:</span> Endocrine, 20Q UWorld
             </p>
-            <p className="text-sm text-green-400">
-              Correct answer: <span className="font-medium">Increased hydrostatic pressure</span>
+            <p className="text-sm text-slate-300">
+              <span className="text-slate-500">Extra task:</span> 8 pages of First Aid
             </p>
           </div>
-          <p className="text-sm text-slate-300 mb-4">
-            Elevated venous hydrostatic pressure from reduced cardiac output pushes fluid into
-            the interstitium - the mechanism behind cardiogenic edema, as opposed to the
-            permeability changes seen in inflammatory or allergic edema.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs text-slate-400 bg-slate-800 rounded-full px-2 py-1">
-              Confused with: capillary leak syndromes
-            </span>
-            <span className="text-xs text-slate-400 bg-slate-800 rounded-full px-2 py-1">
-              Weak concept: Starling forces
-            </span>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-green-500">&#10003;</span>
+            <p className="text-sm text-slate-300">Every box filled in - day counts toward your progress bar.</p>
           </div>
+          <p className="text-sm text-slate-300">
+            Your mentor reviews it, sees where you&apos;re still weak, and adjusts what&apos;s next -
+            all before your session that week.
+          </p>
         </div>
       </section>
 
@@ -267,8 +246,8 @@ export default async function Home() {
             No paywall, no premium tier. Every feature below is included:
           </p>
           <p className="text-sm text-slate-300">
-            Question Bank &middot; Self-Assessments &middot; Master Grid &middot; Error Notes
-            &middot; Anki &middot; Visual Lab &middot; Study Planner
+            Mentorship &middot; Question Bank &middot; Self-Assessments &middot; Master Grid
+            &middot; Error Notes &middot; Anki &middot; Visual Lab &middot; Study Planner
           </p>
         </div>
       </section>
@@ -291,7 +270,7 @@ export default async function Home() {
       {/* Final CTA */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20 text-center">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-6">
-          Ready to find your pattern?
+          Ready to get a mentor in your corner?
         </h2>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
