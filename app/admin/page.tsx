@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { Profile, ScheduleTemplate } from "@/lib/types";
+import { getContentPublished } from "@/lib/platformSettings";
 import AdminNav from "@/components/AdminNav";
+import PublishToggle from "@/components/PublishToggle";
+import MentorAssignSelect from "@/components/MentorAssignSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +17,11 @@ const STAGE_LABEL: Record<string, string> = {
 export default async function AdminHome() {
   const { supabase, user } = await requireAdmin();
 
-  const [profilesRes, templatesRes] = await Promise.all([
+  const [profilesRes, templatesRes, mentorsRes, contentPublished] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
     supabase.from("schedule_templates").select("id, name"),
+    supabase.from("mentors").select("id, name, email").eq("active", true).order("name"),
+    getContentPublished(supabase),
   ]);
 
   const allStudents = (profilesRes.data ?? []) as Profile[];
@@ -30,10 +35,68 @@ export default async function AdminHome() {
 
   const templateMap = new Map((templatesRes.data ?? []).map((t: any) => [t.id, t.name]));
 
+  const activeMentors = (mentorsRes.data ?? []) as { id: string; name: string; email: string }[];
+  const mentorNameByEmail = new Map(activeMentors.map((m) => [m.email.toLowerCase(), m.name]));
+  const mentorNameFor = (s: Profile) =>
+    s.mentor_email ? mentorNameByEmail.get(s.mentor_email.toLowerCase()) ?? s.mentor_email : null;
+
+  // Founding-cohort applicants who haven't been paired with a mentor yet -
+  // oldest signup first, since that's the fair order to work through them.
+  const waitingForMentor = [...allStudents]
+    .filter((s) => !s.mentor_email)
+    .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
+
   return (
     <div className="min-h-screen flex">
       <AdminNav />
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
+        <div className="mb-6">
+          <PublishToggle initialPublished={contentPublished} />
+        </div>
+
+        {/* Founding-cohort applicants with no mentor yet - the whole point is
+            to answer "who's still waiting, and who do I put them with" at a
+            glance, oldest application first. Deliberately NOT wrapped in a
+            <Link> like the cards below, since each row has its own
+            interactive assign control. */}
+        <div className="mb-8">
+          <h2 className="text-lg font-bold mb-1">
+            Waiting for a mentor ({waitingForMentor.length})
+          </h2>
+          <p className="text-sm text-slate-400 mb-4">
+            No mentor assigned yet - oldest application first.
+          </p>
+          {waitingForMentor.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Everyone who&apos;s signed up already has a mentor assigned.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {waitingForMentor.map((s) => (
+                <div key={s.id} className="card">
+                  <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+                    <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
+                    <Link href={`/admin/students/${s.id}`} className="text-xs text-brand-400 hover:text-brand-300">
+                      View profile &rarr;
+                    </Link>
+                  </div>
+                  <p className="text-sm text-slate-400 mb-3">
+                    {s.email}
+                    {s.created_at ? ` · applied ${s.created_at.slice(0, 10)}` : ""}
+                  </p>
+                  {activeMentors.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No active mentors to assign yet - add one under Mentors first.
+                    </p>
+                  ) : (
+                    <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <h1 className="text-xl font-bold mb-1">Students ({students.length})</h1>
         {needsPlan.length > 0 && (
           <p className="text-sm text-amber-400 mb-5">
@@ -90,6 +153,13 @@ export default async function AdminHome() {
                   {s.email}
                   {s.exam_date ? ` · exam ${s.exam_date}` : ""}
                   {s.daily_hour_goal ? ` · goal ${s.daily_hour_goal}h/day` : ""}
+                </p>
+                <p className="text-xs mt-1">
+                  {mentorNameFor(s) ? (
+                    <span className="text-green-400">Mentor: {mentorNameFor(s)}</span>
+                  ) : (
+                    <span className="text-amber-400">No mentor yet</span>
+                  )}
                 </p>
                 <p className="text-sm text-brand-300 mt-1">
                   {s.assigned_template_id
