@@ -14,11 +14,12 @@ import { computeImmediateExamReview, computeSystemStrengths } from "@/lib/scoreR
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { computeTodayStatus } from "@/lib/plannerStatus";
 import { computeStreaks } from "@/lib/streaks";
-import { computeSchedulePaceDays } from "@/lib/plannerCalendar";
+import { computeSchedulePaceDays, computeDayStatus } from "@/lib/plannerCalendar";
 import { easternDateStringNow, timeOfDayGreeting } from "@/lib/timezone";
 import {
   computeAiReminder,
   computeRecentActivity,
+  computeMotivationMessage,
   latestNoteWithContent,
   nextUpcomingCheckin,
 } from "@/lib/homeInsights";
@@ -27,6 +28,7 @@ import StatusUpdateCard from "@/components/StatusUpdateCard";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import MarkDayCompleteButton from "@/components/MarkDayCompleteButton";
+import MissedDayPrompt from "@/components/MissedDayPrompt";
 import {
   WelcomeCard,
   TodaysPlanCard,
@@ -223,6 +225,17 @@ export default async function DashboardPage() {
   const tasksByDate = groupTasksByDate(planTasks);
   const pace = computeSchedulePaceDays(tasksByDate, plannerStartDate, today);
   const todayTaskProgress = computeTaskProgress(todaysTasks);
+  const todayFullyComplete = todayTaskProgress.totalCount > 0 && todayTaskProgress.completedCount === todayTaskProgress.totalCount;
+  const motivationMessage = computeMotivationMessage(todayFullyComplete, pace);
+
+  // Missed-day prompt (Study Planner v2, phase 3) - only surfaces when
+  // yesterday genuinely had unfinished mentor-assigned tasks (status
+  // "missed" or "partial"); a day with nothing planned ("no-plan") never
+  // triggers it, since there's nothing to reschedule.
+  const yesterdayTasks = tasksByDate[yesterday] ?? [];
+  const yesterdayDayStatus = computeDayStatus(yesterdayTasks, yesterday, today);
+  const yesterdayMissedCount = yesterdayTasks.filter((t) => !t.completed).length;
+  const showMissedDayPrompt = yesterdayDayStatus === "missed" || yesterdayDayStatus === "partial";
 
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
@@ -239,7 +252,17 @@ export default async function DashboardPage() {
           streakDays={streaks.current}
           todayProgress={todayTaskProgress}
           pace={pace}
+          motivationMessage={motivationMessage}
         />
+
+        {showMissedDayPrompt && (
+          <MissedDayPrompt
+            missedDate={yesterday}
+            missedCount={yesterdayMissedCount}
+            todayIso={today}
+            dayLabel="Yesterday"
+          />
+        )}
 
         <StatusUpdateCard
           userId={user.id}
