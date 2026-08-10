@@ -12,6 +12,7 @@ import { getContentPublished } from "@/lib/platformSettings";
 import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import PlannerGridClient from "@/components/PlannerGridClient";
+import PlannerCalendar from "@/components/PlannerCalendar";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 
@@ -91,6 +92,8 @@ export default async function PlannerPage() {
         </div>
 
         <PlannerStatusHeader status={todayStatus} />
+
+        <PlannerCalendar initialTasks={planTasks} startDate={plannerStartDate} todayIso={today} />
 
         <WeeklyProgress summary={weeklySummary} />
 
