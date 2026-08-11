@@ -7,19 +7,19 @@ import { findMentorByEmail, formatSlotDate, formatSlotTime, getSlotStatus } from
 import { getContentPublished } from "@/lib/platformSettings";
 import { computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
 import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
-import { resolvePlannerColumns } from "@/lib/plannerColumns";
+import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MeetingLinkEditor from "@/components/MeetingLinkEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
-import MentorAssignmentsSection from "@/components/MentorAssignmentsSection";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
 import MentorPlannerColumnsEditor from "@/components/MentorPlannerColumnsEditor";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
-import PlannerGridClient from "@/components/PlannerGridClient";
+import PlannerCalendar from "@/components/PlannerCalendar";
 
 export const dynamic = "force-dynamic";
 
@@ -53,12 +53,13 @@ function scoreBadgeClass(pct: number | null) {
 /**
  * "Student progress" view a mentor can open for a specific student. Score
  * reports stay upload-only by the student - a mentor can only view and
- * review those. The day-by-day planner grid, though, is now fully
- * mentor-editable (reuses the same PlannerGridClient the student's own
- * /planner and admin's student page use, with canEdit + mentorId passed in)
- * so a mentor can actually write the complete study plan for a student who
- * hasn't started logging anything themselves yet, not just bolt on
- * assignments/notes alongside it. RLS (is_mentor_of_student - see
+ * review those. Day-to-day planning now happens entirely through the same
+ * calendar the student sees on their own /planner (PlannerCalendar.tsx,
+ * with canEdit + mentorId passed in so it becomes a full add/edit/remove
+ * Assignments editor instead of a read-only checklist) - this used to be a
+ * separate flat grid PLUS a separate date-picker Assignments section, which
+ * was confusing (a mentor filling in one didn't show up in the other's
+ * view) and is now just the one calendar. RLS (is_mentor_of_student - see
  * migrations mentor_read_student_progress and
  * mentor_write_student_planner_entries) is what actually enforces that a
  * mentor can only load/write a student they have a real relationship with -
@@ -228,7 +229,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <h1 className="text-xl font-bold mt-2 mb-1">{student.full_name || "Student"}</h1>
         <p className="text-sm text-slate-400 mb-6">
           {myMentorRecord
-            ? "You can fill in this student's full study planner below - Planned System, Hours, Questions, and anything else in their layout. Score reports are still upload-only by the student."
+            ? "Click any day on the calendar below to add or edit this student's Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
             : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
         </p>
 
@@ -497,21 +498,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
           </div>
         )}
 
-        {/* Assignments - the day-by-day checklist (Study Planner v1 item 6)
-            the student sees and checks off on their own planner. Separate
-            from the free-text Study plan above: this is a per-day task
-            list, not a paragraph. */}
-        {myMentorRecord && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">Assignments</h2>
-            <MentorAssignmentsSection
-              studentId={params.studentId}
-              mentorId={myMentorRecord.id}
-              initialTasks={planTasks}
-            />
-          </div>
-        )}
-
         {/* Score reports */}
         {scoreReports.length > 0 && (
           <div className="mb-8">
@@ -551,29 +537,30 @@ export default async function StudentProgressPage({ params }: { params: { studen
           </div>
         )}
 
-        {/* Study planner - the same day-by-day grid the student sees on
-            their own /planner, editable here when the viewer is this
-            student's mentor (canEdit + mentorId below - RLS backs this up,
-            see mentor_write_student_planner_entries). An admin browsing here
-            without a mentor relationship sees it read-only. */}
+        {/* Study planner - the same calendar the student sees on their own
+            /planner. Click a day to add/edit Assignments (a full editor
+            here, since mentorId is passed below), log UWorld blocks on the
+            student's behalf, and read/write Mentor Notes - editable when the
+            viewer is this student's mentor (canEdit + mentorId below - RLS
+            backs this up, see mentor_write_student_planner_entries). An
+            admin browsing here without a mentor relationship sees it
+            read-only. */}
         <div className="mb-8">
           <h2 className="text-lg font-bold mb-3">Study planner</h2>
-          {plannerColumns.length === 0 ? (
-            <p className="text-sm text-slate-500">No planner columns are set up yet.</p>
-          ) : (
-            <PlannerGridClient
-              targetUserId={params.studentId}
-              columns={plannerColumns}
-              initialEntries={plannerEntries}
-              initialBlocks={uworldBlocks}
-              initialMentorNotes={dailyNotes}
-              initialPlanTasks={planTasks}
-              studyResources={studyResources}
-              canEdit={!!myMentorRecord}
-              startDate={plannerStartDate}
-              mentorId={myMentorRecord?.id ?? null}
-            />
-          )}
+          <PlannerCalendar
+            targetUserId={params.studentId}
+            initialTasks={planTasks}
+            initialEntries={plannerEntries}
+            initialBlocks={uworldBlocks}
+            initialMentorNotes={dailyNotes}
+            studyResources={studyResources}
+            mainColumns={mainPlannerColumns(plannerColumns)}
+            columns={plannerColumns}
+            canEdit={!!myMentorRecord}
+            mentorId={myMentorRecord?.id ?? null}
+            startDate={plannerStartDate}
+            todayIso={easternDateStringNow()}
+          />
         </div>
 
         {/* Previous sessions + notes (only meaningful for the signed-in mentor's own history) */}
