@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { ScoreReport } from "@/lib/scoreReports";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PerformanceClient from "@/components/PerformanceClient";
+import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +38,14 @@ export default async function HistoryPage() {
     .eq("user_id", user.id)
     .order("taken_date", { ascending: false });
   const reports = (data ?? []) as ScoreReport[];
+
+  // Self-reported day-to-day qbank performance (Question Bank Blocks,
+  // logged from the Study Planner calendar) - separate from the uploaded
+  // score reports above, broken out per system per bank so a student can
+  // see e.g. "weak in Renal specifically in Amboss" well before their next
+  // full-length exam would reveal it.
+  const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
+  const qbankBreakdown = computeQBankSystemBreakdown((blocksData ?? []) as UWorldBlock[]);
 
   // Resolve the student's own mentor (if any) for the "Mentor Recommendation"
   // card. Used to also fall back to "have they ever sent this mentor a
@@ -103,6 +114,11 @@ export default async function HistoryPage() {
           myMentor={myMentor}
           mentorStudyPlan={mentorStudyPlan}
         />
+
+        <div className="mt-8">
+          <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
+          <QBankSystemBreakdown cells={qbankBreakdown} />
+        </div>
       </main>
     </AppShell>
   );
