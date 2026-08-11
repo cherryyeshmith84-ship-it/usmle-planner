@@ -9,11 +9,15 @@ import type { TodayStatus } from "@/lib/plannerStatus";
  */
 export default function PlannerStatusHeader({ status }: { status: TodayStatus }) {
   const statusLabel = status.studyCompleted ? "Completed" : status.hasEntry ? "In Progress" : "Not Started";
+  // Same fix as DAY_STATUS_COLOR in lib/plannerCalendar.ts: bg-X-900/40 was a
+  // dark-theme translucent wash that reads as barely-there on a white card
+  // now that X-900 is the palest end of the (deliberately reversed) color
+  // scale - bg-X-800 solid + text-X-300 gives an actually-visible pastel.
   const statusColor = status.studyCompleted
-    ? "bg-green-900/40 text-green-400"
+    ? "bg-green-800 text-green-300"
     : status.hasEntry
-    ? "bg-amber-900/40 text-amber-400"
-    : "bg-slate-800 text-slate-400";
+    ? "bg-amber-800 text-amber-300"
+    : "bg-slate-800 text-slate-500";
 
   const stats: { label: string; value: string }[] = [
     {
