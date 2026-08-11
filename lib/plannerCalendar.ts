@@ -20,14 +20,25 @@ export type DayStatus =
   | "upcoming"
   | "no-plan";
 
+// Note on these specific shades: tailwind.config.ts reverses the green/red/
+// amber/slate scales so every existing bg-X-900/text-X-400 class (written
+// for the app's original dark theme) keeps working after the switch to a
+// light one - X-900 is now the PALEST end of each scale, not the darkest.
+// That reversal is correct for most of the app, but this map used to pair
+// X-900 with a low opacity (e.g. "bg-green-900/40") - fine on a dark page
+// (a translucent dark wash), but on a white card that's an already-pale
+// color at 40% opacity, which reads as barely-there off-white. Dropping the
+// opacity and moving one step down the (reversed) scale to X-800 gives a
+// clearly-colored, solid pastel background instead, with a darker X-300 for
+// the label text so it stays readable against it.
 export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; label: string }> = {
-  completed: { bg: "bg-green-900/40", text: "text-green-400", label: "Completed" },
-  partial: { bg: "bg-amber-900/40", text: "text-amber-400", label: "Partially completed" },
-  missed: { bg: "bg-red-900/40", text: "text-red-400", label: "Missed" },
-  today: { bg: "bg-brand-900/40", text: "text-brand-400", label: "Today" },
-  "upcoming-planned": { bg: "bg-brand-900/20", text: "text-brand-300", label: "Planned" },
-  upcoming: { bg: "bg-slate-800", text: "text-slate-400", label: "Upcoming" },
-  "no-plan": { bg: "bg-slate-900", text: "text-slate-600", label: "No plan set" },
+  completed: { bg: "bg-green-800", text: "text-green-300", label: "Completed" },
+  partial: { bg: "bg-amber-800", text: "text-amber-300", label: "Partially completed" },
+  missed: { bg: "bg-red-800", text: "text-red-300", label: "Missed" },
+  today: { bg: "bg-brand-500", text: "text-white", label: "Today" },
+  "upcoming-planned": { bg: "bg-brand-900/60", text: "text-brand-600", label: "Planned" },
+  upcoming: { bg: "bg-slate-800", text: "text-slate-500", label: "Upcoming" },
+  "no-plan": { bg: "bg-slate-900", text: "text-slate-500", label: "No plan set" },
 };
 
 /**
