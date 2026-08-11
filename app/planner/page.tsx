@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
-import { resolvePlannerColumns } from "@/lib/plannerColumns";
+import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
@@ -22,7 +22,6 @@ import { getContentPublished } from "@/lib/platformSettings";
 import { easternDateStringNow } from "@/lib/timezone";
 import { computeAchievements } from "@/lib/achievements";
 import AppShell from "@/components/AppShell";
-import PlannerGridClient from "@/components/PlannerGridClient";
 import PlannerCalendar from "@/components/PlannerCalendar";
 import { WeekStrip, MonthStatsGrid, Heatmap, AchievementBadges } from "@/components/PlannerInsights";
 import WeeklyProgress from "@/components/WeeklyProgress";
@@ -31,17 +30,20 @@ import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 export const dynamic = "force-dynamic";
 
 /**
- * Planner page - day-by-day tracking grid (Planned System, First Aid
- * Pages, Questions Planned/Completed/Reviewed, Hours Studied, Study
- * Status - see planner_columns) is the "Daily Study Planner" (Study
- * Planner v1 item 1). Each row also expands into a day workspace panel,
- * starting with the UWorld Block Tracker (item 2) - more sections (Student/
- * Mentor Notes, Assignments, Reflection, etc.) land there as later items in
- * that spec are built, so a day becomes more than a flat spreadsheet row.
- * Columns are admin-configurable from /admin/planner-config. This replaced
- * the older template-driven task checklist; that still exists for the AI
- * coach (app/planner/mine and schedule_templates), which this page doesn't
- * touch.
+ * Planner page - the calendar (PlannerCalendar.tsx) is the ONE place a
+ * day's plan lives: click a day, see Assignments plus UWorld blocks, Mood,
+ * Notes, Reflection, and everything else for it (DailyPlannerPanel.tsx).
+ * This used to be a separate flat grid (Planned System / First Aid Pages /
+ * etc. as freeform columns per day) sitting below the calendar - retired in
+ * favor of one unified place, since having two separate planning tools was
+ * the actual cause of a real bug (a mentor who only used the grid never saw
+ * their plan reflected on the calendar). Any data that was in the old grid
+ * was migrated into Assignments tasks (see the one-time migration marked
+ * `detail = 'migrated-from-grid'` in mentor_plan_tasks), so nothing already
+ * entered was lost. Columns are still admin-configurable from
+ * /admin/planner-config, but now only govern which journal sections (Mood,
+ * Study Issues, Resources Used, Tomorrow's Goal, Reflection, Student Notes)
+ * are turned on for a student - not a data-entry grid layout anymore.
  */
 export default async function PlannerPage() {
   const supabase = createClient();
@@ -77,7 +79,7 @@ export default async function PlannerPage() {
     supabase.from("student_planner_settings").select("start_date").eq("student_id", user.id).maybeSingle(),
   ]);
 
-  const columns = resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id);
+  const columns = resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id).filter((c) => c.active);
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
   const blocks = (blocksRes.data ?? []) as UWorldBlock[];
   const mentorNotes = (mentorNotesRes.data ?? []) as MentorDailyNote[];
@@ -92,18 +94,35 @@ export default async function PlannerPage() {
   const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
 
   // Weekly View / Monthly Statistics / Heatmap (Study Planner v2, phase 2) -
-  // all derived from the same mentor_plan_tasks day-status logic as the
-  // calendar above (see lib/plannerCalendar.ts).
+  // derived from BOTH mentor_plan_tasks ("Assignments") and the flat grid
+  // (planner_entries), so a mentor who only ever fills in the grid's
+  // Planned System/First Aid Pages/etc. still gets a colored, non-blank
+  // calendar - see the merged computeDayStatus in lib/plannerCalendar.ts.
   const tasksByDate = groupTasksByDate(planTasks);
+  const entryByDate: Record<string, PlannerEntry> = {};
+  for (const e of entries) entryByDate[e.log_date] = e;
+  const activeMainColumns = mainPlannerColumns(columns);
   const weekStart = weekStartMonday(today);
-  const weekDays = buildCalendarRange(tasksByDate, weekStart, addDaysIso(weekStart, 6), today);
+  const weekDays = buildCalendarRange(
+    tasksByDate,
+    weekStart,
+    addDaysIso(weekStart, 6),
+    today,
+    entryByDate,
+    activeMainColumns
+  );
   const currentWeekNumber = weekNumberInPlan(today, plannerStartDate);
 
   const monthGridBegin = monthGridStart(today);
   const currentMonthPrefix = today.slice(0, 7);
-  const monthDays = buildCalendarRange(tasksByDate, monthGridBegin, addDaysIso(monthGridBegin, 41), today).filter(
-    (d) => d.date.startsWith(currentMonthPrefix)
-  );
+  const monthDays = buildCalendarRange(
+    tasksByDate,
+    monthGridBegin,
+    addDaysIso(monthGridBegin, 41),
+    today,
+    entryByDate,
+    activeMainColumns
+  ).filter((d) => d.date.startsWith(currentMonthPrefix));
   const monthStats = computeMonthStats(monthDays, entries);
   const streaks = computeStreaks([...entries.map((e) => e.log_date), ...blocks.map((b) => b.log_date)], today);
   const [monthYear, monthMonth] = today.split("-").map(Number);
@@ -117,7 +136,7 @@ export default async function PlannerPage() {
   // heatmap - deliberately its own range from the month grid above since it
   // spans months.
   const heatmapStart = weekStartMonday(addDaysIso(today, -83));
-  const heatmapDays = buildCalendarRange(tasksByDate, heatmapStart, today, today);
+  const heatmapDays = buildCalendarRange(tasksByDate, heatmapStart, today, today, entryByDate, activeMainColumns);
 
   // Achievement badges (Study Planner v2, phase 3) - "reward consistency,
   // not perfection." Streak badges use the longest streak ever reached (see
@@ -139,15 +158,28 @@ export default async function PlannerPage() {
         <div className="mb-6">
           <h1 className="text-xl font-bold mb-1">My Study Plan</h1>
           <p className="text-sm text-slate-400">
-            Log your day-by-day progress here - First Aid pages, questions, hours, and notes. Click the
-            ▸ next to a day to log UWorld blocks for it. Click "Show earlier week" / "Show more weeks" to
-            move the range, or jump straight to a date.
+            Click any day on the calendar below to see what's planned - check off Assignments, log UWorld
+            blocks, and (if enabled) jot your mood, notes, and reflection for that day.
           </p>
         </div>
 
         <PlannerStatusHeader status={todayStatus} />
 
-        <PlannerCalendar initialTasks={planTasks} startDate={plannerStartDate} todayIso={today} />
+        <PlannerCalendar
+          targetUserId={user.id}
+          initialTasks={planTasks}
+          initialEntries={entries}
+          initialBlocks={blocks}
+          initialMentorNotes={mentorNotes}
+          studyResources={studyResources}
+          mainColumns={activeMainColumns}
+          columns={columns}
+          canEdit
+          mentorId={null}
+          enforceEditWindow
+          startDate={plannerStartDate}
+          todayIso={today}
+        />
 
         <WeekStrip weekNumber={currentWeekNumber} days={weekDays} />
 
@@ -163,18 +195,6 @@ export default async function PlannerPage() {
         <AchievementBadges achievements={achievements} />
 
         <WeeklyProgress summary={weeklySummary} />
-
-        <PlannerGridClient
-          targetUserId={user.id}
-          columns={columns}
-          initialEntries={entries}
-          initialBlocks={blocks}
-          initialMentorNotes={mentorNotes}
-          initialPlanTasks={planTasks}
-          studyResources={studyResources}
-          startDate={plannerStartDate}
-          enforceEditWindow
-        />
       </main>
     </AppShell>
   );
