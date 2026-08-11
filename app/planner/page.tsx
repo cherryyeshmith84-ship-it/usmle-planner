@@ -176,7 +176,12 @@ export default async function PlannerPage() {
           columns={columns}
           canEdit
           mentorId={null}
-          enforceEditWindow
+          // Students can now edit any day, past or future, any time - the
+          // old rolling "today + yesterday only" lock (isDateEditable in
+          // lib/planProgress.ts) was blocking legitimate catch-up logging of
+          // older days, so it's turned off here rather than removed
+          // outright (still available if this ever needs to come back).
+          enforceEditWindow={false}
           startDate={plannerStartDate}
           todayIso={today}
         />
