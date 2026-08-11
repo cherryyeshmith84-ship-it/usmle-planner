@@ -165,7 +165,7 @@ export default function NavBar({
       </div>
 
       <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
-        <Link href="/dashboard" className={linkClass("/dashboard")}>
+        <Link href="/dashboard" data-tour="/dashboard" className={linkClass("/dashboard")}>
           Home
         </Link>
 
@@ -176,7 +176,11 @@ export default function NavBar({
             </p>
             <div className="flex flex-col gap-1">
               {group.items.map((item) => (
-                <Link key={item.href} href={item.href} className={linkClass(item.href)}>
+                // data-tour - lets OnboardingTour.tsx find and spotlight
+                // this exact link via a plain DOM query when it's the
+                // current tour step's target, without NavBar needing to
+                // know anything about the tour itself.
+                <Link key={item.href} href={item.href} data-tour={item.href} className={linkClass(item.href)}>
                   {item.label}
                 </Link>
               ))}
@@ -205,7 +209,7 @@ export default function NavBar({
       </nav>
 
       <div className="px-3 pb-6 pt-3 border-t border-slate-800">
-        <Link href="/settings" className={linkClass("/settings")}>
+        <Link href="/settings" data-tour="/settings" className={linkClass("/settings")}>
           Settings
         </Link>
         <div className="flex items-center gap-2.5 px-3 py-2.5 mt-1">
