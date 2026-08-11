@@ -1,42 +1,49 @@
-export type UWorldBlockMode = "Timed" | "Untimed" | "Tutor";
+import type { UWorldBlock } from "./uworldBlocks";
 
-// Which question bank a block was done in - was hardcoded to UWorld only
-// (component name and all), now generalized so a student who splits
-// practice across multiple banks can log every block in one place and get
-// a breakdown per bank, not just a single flattened average. "UWorld" stays
-// first/default since it's still the most common one.
-export const QBANKS = ["UWorld", "Amboss", "Mehlman"] as const;
-export type UWorldBlockQBank = (typeof QBANKS)[number];
-
-export interface UWorldBlock {
-  id: string;
-  user_id: string;
-  log_date: string;
-  block_number: number;
-  questions: number | null;
-  percentage: number | null;
-  average: number | null;
-  mode: UWorldBlockMode | null;
-  // Both nullable - older rows logged before this existed, or a student who
-  // skips tagging, just won't show up in the per-qbank/per-system breakdown
-  // (lib/qbankBlockStats.ts) but everything else about the block still works.
-  qbank: UWorldBlockQBank | null;
-  // Free-text but populated from lib/qbankTypes.ts's STEP1_SYSTEMS - the
-  // same canonical system list score reports already use, so a block's
-  // system lines up with the same names used everywhere else in Analysis.
-  system: string | null;
-  created_at?: string;
-  updated_at?: string;
+export interface QBankSystemCell {
+  qbank: string;
+  system: string;
+  averagePercent: number;
+  blockCount: number;
+  totalQuestions: number;
 }
 
-/** Groups a flat list of blocks (as fetched for a whole date range) by log_date, each sorted by block_number. */
-export function groupBlocksByDate(blocks: UWorldBlock[]): Record<string, UWorldBlock[]> {
-  const out: Record<string, UWorldBlock[]> = {};
+export function computeQBankSystemBreakdown(blocks: UWorldBlock[]): QBankSystemCell[] {
+  const groups = new Map<string, { qbank: string; system: string; percentages: number[]; questions: number }>();
+
   for (const b of blocks) {
-    (out[b.log_date] ??= []).push(b);
+    if (!b.qbank || !b.system || typeof b.percentage !== "number") continue;
+    const key = `${b.qbank} ${b.system}`;
+    const g = groups.get(key) ?? { qbank: b.qbank, system: b.system, percentages: [], questions: 0 };
+    g.percentages.push(b.percentage);
+    g.questions += b.questions ?? 0;
+    groups.set(key, g);
   }
-  for (const date of Object.keys(out)) {
-    out[date].sort((a, b) => a.block_number - b.block_number);
+
+  return Array.from(groups.values())
+    .map((g) => ({
+      qbank: g.qbank,
+      system: g.system,
+      averagePercent: Math.round((g.percentages.reduce((s, p) => s + p, 0) / g.percentages.length) * 10) / 10,
+      blockCount: g.percentages.length,
+      totalQuestions: g.questions,
+    }))
+    .sort((a, b) => a.qbank.localeCompare(b.qbank) || a.averagePercent - b.averagePercent);
+}
+
+export function distinctQBanks(cells: QBankSystemCell[]): string[] {
+  return Array.from(new Set(cells.map((c) => c.qbank)));
+}
+
+export function distinctSystemsByWeakness(cells: QBankSystemCell[]): string[] {
+  const bySystem = new Map<string, number[]>();
+  for (const c of cells) {
+    const arr = bySystem.get(c.system) ?? [];
+    arr.push(c.averagePercent);
+    bySystem.set(c.system, arr);
   }
-  return out;
+  return Array.from(bySystem.entries())
+    .map(([system, percents]) => ({ system, mean: percents.reduce((s, p) => s + p, 0) / percents.length }))
+    .sort((a, b) => a.mean - b.mean)
+    .map((x) => x.system);
 }
