@@ -17,7 +17,6 @@ import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MeetingLinkEditor from "@/components/MeetingLinkEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
-import MentorPlannerColumnsEditor from "@/components/MentorPlannerColumnsEditor";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import PlannerCalendar from "@/components/PlannerCalendar";
 import MentorChatPanel from "@/components/MentorChatPanel";
@@ -206,8 +205,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
   const allPlannerColumnRows = (plannerColumnsRes.data ?? []) as PlannerColumn[];
-  const defaultPlannerColumns = allPlannerColumnRows.filter((c) => !c.student_id);
-  const ownPlannerColumns = allPlannerColumnRows.filter((c) => c.student_id === params.studentId);
   const plannerColumns = resolvePlannerColumns(allPlannerColumnRows, params.studentId).filter((c) => c.active);
   const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
   const sessions = (slotsRes.data ?? []) as MentorSlot[];
@@ -373,20 +370,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <div>
           <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
           <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
-        </div>
-      )}
-
-      {/* Planner layout - lets a mentor add/edit/delete this specific
-          student's planner columns without touching any other student's
-          layout. */}
-      {myMentorRecord && (
-        <div>
-          <h2 className="text-lg font-bold mb-3">Planner layout</h2>
-          <MentorPlannerColumnsEditor
-            studentId={params.studentId}
-            defaultColumns={defaultPlannerColumns}
-            initialOwnColumns={ownPlannerColumns}
-          />
         </div>
       )}
 
