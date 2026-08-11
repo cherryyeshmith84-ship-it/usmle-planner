@@ -36,14 +36,23 @@ export function computeTodayStatus(
     dayBlocks.length > 0
       ? dayBlocks.reduce((sum, b) => sum + (b.questions ?? 0), 0)
       : Number(v["q_solved"] ?? 0) || 0;
+  const assignmentsCompleted = dayTasks.filter((t) => t.completed).length;
+  const assignmentsTotal = dayTasks.length;
 
   return {
     questionsCompleted,
     questionsPlanned: Number(v["questions_planned"] ?? 0) || 0,
     hours: Number(v["hours"] ?? 0) || 0,
-    assignmentsCompleted: dayTasks.filter((t) => t.completed).length,
-    assignmentsTotal: dayTasks.length,
-    studyCompleted: v["task_completed"] === true,
+    assignmentsCompleted,
+    assignmentsTotal,
+    // Used to read planner_entries.field_values["task_completed"], a manual
+    // checkbox that only existed on the old flat grid - retired along with
+    // it, so nothing ever sets that field anymore and this was silently
+    // stuck on "Not Started"/"In Progress" forever, never "Completed". Now
+    // derived from real data: today counts as complete once every
+    // Assignment for it is checked off (there has to be at least one - an
+    // empty day with nothing assigned can't be "Completed").
+    studyCompleted: assignmentsTotal > 0 && assignmentsCompleted === assignmentsTotal,
     hasEntry: !!entry || dayBlocks.length > 0 || dayTasks.length > 0,
   };
 }
