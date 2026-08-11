@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 interface NavItem {
   href: string;
@@ -87,7 +89,42 @@ export default function NavBar({
   contentPublished?: boolean;
 }) {
   const pathname = usePathname();
-  const visibleGroups = GROUPS.filter(
+  const [isMentor, setIsMentor] = useState(false);
+
+  // Whether the signed-in user is an active mentor - checked client-side
+  // (rather than threading an isMentor prop through every single page that
+  // renders AppShell/NavBar, which would mean touching dozens of files) since
+  // NavBar is already "use client" and a browser-side read of the `mentors`
+  // table (the same one MentorBrowseClient reads for the public directory)
+  // is cheap and RLS-safe. Only used to decide whether to show "Students"
+  // below - everything else a mentor can already reach is unaffected if this
+  // hasn't resolved yet on first paint.
+  useEffect(() => {
+    let cancelled = false;
+    async function checkMentor() {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.email) return;
+      const { data } = await supabase.from("mentors").select("email").eq("active", true);
+      const match = (data ?? []).some(
+        (m: { email: string }) => m.email.toLowerCase() === user.email!.toLowerCase()
+      );
+      if (!cancelled) setIsMentor(match);
+    }
+    checkMentor();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const groupsWithStudentsLink = GROUPS.map((group) => {
+    if (group.title !== "Mentorship" || !isMentor) return group;
+    const [mentorshipHome, ...rest] = group.items;
+    return { ...group, items: [mentorshipHome, { href: "/mentorship/students", label: "Students" }, ...rest] };
+  });
+  const visibleGroups = groupsWithStudentsLink.filter(
     (group) => isAdmin || contentPublished || !GATED_GROUP_TITLES.has(group.title)
   );
 
