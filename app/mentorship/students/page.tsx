@@ -48,10 +48,7 @@ export default async function MentorStudentsPage() {
     .select("id, full_name, email, status_update, status_updated_at, exam_date")
     .not("mentor_email", "is", null)
     .order("full_name", { ascending: true });
-  const linkedStudents = (linkedStudentsData ?? []) as Pick
-    Profile,
-    "id" | "full_name" | "email" | "status_update" | "status_updated_at" | "exam_date"
-  >[];
+  const linkedStudents = (linkedStudentsData ?? []) as Pick<Profile, "id" | "full_name" | "email" | "status_update" | "status_updated_at" | "exam_date">[];
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
