@@ -3,6 +3,11 @@
 import { useMemo, useState } from "react";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeTaskProgress, groupTasksByDate, sortTasks } from "@/lib/planTasks";
+import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { groupBlocksByDate } from "@/lib/uworldBlocks";
+import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import { groupNotesByDate } from "@/lib/mentorDailyNotes";
 import {
   buildCalendarRange,
   computeSchedulePaceDays,
@@ -12,7 +17,7 @@ import {
   addDaysIso,
 } from "@/lib/plannerCalendar";
 import { isDateEditable } from "@/lib/planProgress";
-import AssignmentsChecklist from "./AssignmentsChecklist";
+import DailyPlannerPanel from "./DailyPlannerPanel";
 
 const WEEKDAY_HEADERS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const MONTH_NAMES = [
@@ -42,25 +47,55 @@ function formatDayLabel(date: string): string {
 }
 
 /**
- * Color-coded month calendar for the study planner (Study Planner v2) -
- * sits above the flat day-by-day grid on /planner. Built entirely from
- * mentor_plan_tasks (the same "Assignments" data already shown on the Home
- * dashboard's Today's Plan card and the grid's expanded-row Assignments
- * section) rather than the flat grid's columns, since a day here is
- * "completed" in the simple all-or-nothing checkbox sense the calendar
- * mockup called for, not "every column filled in."
+ * Color-coded month calendar for the study planner (Study Planner v2) - now
+ * the ONE place a day's plan lives, both for mentors (adding/editing) and
+ * students (checking off), replacing the old flat grid entirely. Click a
+ * day and its Daily Card below shows everything for it via
+ * DailyPlannerPanel.tsx: Assignments (a full add/edit/remove editor when
+ * `mentorId` is set, a checkbox list otherwise), UWorld blocks, Mood, Study
+ * Issues, Resources Used, Tomorrow's Goal, Daily Reflection, Student/Mentor
+ * Notes.
  *
- * Clicking a day opens its Daily Card below the grid with the same
- * AssignmentsChecklist checkboxes used everywhere else in the app, so
- * toggling here writes through the same student_toggle_plan_task() RPC and
- * stays in sync with the dashboard/grid views.
+ * `mainColumns`/`initialEntries` are only kept around for the legacy
+ * "From your mentor's Study Planner grid" readout below and the merged
+ * completed/missed/partial day coloring (see computeDayStatus in
+ * lib/plannerCalendar.ts) - covering whatever a mentor entered before the
+ * flat grid was retired (that data was also migrated into Assignments
+ * tasks, so it shows up in the checklist too, not just this readout).
  */
 export default function PlannerCalendar({
+  targetUserId,
   initialTasks,
+  initialEntries,
+  initialBlocks,
+  initialMentorNotes,
+  studyResources,
+  mainColumns,
+  columns,
+  canEdit,
+  mentorId,
+  enforceEditWindow = false,
   startDate,
   todayIso,
 }: {
+  targetUserId: string;
   initialTasks: PlanTask[];
+  initialEntries: PlannerEntry[];
+  initialBlocks: UWorldBlock[];
+  initialMentorNotes: MentorDailyNote[];
+  studyResources: StudyResource[];
+  // Just the old "flat plan" columns (Planned System, First Aid Pages, ...)
+  // - used only for the legacy readout + merged day-status coloring.
+  mainColumns: PlannerColumn[];
+  // ALL of this student's active columns, including the journal-style ones
+  // (Mood, Notes, Reflection, ...) - passed straight through to
+  // DailyPlannerPanel to decide which sections to show.
+  columns: PlannerColumn[];
+  canEdit: boolean;
+  mentorId: string | null;
+  // Locks days outside the rolling edit window - only ever turned on for a
+  // student editing their own calendar, never for a mentor/admin.
+  enforceEditWindow?: boolean;
   startDate: string | null;
   todayIso: string;
 }) {
@@ -68,24 +103,31 @@ export default function PlannerCalendar({
   const [selectedDate, setSelectedDate] = useState(todayIso);
 
   const tasksByDate = useMemo(() => groupTasksByDate(initialTasks), [initialTasks]);
+  const entriesByDate = useMemo(() => {
+    const map: Record<string, PlannerEntry> = {};
+    for (const e of initialEntries) map[e.log_date] = e;
+    return map;
+  }, [initialEntries]);
+  const blocksByDate = useMemo(() => groupBlocksByDate(initialBlocks), [initialBlocks]);
+  const mentorNotesByDate = useMemo(() => groupNotesByDate(initialMentorNotes), [initialMentorNotes]);
 
   const gridStart = monthGridStart(monthAnchor);
   const gridEnd = monthGridEnd(monthAnchor);
   const days = useMemo(
-    () => buildCalendarRange(tasksByDate, gridStart, gridEnd, todayIso),
-    [tasksByDate, gridStart, gridEnd, todayIso]
+    () => buildCalendarRange(tasksByDate, gridStart, gridEnd, todayIso, entriesByDate, mainColumns),
+    [tasksByDate, gridStart, gridEnd, todayIso, entriesByDate, mainColumns]
   );
 
   const currentMonthPrefix = monthAnchor.slice(0, 7);
   const pace = useMemo(
-    () => computeSchedulePaceDays(tasksByDate, startDate, todayIso),
-    [tasksByDate, startDate, todayIso]
+    () => computeSchedulePaceDays(tasksByDate, startDate, todayIso, entriesByDate, mainColumns),
+    [tasksByDate, startDate, todayIso, entriesByDate, mainColumns]
   );
 
   const selectedTasks = sortTasks(tasksByDate[selectedDate] ?? []);
   const selectedProgress = computeTaskProgress(selectedTasks);
   const selectedDayNumber = dayNumberInPlan(selectedDate, startDate);
-  const selectedEditable = isDateEditable(selectedDate, todayIso);
+  const selectedLocked = enforceEditWindow && !isDateEditable(selectedDate, todayIso);
 
   return (
     <div className="card mb-6">
@@ -148,7 +190,7 @@ export default function PlannerCalendar({
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mb-6">
-        {(["completed", "partial", "missed", "today", "upcoming"] as const).map((status) => (
+        {(["completed", "partial", "missed", "today", "upcoming-planned", "upcoming"] as const).map((status) => (
           <span key={status} className="flex items-center gap-1.5">
             <span className={`w-2.5 h-2.5 rounded-full ${DAY_STATUS_COLOR[status].bg}`} />
             {DAY_STATUS_COLOR[status].label}
@@ -176,7 +218,19 @@ export default function PlannerCalendar({
             />
           </div>
         )}
-        <AssignmentsChecklist tasks={selectedTasks} editable={selectedEditable} />
+        <DailyPlannerPanel
+          targetUserId={targetUserId}
+          date={selectedDate}
+          columns={columns}
+          initialEntry={entriesByDate[selectedDate]}
+          dayTasks={selectedTasks}
+          dayBlocks={blocksByDate[selectedDate] ?? []}
+          mentorNote={mentorNotesByDate[selectedDate]}
+          studyResources={studyResources}
+          canEdit={canEdit}
+          locked={selectedLocked}
+          mentorId={mentorId}
+        />
       </div>
     </div>
   );
