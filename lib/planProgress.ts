@@ -10,8 +10,13 @@ function addDaysIso(date: string, n: number): string {
 }
 
 /** Whether a single grid cell counts as "filled in" - a checkbox has to be
- *  checked, a number/text field has to be non-blank. */
-function isBoxFilled(column: PlannerColumn, raw: string | number | boolean | null | undefined): boolean {
+ *  checked, a number/text field has to be non-blank. Exported so
+ *  lib/plannerCalendar.ts can fold flat-grid days into the same
+ *  completed/partial/missed calendar coloring as mentor_plan_tasks
+ *  ("Assignments") - a mentor who only ever uses the Planned System/First
+ *  Aid Pages grid (not the separate Assignments editor) still needs their
+ *  plan to show up as something other than blank on the new calendar. */
+export function isBoxFilled(column: PlannerColumn, raw: string | number | boolean | null | undefined): boolean {
   if (column.field_type === "checkbox") return raw === true;
   if (raw === null || raw === undefined) return false;
   if (typeof raw === "string") return raw.trim() !== "";
