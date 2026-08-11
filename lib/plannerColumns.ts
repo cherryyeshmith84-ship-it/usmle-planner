@@ -53,6 +53,33 @@ export function resolvePlannerColumns(all: PlannerColumn[], studentId: string): 
   return all.filter((c) => !c.student_id);
 }
 
+// Keys pulled out of the flat grid and rendered specially in each day's
+// expanded panel (Student Notes, Daily Mood, Today's Biggest Issue,
+// Resources Used, Tomorrow's Goal, Daily Reflection) instead of as a plain
+// grid column - see PlannerGridClient.tsx's own mainColumns. Journal-style
+// fields like these aren't part of "did the mentor plan this day / did the
+// student log it," so they're excluded from that concept everywhere it's
+// computed (the progress bar, and the Study Planner v2 calendar's
+// completed/missed/partial coloring).
+const NON_GRID_KEYS = new Set([
+  "student_notes",
+  "mood",
+  "study_issue",
+  "resources_used",
+  "tomorrow_goal",
+  "reflection_went_well",
+  "reflection_slowed_down",
+  "reflection_improve",
+]);
+
+/** Active columns that actually belong in the flat grid row (excludes the
+ *  journal-style fields above) - the shared definition of "a day's plan"
+ *  used by the progress bar and the calendar's day-status coloring, kept in
+ *  one place so they can never quietly disagree with each other. */
+export function mainPlannerColumns(columns: PlannerColumn[]): PlannerColumn[] {
+  return columns.filter((c) => c.active && !NON_GRID_KEYS.has(c.key));
+}
+
 /** Reads a single field value out of a (possibly missing) planner entry, typed per column. */
 export function readField(
   entry: PlannerEntry | undefined,
