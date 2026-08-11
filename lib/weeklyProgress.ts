@@ -40,7 +40,8 @@ export function computeWeeklyProgress(
   planTasks: PlanTask[],
   endDateIso: string
 ): WeeklyProgressSummary {
-  const dates = new Set(last7Dates(endDateIso));
+  const dateList = last7Dates(endDateIso);
+  const dates = new Set(dateList);
 
   const entriesInWindow = entries.filter((e) => dates.has(e.log_date));
   const blocksInWindow = blocks.filter((b) => dates.has(b.log_date));
@@ -52,11 +53,17 @@ export function computeWeeklyProgress(
     list.push(b);
     blocksByDate.set(b.log_date, list);
   }
+  const tasksByDate = new Map<string, PlanTask[]>();
+  for (const t of tasksInWindow) {
+    const list = tasksByDate.get(t.task_date) ?? [];
+    list.push(t);
+    tasksByDate.set(t.task_date, list);
+  }
+  const entryByDate = new Map(entriesInWindow.map((e) => [e.log_date, e]));
 
   let questionsCompleted = 0;
   let questionsPlanned = 0;
   let hours = 0;
-  let daysStudied = 0;
 
   for (const e of entriesInWindow) {
     const v = e.field_values ?? {};
@@ -67,7 +74,6 @@ export function computeWeeklyProgress(
         : Number(v["q_solved"] ?? 0) || 0;
     questionsPlanned += Number(v["questions_planned"] ?? 0) || 0;
     hours += Number(v["hours"] ?? 0) || 0;
-    if (v["task_completed"] === true) daysStudied += 1;
   }
 
   // Blocks logged on a day with no planner_entries row yet still count toward
@@ -76,6 +82,26 @@ export function computeWeeklyProgress(
     if (!entriesInWindow.some((e) => e.log_date === date)) {
       questionsCompleted += dayBlocks.reduce((sum, b) => sum + (b.questions ?? 0), 0);
     }
+  }
+
+  // "Days studied" - a day counts if there's any real activity on it: a
+  // completed Assignment, a logged question bank block, or hours/questions
+  // logged in the day's journal fields. Used to key off
+  // planner_entries.field_values["task_completed"], a checkbox that only
+  // existed on the old flat grid - once that grid was retired in favor of
+  // Assignments (mentor_plan_tasks) + DailyPlannerPanel, nothing ever set
+  // that field again, which silently pinned this stat at 0 for everyone
+  // regardless of real activity. This checks the actual data sources that
+  // still exist instead of a dead field.
+  let daysStudied = 0;
+  for (const date of dateList) {
+    const dayTasks = tasksByDate.get(date) ?? [];
+    const dayBlocks = blocksByDate.get(date) ?? [];
+    const v = entryByDate.get(date)?.field_values ?? {};
+    const hasCompletedTask = dayTasks.some((t) => t.completed);
+    const hasBlocks = dayBlocks.length > 0;
+    const hasLoggedHoursOrQuestions = (Number(v["hours"] ?? 0) || 0) > 0 || (Number(v["q_solved"] ?? 0) || 0) > 0;
+    if (hasCompletedTask || hasBlocks || hasLoggedHoursOrQuestions) daysStudied += 1;
   }
 
   const percentValues = blocksInWindow.map((b) => b.percentage).filter((p): p is number => typeof p === "number");
