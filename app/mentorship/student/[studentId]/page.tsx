@@ -22,6 +22,8 @@ import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import PlannerCalendar from "@/components/PlannerCalendar";
 import MentorChatPanel from "@/components/MentorChatPanel";
 import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
+import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
+import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +231,11 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const comparisonReports = [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
   const allSystemStrengths = computeSystemStrengths(regularReports);
   const allDisciplineStrengths = computeDisciplineStrengths(regularReports);
+
+  // Self-reported day-to-day qbank performance (Question Bank Blocks,
+  // logged from the Study Planner calendar below) - separate from the
+  // uploaded score reports above, broken out per system per bank.
+  const qbankBreakdown = computeQBankSystemBreakdown(uworldBlocks);
 
   // --- Tab contents -------------------------------------------------------
 
@@ -549,6 +556,11 @@ export default async function StudentProgressPage({ params }: { params: { studen
             </table>
           </div>
         )}
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
+        <QBankSystemBreakdown cells={qbankBreakdown} />
       </div>
 
       {/* Study plan - only the signed-in mentor's own relationship can write
