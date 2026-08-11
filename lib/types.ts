@@ -51,6 +51,9 @@ export interface Profile {
   // Settings and the Home dashboard (see components/StatusUpdateCard.tsx).
   status_update?: string | null;
   status_updated_at?: string | null;
+  // Whether this student has finished or skipped the in-app tutorial
+  // (components/TutorialOverlay.tsx) - once true, it never shows again.
+  tutorial_completed?: boolean;
 }
 
 export interface TemplateTask {
