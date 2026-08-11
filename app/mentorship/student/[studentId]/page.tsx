@@ -20,6 +20,8 @@ import AssignToPlanButton from "@/components/AssignToPlanButton";
 import MentorPlannerColumnsEditor from "@/components/MentorPlannerColumnsEditor";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import PlannerCalendar from "@/components/PlannerCalendar";
+import MentorChatPanel from "@/components/MentorChatPanel";
+import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -53,18 +55,26 @@ function scoreBadgeClass(pct: number | null) {
 /**
  * "Student progress" view a mentor can open for a specific student. Score
  * reports stay upload-only by the student - a mentor can only view and
- * review those. Day-to-day planning now happens entirely through the same
+ * review those. Day-to-day planning happens entirely through the same
  * calendar the student sees on their own /planner (PlannerCalendar.tsx,
  * with canEdit + mentorId passed in so it becomes a full add/edit/remove
- * Assignments editor instead of a read-only checklist) - this used to be a
- * separate flat grid PLUS a separate date-picker Assignments section, which
- * was confusing (a mentor filling in one didn't show up in the other's
- * view) and is now just the one calendar. RLS (is_mentor_of_student - see
- * migrations mentor_read_student_progress and
- * mentor_write_student_planner_entries) is what actually enforces that a
- * mentor can only load/write a student they have a real relationship with -
- * this page's own not-a-mentor / no-relationship checks below are just a
- * friendlier 404 on top of that.
+ * Assignments editor instead of a read-only checklist).
+ *
+ * Split into tabs (Overview / Sessions / Study Planner / Analysis /
+ * Messages) via MentorStudentTabs.tsx instead of one long scrolling page -
+ * mirrors the same grouping a student sees for themselves in the sidebar
+ * (Mentorship / Upcoming Sessions / Study Planner / Analysis), just scoped
+ * to this one student and reached as in-page tabs since a mentor is
+ * switching between sections for the SAME student rather than navigating
+ * their own account. Sessions and Messages only make sense for this
+ * student's actual mentor, so those two tabs are omitted entirely for an
+ * admin browsing without a mentor relationship.
+ *
+ * RLS (is_mentor_of_student - see migrations mentor_read_student_progress
+ * and mentor_write_student_planner_entries) is what actually enforces that
+ * a mentor can only load/write a student they have a real relationship
+ * with - this page's own not-a-mentor / no-relationship checks below are
+ * just a friendlier 404 on top of that.
  */
 export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
   const supabase = createClient();
@@ -220,385 +230,387 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const allSystemStrengths = computeSystemStrengths(regularReports);
   const allDisciplineStrengths = computeDisciplineStrengths(regularReports);
 
-  return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 px-6 py-8 w-full">
-        <Link href="/mentorship/sessions" className="text-xs text-brand-400 hover:text-brand-300">
-          ← Back to sessions
-        </Link>
-        <h1 className="text-xl font-bold mt-2 mb-1">{student.full_name || "Student"}</h1>
-        <p className="text-sm text-slate-400 mb-6">
-          {myMentorRecord
-            ? "Click any day on the calendar below to add or edit this student's Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
-            : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
-        </p>
+  // --- Tab contents -------------------------------------------------------
 
-        {/* Status - the student's own free-text update, from Settings or
-            their Home dashboard (components/StatusUpdateCard.tsx). Not
-            shown at all if they've never set one, rather than an empty card. */}
-        {student.status_update && (
-          <div className="card mb-8">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Status</p>
-            <p className="text-sm text-slate-300 whitespace-pre-wrap">{student.status_update}</p>
-            {student.status_updated_at && (
-              <p className="text-xs text-slate-600 mt-1">
-                Updated {formatSlotDate(student.status_updated_at)} at {formatSlotTime(student.status_updated_at)}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Intake - what this student filled in on "Tell us about your prep"
-            during onboarding (app/onboarding/OnboardingForm.tsx). Previously
-            only visible to admins on AdminStudentDetail.tsx - mirrored here
-            so a mentor can see it without asking the student to repeat it. */}
-        <div className="card grid sm:grid-cols-2 gap-4 mb-8">
-          <div>
-            <p className="label">Track</p>
-            <p className="text-sm">
-              {student.exam_track === "subject"
-                ? `Subject exams${student.subject_name ? ` - ${student.subject_name}` : ""}`
-                : student.exam_track === "step1"
-                ? "Step 1 (CBSE)"
-                : "Not set"}
+  const overviewContent = (
+    <div className="space-y-8">
+      {/* Status - the student's own free-text update, from Settings or
+          their Home dashboard (components/StatusUpdateCard.tsx). Not shown
+          at all if they've never set one, rather than an empty card. */}
+      {student.status_update && (
+        <div className="card">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Status</p>
+          <p className="text-sm text-slate-300 whitespace-pre-wrap">{student.status_update}</p>
+          {student.status_updated_at && (
+            <p className="text-xs text-slate-600 mt-1">
+              Updated {formatSlotDate(student.status_updated_at)} at {formatSlotTime(student.status_updated_at)}
             </p>
-          </div>
-          <div>
-            <p className="label">Prep stage</p>
-            <p className="text-sm">{student.prep_stage ? STAGE_LABEL[student.prep_stage] : "Not set"}</p>
-          </div>
-          <div>
-            <p className="label">Exam date</p>
-            <p className="text-sm">{student.exam_date || "Not set"}</p>
-          </div>
-          <div>
-            <p className="label">Daily hour goal</p>
-            <p className="text-sm">{student.daily_hour_goal ? `${student.daily_hour_goal}h` : "Not set"}</p>
-          </div>
-          <div className="sm:col-span-2">
-            <p className="label">Resources</p>
-            <p className="text-sm">{student.resources?.length ? student.resources.join(", ") : "Not set"}</p>
-          </div>
+          )}
         </div>
+      )}
 
-        {(student.completed_so_far || student.strong_areas || student.weak_areas || student.goals_notes) && (
-          <div className="card space-y-3 mb-8">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
-            {student.completed_so_far && (
-              <div>
-                <p className="label">Completed so far</p>
-                <p className="text-sm text-slate-300">{student.completed_so_far}</p>
-              </div>
-            )}
-            {student.strong_areas && (
-              <div>
-                <p className="label">Strong in</p>
-                <p className="text-sm text-slate-300">{student.strong_areas}</p>
-              </div>
-            )}
-            {student.weak_areas && (
-              <div>
-                <p className="label">Struggling with</p>
-                <p className="text-sm text-slate-300">{student.weak_areas}</p>
-              </div>
-            )}
-            {student.goals_notes && (
-              <div>
-                <p className="label">Goals / wants</p>
-                <p className="text-sm text-slate-300">{student.goals_notes}</p>
-              </div>
-            )}
-          </div>
-        )}
+      {/* Intake - what this student filled in on "Tell us about your prep"
+          during onboarding (app/onboarding/OnboardingForm.tsx). */}
+      <div className="card grid sm:grid-cols-2 gap-4">
+        <div>
+          <p className="label">Track</p>
+          <p className="text-sm">
+            {student.exam_track === "subject"
+              ? `Subject exams${student.subject_name ? ` - ${student.subject_name}` : ""}`
+              : student.exam_track === "step1"
+              ? "Step 1 (CBSE)"
+              : "Not set"}
+          </p>
+        </div>
+        <div>
+          <p className="label">Prep stage</p>
+          <p className="text-sm">{student.prep_stage ? STAGE_LABEL[student.prep_stage] : "Not set"}</p>
+        </div>
+        <div>
+          <p className="label">Exam date</p>
+          <p className="text-sm">{student.exam_date || "Not set"}</p>
+        </div>
+        <div>
+          <p className="label">Daily hour goal</p>
+          <p className="text-sm">{student.daily_hour_goal ? `${student.daily_hour_goal}h` : "Not set"}</p>
+        </div>
+        <div className="sm:col-span-2">
+          <p className="label">Resources</p>
+          <p className="text-sm">{student.resources?.length ? student.resources.join(", ") : "Not set"}</p>
+        </div>
+      </div>
 
-        {/* Meeting link - permanent per-(mentor, student) room, different
-            students of the same mentor can have different links. Only the
-            mentor can set/edit it here; the student sees the saved value on
-            their Dashboard, Sessions page, and this mentor's profile. */}
-        {myMentorRecord && (
-          <div className="mb-8">
-            <MeetingLinkEditor
-              studentId={params.studentId}
-              mentorId={myMentorRecord.id}
-              currentUserId={user.id}
-              initialLink={meetingLink?.meeting_link ?? null}
-              initialUpdatedAt={meetingLink?.updated_at ?? null}
-            />
-          </div>
-        )}
+      {(student.completed_so_far || student.strong_areas || student.weak_areas || student.goals_notes) && (
+        <div className="card space-y-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
+          {student.completed_so_far && (
+            <div>
+              <p className="label">Completed so far</p>
+              <p className="text-sm text-slate-300">{student.completed_so_far}</p>
+            </div>
+          )}
+          {student.strong_areas && (
+            <div>
+              <p className="label">Strong in</p>
+              <p className="text-sm text-slate-300">{student.strong_areas}</p>
+            </div>
+          )}
+          {student.weak_areas && (
+            <div>
+              <p className="label">Struggling with</p>
+              <p className="text-sm text-slate-300">{student.weak_areas}</p>
+            </div>
+          )}
+          {student.goals_notes && (
+            <div>
+              <p className="label">Goals / wants</p>
+              <p className="text-sm text-slate-300">{student.goals_notes}</p>
+            </div>
+          )}
+        </div>
+      )}
 
-        {/* Analysis */}
-        <div className="mb-8">
-          <h2 className="text-lg font-bold mb-3">Analysis</h2>
-          {scoreReports.length === 0 ? (
-            <p className="text-sm text-slate-500">No score reports uploaded yet.</p>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="card">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                  Weakest systems
+      {/* Meeting link - permanent per-(mentor, student) room, different
+          students of the same mentor can have different links. */}
+      {myMentorRecord && (
+        <MeetingLinkEditor
+          studentId={params.studentId}
+          mentorId={myMentorRecord.id}
+          currentUserId={user.id}
+          initialLink={meetingLink?.meeting_link ?? null}
+          initialUpdatedAt={meetingLink?.updated_at ?? null}
+        />
+      )}
+    </div>
+  );
+
+  const sessionsContent = (
+    <div>
+      {sessions.length === 0 ? (
+        <p className="text-sm text-slate-500">No sessions with this student yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map((s) => {
+            const status = getSlotStatus(s);
+            const note = notesBySlotId.get(s.id);
+            return (
+              <div key={s.id} className="card py-3">
+                <p className="text-sm">
+                  {formatSlotDate(s.start_time)}, {formatSlotTime(s.start_time)}&ndash;
+                  {formatSlotTime(s.end_time)}{" "}
+                  <span className="text-slate-500">
+                    ({status === "upcoming" ? "Upcoming" : status === "cancelled" ? "Cancelled" : "Completed"})
+                  </span>
                 </p>
-                <div className="space-y-1.5">
-                  {systemStrengths.map((s) => (
+                {note && (
+                  <div className="mt-2 pl-1 space-y-1 text-sm text-slate-300">
+                    {note.discussion && <p><span className="text-slate-500">Discussion:</span> {note.discussion}</p>}
+                    {note.strengths && <p><span className="text-slate-500">Strengths:</span> {note.strengths}</p>}
+                    {note.weaknesses && <p><span className="text-slate-500">Weaknesses:</span> {note.weaknesses}</p>}
+                    {note.study_plan && <p><span className="text-slate-500">Study plan:</span> {note.study_plan}</p>}
+                    {note.goals && <p><span className="text-slate-500">Goals:</span> {note.goals}</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  const studyPlannerContent = (
+    <div className="space-y-8">
+      {/* Planner schedule - where this student's plan starts. */}
+      {myMentorRecord && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
+          <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
+        </div>
+      )}
+
+      {/* Planner layout - lets a mentor add/edit/delete this specific
+          student's planner columns without touching any other student's
+          layout. */}
+      {myMentorRecord && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Planner layout</h2>
+          <MentorPlannerColumnsEditor
+            studentId={params.studentId}
+            defaultColumns={defaultPlannerColumns}
+            initialOwnColumns={ownPlannerColumns}
+          />
+        </div>
+      )}
+
+      {/* Study planner - the same calendar the student sees on their own
+          /planner. Click a day to add/edit Assignments, log UWorld blocks,
+          and read/write Mentor Notes - editable when the viewer is this
+          student's mentor. */}
+      <div>
+        <PlannerCalendar
+          targetUserId={params.studentId}
+          initialTasks={planTasks}
+          initialEntries={plannerEntries}
+          initialBlocks={uworldBlocks}
+          initialMentorNotes={dailyNotes}
+          studyResources={studyResources}
+          mainColumns={mainPlannerColumns(plannerColumns)}
+          columns={plannerColumns}
+          canEdit={!!myMentorRecord}
+          mentorId={myMentorRecord?.id ?? null}
+          startDate={plannerStartDate}
+          todayIso={easternDateStringNow()}
+        />
+      </div>
+    </div>
+  );
+
+  const analysisContent = (
+    <div className="space-y-8">
+      <div>
+        {scoreReports.length === 0 ? (
+          <p className="text-sm text-slate-500">No score reports uploaded yet.</p>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="card">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Weakest systems</p>
+              <div className="space-y-1.5">
+                {systemStrengths.map((s) => (
+                  <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
+                    <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
+                    <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                      <span className="text-slate-400">
+                        {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                      </span>
+                      {myMentorRecord && (
+                        <AssignToPlanButton
+                          studentId={params.studentId}
+                          mentorId={myMentorRecord.id}
+                          title={`Review ${s.system}`}
+                          detail={`Weak system - ${s.averagePercent}% average${
+                            s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
+                          }`}
+                        />
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                Weakest disciplines
+              </p>
+              <div className="space-y-1.5">
+                {disciplineStrengths.length === 0 ? (
+                  <p className="text-sm text-slate-500">No discipline breakdown available.</p>
+                ) : (
+                  disciplineStrengths.map((s) => (
                     <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
                       <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
                       <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                         <span className="text-slate-400">
-                          {s.averagePercent}%{" "}
-                          <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                          {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
                         </span>
                         {myMentorRecord && (
                           <AssignToPlanButton
                             studentId={params.studentId}
                             mentorId={myMentorRecord.id}
                             title={`Review ${s.system}`}
-                            detail={`Weak system - ${s.averagePercent}% average${
+                            detail={`Weak discipline - ${s.averagePercent}% average${
                               s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
                             }`}
                           />
                         )}
                       </span>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
-              <div className="card">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                  Weakest disciplines
-                </p>
-                <div className="space-y-1.5">
-                  {disciplineStrengths.length === 0 ? (
-                    <p className="text-sm text-slate-500">No discipline breakdown available.</p>
-                  ) : (
-                    disciplineStrengths.map((s) => (
-                      <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
-                        <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
-                        <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
-                          <span className="text-slate-400">
-                            {s.averagePercent}%{" "}
-                            <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
-                          </span>
-                          {myMentorRecord && (
-                            <AssignToPlanButton
-                              studentId={params.studentId}
-                              mentorId={myMentorRecord.id}
-                              title={`Review ${s.system}`}
-                              detail={`Weak discipline - ${s.averagePercent}% average${
-                                s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
-                              }`}
-                            />
+            </div>
+          </div>
+        )}
+
+        {comparisonReports.length > 1 && (
+          <div className="card overflow-x-auto mt-4">
+            <p className="text-sm font-semibold mb-3">Progress by system</p>
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="pr-3 py-1">System</th>
+                  {comparisonReports.map((r) => (
+                    <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                      {r.taken_date ?? "?"}
+                      <br />
+                      <span className="text-slate-600">{r.exam_name}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allSystemStrengths.map((s) => (
+                  <tr key={s.system} className="border-t border-slate-800">
+                    <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                    {comparisonReports.map((r) => {
+                      const pct = r.system_breakdown?.[s.system];
+                      return (
+                        <td key={r.id} className="px-2 py-1.5 text-center">
+                          {typeof pct === "number" ? (
+                            <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                          ) : (
+                            <span className="text-slate-700">-</span>
                           )}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Full comparison tables - every system/discipline across every
-              regular report, not just the top-5 weakest above, so a mentor
-              has the same depth of data the student sees on their own
-              Analysis page when deciding what to put in the student's study
-              plan below. */}
-          {comparisonReports.length > 1 && (
-            <div className="card overflow-x-auto mt-4">
-              <p className="text-sm font-semibold mb-3">Progress by system</p>
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-3 py-1">System</th>
-                    {comparisonReports.map((r) => (
-                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
-                        {r.taken_date ?? "?"}
-                        <br />
-                        <span className="text-slate-600">{r.exam_name}</span>
-                      </th>
-                    ))}
+                        </td>
+                      );
+                    })}
                   </tr>
-                </thead>
-                <tbody>
-                  {allSystemStrengths.map((s) => (
-                    <tr key={s.system} className="border-t border-slate-800">
-                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
-                      {comparisonReports.map((r) => {
-                        const pct = r.system_breakdown?.[s.system];
-                        return (
-                          <td key={r.id} className="px-2 py-1.5 text-center">
-                            {typeof pct === "number" ? (
-                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
-                            ) : (
-                              <span className="text-slate-700">-</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-          {comparisonReports.length > 1 && allDisciplineStrengths.length > 0 && (
-            <div className="card overflow-x-auto mt-4">
-              <p className="text-sm font-semibold mb-3">Progress by discipline</p>
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-3 py-1">Discipline</th>
-                    {comparisonReports.map((r) => (
-                      <th key={r.id} className="px-2 py-1 whitespace-nowrap">
-                        {r.taken_date ?? "?"}
-                        <br />
-                        <span className="text-slate-600">{r.exam_name}</span>
-                      </th>
-                    ))}
+        {comparisonReports.length > 1 && allDisciplineStrengths.length > 0 && (
+          <div className="card overflow-x-auto mt-4">
+            <p className="text-sm font-semibold mb-3">Progress by discipline</p>
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="pr-3 py-1">Discipline</th>
+                  {comparisonReports.map((r) => (
+                    <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                      {r.taken_date ?? "?"}
+                      <br />
+                      <span className="text-slate-600">{r.exam_name}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allDisciplineStrengths.map((s) => (
+                  <tr key={s.system} className="border-t border-slate-800">
+                    <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                    {comparisonReports.map((r) => {
+                      const pct = r.discipline_breakdown?.[s.system];
+                      return (
+                        <td key={r.id} className="px-2 py-1.5 text-center">
+                          {typeof pct === "number" ? (
+                            <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                          ) : (
+                            <span className="text-slate-700">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
-                </thead>
-                <tbody>
-                  {allDisciplineStrengths.map((s) => (
-                    <tr key={s.system} className="border-t border-slate-800">
-                      <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
-                      {comparisonReports.map((r) => {
-                        const pct = r.discipline_breakdown?.[s.system];
-                        return (
-                          <td key={r.id} className="px-2 py-1.5 text-center">
-                            {typeof pct === "number" ? (
-                              <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
-                            ) : (
-                              <span className="text-slate-700">-</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Study plan - only the signed-in mentor's own relationship can write
-            here (see mentor_study_plans RLS); writing this overrides the
-            default AI-generated study plan the student otherwise sees on
-            their own Analysis page. */}
-        {myMentorRecord && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">Study plan</h2>
-            <StudyPlanEditor
-              studentId={params.studentId}
-              mentorId={myMentorRecord.id}
-              currentUserId={user.id}
-              initialContent={studyPlan?.content ?? null}
-              initialUpdatedAt={studyPlan?.updated_at ?? null}
-            />
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
+      </div>
 
-        {/* Score reports */}
-        {scoreReports.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">Score reports</h2>
-            <div className="space-y-2">
-              {scoreReports.map((r) => (
-                <MentorScoreReportRow key={r.id} report={r} canReview={!!myMentorRecord} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Planner schedule - where this student's plan starts. Once set,
-            their planner grid stops resetting to a window centered on
-            "today" every time it loads and instead starts here, growing
-            forward from whatever's already been logged (see
-            lib/plannerSettings.ts). */}
-        {myMentorRecord && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
-            <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
-          </div>
-        )}
-
-        {/* Planner layout - lets a mentor add/edit/delete this specific
-            student's planner columns (e.g. drop "First Aid Pages" for a
-            student not using First Aid, or add a custom one) without
-            touching any other student's layout. */}
-        {myMentorRecord && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">Planner layout</h2>
-            <MentorPlannerColumnsEditor
-              studentId={params.studentId}
-              defaultColumns={defaultPlannerColumns}
-              initialOwnColumns={ownPlannerColumns}
-            />
-          </div>
-        )}
-
-        {/* Study planner - the same calendar the student sees on their own
-            /planner. Click a day to add/edit Assignments (a full editor
-            here, since mentorId is passed below), log UWorld blocks on the
-            student's behalf, and read/write Mentor Notes - editable when the
-            viewer is this student's mentor (canEdit + mentorId below - RLS
-            backs this up, see mentor_write_student_planner_entries). An
-            admin browsing here without a mentor relationship sees it
-            read-only. */}
-        <div className="mb-8">
-          <h2 className="text-lg font-bold mb-3">Study planner</h2>
-          <PlannerCalendar
-            targetUserId={params.studentId}
-            initialTasks={planTasks}
-            initialEntries={plannerEntries}
-            initialBlocks={uworldBlocks}
-            initialMentorNotes={dailyNotes}
-            studyResources={studyResources}
-            mainColumns={mainPlannerColumns(plannerColumns)}
-            columns={plannerColumns}
-            canEdit={!!myMentorRecord}
-            mentorId={myMentorRecord?.id ?? null}
-            startDate={plannerStartDate}
-            todayIso={easternDateStringNow()}
+      {/* Study plan - only the signed-in mentor's own relationship can write
+          here; overrides the default AI-generated study plan the student
+          otherwise sees on their own Analysis page. */}
+      {myMentorRecord && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Study plan</h2>
+          <StudyPlanEditor
+            studentId={params.studentId}
+            mentorId={myMentorRecord.id}
+            currentUserId={user.id}
+            initialContent={studyPlan?.content ?? null}
+            initialUpdatedAt={studyPlan?.updated_at ?? null}
           />
         </div>
+      )}
 
-        {/* Previous sessions + notes (only meaningful for the signed-in mentor's own history) */}
-        {myMentorRecord && (
-          <div>
-            <h2 className="text-lg font-bold mb-3">Previous sessions</h2>
-            {sessions.length === 0 ? (
-              <p className="text-sm text-slate-500">No sessions with this student yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {sessions.map((s) => {
-                  const status = getSlotStatus(s);
-                  const note = notesBySlotId.get(s.id);
-                  return (
-                    <div key={s.id} className="card py-3">
-                      <p className="text-sm">
-                        {formatSlotDate(s.start_time)}, {formatSlotTime(s.start_time)}&ndash;
-                        {formatSlotTime(s.end_time)}{" "}
-                        <span className="text-slate-500">
-                          ({status === "upcoming" ? "Upcoming" : status === "cancelled" ? "Cancelled" : "Completed"})
-                        </span>
-                      </p>
-                      {note && (
-                        <div className="mt-2 pl-1 space-y-1 text-sm text-slate-300">
-                          {note.discussion && <p><span className="text-slate-500">Discussion:</span> {note.discussion}</p>}
-                          {note.strengths && <p><span className="text-slate-500">Strengths:</span> {note.strengths}</p>}
-                          {note.weaknesses && <p><span className="text-slate-500">Weaknesses:</span> {note.weaknesses}</p>}
-                          {note.study_plan && <p><span className="text-slate-500">Study plan:</span> {note.study_plan}</p>}
-                          {note.goals && <p><span className="text-slate-500">Goals:</span> {note.goals}</p>}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+      {/* Score reports */}
+      {scoreReports.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Score reports</h2>
+          <div className="space-y-2">
+            {scoreReports.map((r) => (
+              <MentorScoreReportRow key={r.id} report={r} canReview={!!myMentorRecord} />
+            ))}
           </div>
-        )}
+        </div>
+      )}
+    </div>
+  );
+
+  const messagesContent = myMentorRecord ? (
+    <MentorChatPanel
+      mentorId={myMentorRecord.id}
+      studentId={params.studentId}
+      otherPartyLabel={student.full_name || "this student"}
+    />
+  ) : null;
+
+  const tabs: StudentTabDef[] = [
+    { id: "overview", label: "Overview", content: overviewContent },
+    ...(myMentorRecord ? [{ id: "sessions", label: "Sessions", content: sessionsContent }] : []),
+    { id: "planner", label: "Study Planner", content: studyPlannerContent },
+    { id: "analysis", label: "Analysis", content: analysisContent },
+    ...(myMentorRecord ? [{ id: "messages", label: "Messages", content: messagesContent }] : []),
+  ];
+
+  return (
+    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+      <main className="flex-1 px-6 py-8 w-full">
+        <Link href="/mentorship/students" className="text-xs text-brand-400 hover:text-brand-300">
+          ← Back to students
+        </Link>
+        <h1 className="text-xl font-bold mt-2 mb-1">{student.full_name || "Student"}</h1>
+        <p className="text-sm text-slate-400 mb-6">
+          {myMentorRecord
+            ? "Click a tab to switch sections, or click any day on the Study Planner calendar to add or edit Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
+            : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
+        </p>
+
+        <MentorStudentTabs tabs={tabs} defaultTab="overview" />
       </main>
     </AppShell>
   );
