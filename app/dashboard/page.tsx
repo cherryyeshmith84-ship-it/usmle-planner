@@ -15,6 +15,7 @@ import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { computeTodayStatus } from "@/lib/plannerStatus";
 import { computeStreaks } from "@/lib/streaks";
 import { computeSchedulePaceDays, computeDayStatus } from "@/lib/plannerCalendar";
+import { computeCatchUpPlan, computeMoveAheadSuggestion, computeSkippedCategories } from "@/lib/adaptivePlanner";
 import { easternDateStringNow, timeOfDayGreeting } from "@/lib/timezone";
 import {
   computeAiReminder,
@@ -29,6 +30,7 @@ import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 import WeeklyProgress from "@/components/WeeklyProgress";
 import MarkDayCompleteButton from "@/components/MarkDayCompleteButton";
 import MissedDayPrompt from "@/components/MissedDayPrompt";
+import AdaptiveInsights from "@/components/AdaptiveInsights";
 import {
   WelcomeCard,
   TodaysPlanCard,
@@ -237,6 +239,14 @@ export default async function DashboardPage() {
   const yesterdayMissedCount = yesterdayTasks.filter((t) => !t.completed).length;
   const showMissedDayPrompt = yesterdayDayStatus === "missed" || yesterdayDayStatus === "partial";
 
+  // Adaptive engine (Study Planner v2, phase 4) - "suggest, student
+  // confirms" for anything touching the student's own plan; the
+  // skipped-subject flag is the one exception, since it only notifies the
+  // mentor and doesn't change the student's data (see AdaptiveInsights.tsx).
+  const catchUpPlan = computeCatchUpPlan(tasksByDate, today, pace, daysRemaining);
+  const moveAheadSuggestion = computeMoveAheadSuggestion(pace, today, tasksByDate);
+  const skippedCategories = computeSkippedCategories(planTasks, today);
+
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 space-y-6 w-full">
@@ -263,6 +273,15 @@ export default async function DashboardPage() {
             dayLabel="Yesterday"
           />
         )}
+
+        <AdaptiveInsights
+          catchUpPlan={catchUpPlan}
+          moveAhead={moveAheadSuggestion}
+          skippedCategories={skippedCategories}
+          studentId={user.id}
+          mentorId={mentorFromEmail?.id ?? null}
+          todayIso={today}
+        />
 
         <StatusUpdateCard
           userId={user.id}
