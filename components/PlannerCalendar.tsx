@@ -219,6 +219,7 @@ export default function PlannerCalendar({
           </div>
         )}
         <DailyPlannerPanel
+          key={selectedDate}
           targetUserId={targetUserId}
           date={selectedDate}
           columns={columns}
