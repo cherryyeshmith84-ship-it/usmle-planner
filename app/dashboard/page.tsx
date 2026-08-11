@@ -4,7 +4,9 @@ import type { Profile } from "@/lib/types";
 import type { Mentor, MentorSlot } from "@/lib/mentors";
 import { findMentorByEmail, getSlotStatus } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
-import type { PlannerEntry } from "@/lib/plannerColumns";
+import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
+import { isBoxFilled } from "@/lib/planProgress";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeTaskProgress, groupTasksByDate, sortTasks } from "@/lib/planTasks";
@@ -14,7 +16,7 @@ import { computeImmediateExamReview, computeSystemStrengths } from "@/lib/scoreR
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
 import { computeTodayStatus } from "@/lib/plannerStatus";
 import { computeStreaks } from "@/lib/streaks";
-import { computeSchedulePaceDays, computeDayStatus } from "@/lib/plannerCalendar";
+import { computeSchedulePaceDays } from "@/lib/plannerCalendar";
 import { computeCatchUpPlan, computeMoveAheadSuggestion, computeSkippedCategories } from "@/lib/adaptivePlanner";
 import { easternDateStringNow, timeOfDayGreeting } from "@/lib/timezone";
 import {
@@ -117,8 +119,17 @@ export default async function DashboardPage() {
   const today = easternDateStringNow();
   const yesterday = isoAddDays(today, -1);
 
-  const [entriesRes, blocksRes, planTasksRes, dailyNotesRes, scoreReportsRes, bookingsRes, meetingLinkRes, plannerSettingsRes] =
-    await Promise.all([
+  const [
+    entriesRes,
+    blocksRes,
+    planTasksRes,
+    dailyNotesRes,
+    scoreReportsRes,
+    bookingsRes,
+    meetingLinkRes,
+    plannerSettingsRes,
+    columnsRes,
+  ] = await Promise.all([
       supabase.from("planner_entries").select("*").eq("user_id", user.id),
       supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
       supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
@@ -134,6 +145,15 @@ export default async function DashboardPage() {
       // until their new mentor sets a fresh link.
       supabase.from("mentor_meeting_links").select("mentor_id, meeting_link").eq("student_id", user.id).maybeSingle(),
       supabase.from("student_planner_settings").select("start_date").eq("student_id", user.id).maybeSingle(),
+      // Same global-defaults-plus-this-student's-own-customization query as
+      // /planner - needed here too now that the header's pace/motivation
+      // numbers and the missed-day prompt read the flat grid as well as
+      // Assignments (see mainPlannerColumns in lib/plannerColumns.ts).
+      supabase
+        .from("planner_columns")
+        .select("*")
+        .or(`student_id.is.null,student_id.eq.${user.id}`)
+        .order("sort_order", { ascending: true }),
     ]);
 
   const entries = (entriesRes.data ?? []) as PlannerEntry[];
@@ -144,6 +164,9 @@ export default async function DashboardPage() {
   const bookings = (bookingsRes.data ?? []) as Booking[];
   const meetingLinkRow = meetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  const activeMainColumns = mainPlannerColumns(resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id));
+  const entryByDate: Record<string, PlannerEntry> = {};
+  for (const e of entries) entryByDate[e.log_date] = e;
 
   const todaysEntry = entries.find((e) => e.log_date === today);
   const yesterdayEntry = entries.find((e) => e.log_date === yesterday);
@@ -208,9 +231,11 @@ export default async function DashboardPage() {
 
   // Dashboard header (Study Planner v2) - greeting, exam countdown, streak,
   // today's progress, and a rough "ahead/behind schedule" pace signal. Pace
-  // and today's progress are both derived from mentor_plan_tasks (the same
-  // Assignments data as TodaysPlanCard below), NOT the flat grid's columns -
-  // see lib/plannerCalendar.ts for why.
+  // now accounts for BOTH mentor_plan_tasks ("Assignments") and the flat
+  // grid (planner_entries) - it used to only look at Assignments, which
+  // meant a mentor who exclusively fills in Planned System/First Aid
+  // Pages/etc. would always show a flat 0-day pace no matter how far ahead
+  // or behind their student actually was. See lib/plannerCalendar.ts.
   const firstName = (profile.full_name || user.email || "there").trim().split(/\s+/)[0];
   const examLabel = profile.exam_track === "subject" ? `Subject${profile.subject_name ? `: ${profile.subject_name}` : ""}` : "Step 1";
   const daysRemaining = profile.exam_date ? daysBetween(today, profile.exam_date) : null;
@@ -225,19 +250,24 @@ export default async function DashboardPage() {
     ? "warning"
     : "neutral";
   const tasksByDate = groupTasksByDate(planTasks);
-  const pace = computeSchedulePaceDays(tasksByDate, plannerStartDate, today);
+  const pace = computeSchedulePaceDays(tasksByDate, plannerStartDate, today, entryByDate, activeMainColumns);
   const todayTaskProgress = computeTaskProgress(todaysTasks);
-  const todayFullyComplete = todayTaskProgress.totalCount > 0 && todayTaskProgress.completedCount === todayTaskProgress.totalCount;
+  const todayGridValues = todaysEntry?.field_values ?? {};
+  const todayGridFullyDone =
+    activeMainColumns.length > 0 && activeMainColumns.every((col) => isBoxFilled(col, todayGridValues[col.key]));
+  const todayFullyComplete =
+    (todayTaskProgress.totalCount > 0 && todayTaskProgress.completedCount === todayTaskProgress.totalCount) ||
+    todayGridFullyDone;
   const motivationMessage = computeMotivationMessage(todayFullyComplete, pace);
 
-  // Missed-day prompt (Study Planner v2, phase 3) - only surfaces when
-  // yesterday genuinely had unfinished mentor-assigned tasks (status
-  // "missed" or "partial"); a day with nothing planned ("no-plan") never
-  // triggers it, since there's nothing to reschedule.
+  // Missed-day prompt (Study Planner v2, phase 3) - deliberately stays
+  // Assignments-only (not merged with the flat grid like pace/the calendar
+  // are): the reschedule route can only move mentor_plan_tasks rows, so
+  // showing this for a grid-only missed day would offer buttons that don't
+  // actually do anything for that day.
   const yesterdayTasks = tasksByDate[yesterday] ?? [];
-  const yesterdayDayStatus = computeDayStatus(yesterdayTasks, yesterday, today);
   const yesterdayMissedCount = yesterdayTasks.filter((t) => !t.completed).length;
-  const showMissedDayPrompt = yesterdayDayStatus === "missed" || yesterdayDayStatus === "partial";
+  const showMissedDayPrompt = yesterdayTasks.length > 0 && yesterdayMissedCount > 0;
 
   // Adaptive engine (Study Planner v2, phase 4) - "suggest, student
   // confirms" for anything touching the student's own plan; the
