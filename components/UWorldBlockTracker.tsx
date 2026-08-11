@@ -9,7 +9,7 @@ import { STEP1_SYSTEMS } from "@/lib/qbankTypes";
 const MODES: UWorldBlockMode[] = ["Timed", "Untimed", "Tutor"];
 
 interface DraftBlock {
-  key: string;
+  key: string; // stable local key - real id for existing rows, "new-N" for freshly added ones
   questions: string;
   percentage: string;
   average: string;
@@ -30,6 +30,26 @@ function toDraft(b: UWorldBlock): DraftBlock {
   };
 }
 
+/**
+ * Question-bank block tracker (Study Planner v1 item 2, originally
+ * "UWorld Block Tracker") - lets a student log each block of questions they
+ * did that day exactly as the bank already shows it (Questions/
+ * Percentage/Average/Mode), no math required or performed here. Generalized
+ * beyond just UWorld - a student who splits practice across UWorld, Amboss,
+ * and Mehlman logs every block here, each tagged with which bank AND which
+ * organ system it covered (lib/qbankTypes.ts's STEP1_SYSTEMS - the same
+ * canonical list score reports use), so Analysis can show an average % per
+ * system per bank (lib/qbankBlockStats.ts /
+ * components/QBankSystemBreakdown.tsx) instead of one flat number across
+ * everything. Both tags are optional - an untagged block still counts
+ * everywhere it always did (weekly average, streaks, question counts), it
+ * just won't show up broken out by bank/system.
+ *
+ * Save is explicit (not autosave) to match the rest of the planner's UX -
+ * on save this simply replaces every block row for this user+date with
+ * whatever's currently drafted, which keeps add/remove/reorder trivial
+ * instead of diffing against the DB.
+ */
 export default function UWorldBlockTracker({
   targetUserId,
   date,
@@ -155,6 +175,15 @@ export default function UWorldBlockTracker({
                   className="input text-sm py-1 px-2 w-full"
                 >
                   <option value="">-</option>
+                  {/* Random (mixed-system) blocks are common - UWorld's own
+                      "Random" quiz mode pulls from every system at once, so
+                      forcing a single system on it would misrepresent what
+                      was actually practiced. Kept out of lib/qbankTypes.ts's
+                      STEP1_SYSTEMS (that list is shared with score-report
+                      breakdowns, which really do need one real system per
+                      column) - this is a tracker-only option that just shows
+                      up as its own row in the per-system breakdown table. */}
+                  <option value="Random">Random (mixed systems)</option>
                   {STEP1_SYSTEMS.map((s) => (
                     <option key={s} value={s}>
                       {s}
