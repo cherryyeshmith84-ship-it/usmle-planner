@@ -154,13 +154,24 @@ export default async function AdminHome() {
                   {s.exam_date ? ` · exam ${s.exam_date}` : ""}
                   {s.daily_hour_goal ? ` · goal ${s.daily_hour_goal}h/day` : ""}
                 </p>
-                <p className="text-xs mt-1">
-                  {mentorNameFor(s) ? (
-                    <span className="text-green-400">Mentor: {mentorNameFor(s)}</span>
-                  ) : (
-                    <span className="text-amber-400">No mentor yet</span>
+                <div className="flex items-center gap-2 flex-wrap mt-1">
+                  <p className="text-xs">
+                    {mentorNameFor(s) ? (
+                      <span className="text-green-400">Mentor: {mentorNameFor(s)}</span>
+                    ) : (
+                      <span className="text-amber-400">No mentor yet</span>
+                    )}
+                  </p>
+                  {/* Same assign/remove control as the "Waiting for a mentor"
+                      section above, now on every student - picking "No
+                      mentor" and clicking Assign clears mentor_email, which
+                      is how an admin un-assigns someone. Wrapped in its own
+                      stopPropagation (inside the component) so clicking it
+                      doesn't also trigger this card's own Link navigation. */}
+                  {activeMentors.length > 0 && (
+                    <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
                   )}
-                </p>
+                </div>
                 <p className="text-sm text-brand-300 mt-1">
                   {s.assigned_template_id
                     ? `Assigned: ${templateMap.get(s.assigned_template_id) ?? "template"}`
