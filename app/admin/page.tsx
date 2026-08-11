@@ -118,16 +118,21 @@ export default async function AdminHome() {
             const needsPlanFlag = s.onboarding_completed && !s.assigned_template_id;
             const needsAttention = needsPlanFlag || !!s.track_changed_pending;
             return (
-              <Link
+              // A plain <div> now, not a <Link> - a Link wrapping the whole
+              // card meant a click on the MentorAssignSelect below (even
+              // with its own stopPropagation) could still trigger the
+              // card's navigation before the mentor update finished, so
+              // "Assign" looked like it just refreshed the page and did
+              // nothing. Same fix already used one section up for "Waiting
+              // for a mentor" - a plain card with its own explicit "View
+              // profile" link, so only that link navigates.
+              <div
                 key={s.id}
-                href={`/admin/students/${s.id}`}
-                className={`card block transition ${
-                  needsAttention
-                    ? "border-amber-700 hover:border-amber-500"
-                    : "hover:border-brand-500"
+                className={`card transition ${
+                  needsAttention ? "border-amber-700" : ""
                 }`}
               >
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center justify-between mb-1 gap-3 flex-wrap">
                   <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
                   <div className="flex items-center gap-2">
                     {s.track_changed_pending && (
@@ -147,6 +152,12 @@ export default async function AdminHome() {
                         ? STAGE_LABEL[s.prep_stage]
                         : "Step 1"}
                     </span>
+                    <Link
+                      href={`/admin/students/${s.id}`}
+                      className="text-xs text-brand-400 hover:text-brand-300 whitespace-nowrap"
+                    >
+                      View profile &rarr;
+                    </Link>
                   </div>
                 </div>
                 <p className="text-sm text-slate-400">
@@ -165,9 +176,7 @@ export default async function AdminHome() {
                   {/* Same assign/remove control as the "Waiting for a mentor"
                       section above, now on every student - picking "No
                       mentor" and clicking Assign clears mentor_email, which
-                      is how an admin un-assigns someone. Wrapped in its own
-                      stopPropagation (inside the component) so clicking it
-                      doesn't also trigger this card's own Link navigation. */}
+                      is how an admin un-assigns someone. */}
                   {activeMentors.length > 0 && (
                     <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
                   )}
@@ -179,7 +188,7 @@ export default async function AdminHome() {
                     ? "No template assigned yet"
                     : "Hasn't finished onboarding yet"}
                 </p>
-              </Link>
+              </div>
             );
           })}
         </div>
