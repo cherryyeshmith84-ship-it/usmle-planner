@@ -1,5 +1,6 @@
 import type { PlanTask } from "./planTasks";
-import type { PlannerEntry } from "./plannerColumns";
+import type { PlannerColumn, PlannerEntry } from "./plannerColumns";
+import { isBoxFilled } from "./planProgress";
 
 // Pure UTC date-string arithmetic - never touches the browser/server's local
 // timezone (see the matching comment in PlannerGridClient.tsx's addDays for
@@ -10,34 +11,75 @@ function addDays(date: string, n: number): string {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
-export type DayStatus = "completed" | "partial" | "missed" | "today" | "upcoming" | "no-plan";
+export type DayStatus =
+  | "completed"
+  | "partial"
+  | "missed"
+  | "today"
+  | "upcoming-planned"
+  | "upcoming"
+  | "no-plan";
 
 export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; label: string }> = {
   completed: { bg: "bg-green-900/40", text: "text-green-400", label: "Completed" },
   partial: { bg: "bg-amber-900/40", text: "text-amber-400", label: "Partially completed" },
   missed: { bg: "bg-red-900/40", text: "text-red-400", label: "Missed" },
   today: { bg: "bg-brand-900/40", text: "text-brand-400", label: "Today" },
+  "upcoming-planned": { bg: "bg-brand-900/20", text: "text-brand-300", label: "Planned" },
   upcoming: { bg: "bg-slate-800", text: "text-slate-400", label: "Upcoming" },
   "no-plan": { bg: "bg-slate-900", text: "text-slate-600", label: "No plan set" },
 };
 
 /**
- * Single day's calendar status, from the mentor-assigned tasks for that day
- * (mentor_plan_tasks / PlanTask - the same "Assignments" data already shown
- * on the Home dashboard's Today's Plan card and the flat planner grid's
- * expanded-row Assignments section). "today" always wins regardless of
- * completion state - the blue/highlighted ring is about WHEN, not whether
- * it's done yet; a fully-logged today still counts toward the streak and
- * progress bar, just not toward "completed" calendar color until it's in
- * the past.
+ * Single day's calendar status - merges TWO separate places a mentor can
+ * put a plan: mentor_plan_tasks ("Assignments", a checklist) and the flat
+ * planner_entries grid (Planned System, First Aid Pages, etc. - the
+ * original planner tool, and the one most mentors actually use day to day).
+ * A day only ever shows as "no plan" if BOTH sources are empty - a mentor
+ * who exclusively fills in the flat grid should see their plan reflected
+ * here exactly the same as one who uses Assignments (this was a real bug:
+ * the calendar used to only look at Assignments, so a grid-only mentor's
+ * plan never showed up as anything but gray "Upcoming").
+ *
+ * "today" always wins regardless of completion state. Future days that
+ * have a plan from either source get a distinct "upcoming-planned" tint
+ * instead of plain gray "upcoming" - visible, immediate confirmation to
+ * both mentor and student that a plan actually reached the system, without
+ * claiming it's "done" before it's even arrived.
+ *
+ * `gridEntry`/`activeColumns` are optional so existing callers that only
+ * care about Assignments (the missed-day reschedule prompt, which can only
+ * ever act on tasks) can keep passing just the first three args.
  */
-export function computeDayStatus(dayTasks: PlanTask[], date: string, todayIso: string): DayStatus {
+export function computeDayStatus(
+  dayTasks: PlanTask[],
+  date: string,
+  todayIso: string,
+  gridEntry?: PlannerEntry,
+  activeColumns: PlannerColumn[] = []
+): DayStatus {
+  const gridValues = gridEntry?.field_values ?? {};
+  const gridFilledCount = activeColumns.filter((col) => isBoxFilled(col, gridValues[col.key])).length;
+  const gridHasAny = gridFilledCount > 0;
+  const gridFullyDone = activeColumns.length > 0 && gridFilledCount === activeColumns.length;
+  const hasTasks = dayTasks.length > 0;
+  const hasAnyPlan = hasTasks || gridHasAny;
+
   if (date === todayIso) return "today";
-  if (date > todayIso) return "upcoming";
-  if (dayTasks.length === 0) return "no-plan";
-  const completed = dayTasks.filter((t) => t.completed).length;
-  if (completed === dayTasks.length) return "completed";
-  if (completed === 0) return "missed";
+  if (date > todayIso) return hasAnyPlan ? "upcoming-planned" : "upcoming";
+  if (!hasAnyPlan) return "no-plan";
+
+  // Past/today-adjacent day with a plan from at least one source - each
+  // source that has content contributes a 0 / 0.5 / 1 "done-ness" signal;
+  // completed only if every source that was actually used is fully done,
+  // missed only if every source that was used is fully untouched, anything
+  // else (including a grid day missing just one box) is "partial."
+  const taskSignal = !hasTasks ? null : dayTasks.every((t) => t.completed) ? 1 : dayTasks.some((t) => t.completed) ? 0.5 : 0;
+  const gridSignal = !gridHasAny ? null : gridFullyDone ? 1 : 0.5;
+  const signals = [taskSignal, gridSignal].filter((s): s is number => s !== null);
+
+  if (signals.every((s) => s === 1)) return "completed";
+  if (signals.every((s) => s === 0)) return "missed";
   return "partial";
 }
 
@@ -49,12 +91,18 @@ export interface CalendarDay {
 }
 
 /** Every day from `start` through `end` (inclusive), with its status - used
- *  to render both the month calendar grid and the weekly view. */
+ *  to render both the month calendar grid and the weekly view.
+ *  `entriesByDate`/`activeColumns` are optional so a caller that genuinely
+ *  only cares about Assignments can omit them (they'll just default to no
+ *  grid signal); every real page passes them so grid-only mentors' plans
+ *  show up too (see computeDayStatus). */
 export function buildCalendarRange(
   tasksByDate: Record<string, PlanTask[]>,
   start: string,
   end: string,
-  todayIso: string
+  todayIso: string,
+  entriesByDate: Record<string, PlannerEntry> = {},
+  activeColumns: PlannerColumn[] = []
 ): CalendarDay[] {
   const days: CalendarDay[] = [];
   let cursor = start;
@@ -63,7 +111,7 @@ export function buildCalendarRange(
     const dayTasks = tasksByDate[cursor] ?? [];
     days.push({
       date: cursor,
-      status: computeDayStatus(dayTasks, cursor, todayIso),
+      status: computeDayStatus(dayTasks, cursor, todayIso, entriesByDate[cursor], activeColumns),
       completedCount: dayTasks.filter((t) => t.completed).length,
       totalCount: dayTasks.length,
     });
@@ -82,18 +130,23 @@ export function buildCalendarRange(
  * completed (the student worked ahead) counts as +1. The sum is how many
  * days ahead (positive) or behind (negative) the student currently is.
  * Returns 0 if there's no start date set yet, or nothing's been logged.
+ * Counts a day as done/missed/partial from EITHER Assignments or the flat
+ * grid (see computeDayStatus) - `entriesByDate`/`activeColumns` default to
+ * empty so callers that only track Assignments still work unchanged.
  */
 export function computeSchedulePaceDays(
   tasksByDate: Record<string, PlanTask[]>,
   startDate: string | null,
-  todayIso: string
+  todayIso: string,
+  entriesByDate: Record<string, PlannerEntry> = {},
+  activeColumns: PlannerColumn[] = []
 ): number {
   if (!startDate || startDate > todayIso) return 0;
   let pace = 0;
   let cursor = startDate;
   let guard = 0;
   while (cursor < todayIso && guard < 400) {
-    const status = computeDayStatus(tasksByDate[cursor] ?? [], cursor, todayIso);
+    const status = computeDayStatus(tasksByDate[cursor] ?? [], cursor, todayIso, entriesByDate[cursor], activeColumns);
     if (status === "missed" || status === "partial") pace -= 1;
     cursor = addDays(cursor, 1);
     guard++;
@@ -105,7 +158,10 @@ export function computeSchedulePaceDays(
   guard = 0;
   while (guard < 400) {
     const dayTasks = tasksByDate[cursor];
-    if (!dayTasks || dayTasks.length === 0 || dayTasks.some((t) => !t.completed)) break;
+    const tasksFullyDone = !!dayTasks && dayTasks.length > 0 && dayTasks.every((t) => t.completed);
+    const gridValues = entriesByDate[cursor]?.field_values ?? {};
+    const gridFullyDone = activeColumns.length > 0 && activeColumns.every((col) => isBoxFilled(col, gridValues[col.key]));
+    if (!tasksFullyDone && !gridFullyDone) break;
     pace += 1;
     cursor = addDays(cursor, 1);
     guard++;
