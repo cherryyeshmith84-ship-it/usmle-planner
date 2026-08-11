@@ -33,7 +33,6 @@ import WeeklyProgress from "@/components/WeeklyProgress";
 import MarkDayCompleteButton from "@/components/MarkDayCompleteButton";
 import MissedDayPrompt from "@/components/MissedDayPrompt";
 import AdaptiveInsights from "@/components/AdaptiveInsights";
-import TutorialOverlay from "@/components/TutorialOverlay";
 import {
   WelcomeCard,
   TodaysPlanCard,
@@ -280,12 +279,9 @@ export default async function DashboardPage() {
 
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
-      {/* First-run tour - shows once for every student until they finish or
-          skip it (profiles.tutorial_completed), then never again. Gated to
-          this page only since mentors are redirected away above before
-          reaching this point, so anyone rendering past here is a real
-          student. */}
-      <TutorialOverlay userId={user.id} initialCompleted={!!profile.tutorial_completed} />
+      {/* The first-run tour (OnboardingTour.tsx) is mounted globally in
+          AppShell.tsx, not here - it resolves whether to show itself
+          entirely client-side, so no per-page wiring is needed. */}
       <main className="flex-1 px-6 py-8 space-y-6 w-full">
         <WelcomeCard
           greeting={timeOfDayGreeting()}
