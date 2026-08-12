@@ -1,6 +1,5 @@
 import type { PlanTask } from "./planTasks";
 import type { PlannerColumn, PlannerEntry } from "./plannerColumns";
-import { isBoxFilled } from "./planProgress";
 
 // Pure UTC date-string arithmetic - never touches the browser/server's local
 // timezone (see the matching comment in PlannerGridClient.tsx's addDays for
@@ -42,55 +41,49 @@ export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; lab
 };
 
 /**
- * Single day's calendar status - merges TWO separate places a mentor can
- * put a plan: mentor_plan_tasks ("Assignments", a checklist) and the flat
- * planner_entries grid (Planned System, First Aid Pages, etc. - the
- * original planner tool, and the one most mentors actually use day to day).
- * A day only ever shows as "no plan" if BOTH sources are empty - a mentor
- * who exclusively fills in the flat grid should see their plan reflected
- * here exactly the same as one who uses Assignments (this was a real bug:
- * the calendar used to only look at Assignments, so a grid-only mentor's
- * plan never showed up as anything but gray "Upcoming").
+ * Single day's calendar status - based on mentor_plan_tasks ("Assignments",
+ * the checklist a mentor sets and a student checks off).
  *
- * "today" always wins regardless of completion state. Future days that
- * have a plan from either source get a distinct "upcoming-planned" tint
- * instead of plain gray "upcoming" - visible, immediate confirmation to
- * both mentor and student that a plan actually reached the system, without
- * claiming it's "done" before it's even arrived.
+ * `gridEntry`/`activeColumns` are accepted for backward compatibility with
+ * existing callers but are NO LONGER factored into the status. They used to
+ * represent the flat planner_columns grid (Planned System, First Aid Pages,
+ * etc.) as an alternate source of "the plan" for mentors who didn't use
+ * Assignments. That grid is retired - MentorPlannerColumnsEditor (the only
+ * UI that could ever fill most of those columns) was removed as dead
+ * clutter, so a handful of the globally-active planner_columns
+ * (planned_system, q_solved, q_reviewed, first_aid_pages, questions_planned,
+ * task_completed) now have NO way to be filled in from any current UI. The
+ * few columns DailyPlannerPanel still writes (mood, notes, reflections,
+ * tomorrow's goal) are journal entries ABOUT the day, not a checklist of
+ * what was planned - but counting them as "grid activity" meant a day with
+ * just a mood/notes entry, and zero real Assignments, got treated as having
+ * a plan that could mathematically never reach 100% (since those other
+ * columns are permanently unfillable) - stuck on "partial" (yellow) forever,
+ * even after a student finished every single Assignment for that day. This
+ * was the root cause of "I completed everything but it's still showing
+ * yellow," reported across multiple students. Assignments are the only real
+ * source of "what was planned for this day" now.
  *
- * `gridEntry`/`activeColumns` are optional so existing callers that only
- * care about Assignments (the missed-day reschedule prompt, which can only
- * ever act on tasks) can keep passing just the first three args.
+ * "today" always wins regardless of completion state. Future days with
+ * Assignments get a distinct "upcoming-planned" tint instead of plain gray
+ * "upcoming" - visible, immediate confirmation that a plan actually reached
+ * the system, without claiming it's "done" before it's even arrived.
  */
 export function computeDayStatus(
   dayTasks: PlanTask[],
   date: string,
   todayIso: string,
-  gridEntry?: PlannerEntry,
-  activeColumns: PlannerColumn[] = []
+  _gridEntry?: PlannerEntry,
+  _activeColumns: PlannerColumn[] = []
 ): DayStatus {
-  const gridValues = gridEntry?.field_values ?? {};
-  const gridFilledCount = activeColumns.filter((col) => isBoxFilled(col, gridValues[col.key])).length;
-  const gridHasAny = gridFilledCount > 0;
-  const gridFullyDone = activeColumns.length > 0 && gridFilledCount === activeColumns.length;
   const hasTasks = dayTasks.length > 0;
-  const hasAnyPlan = hasTasks || gridHasAny;
 
   if (date === todayIso) return "today";
-  if (date > todayIso) return hasAnyPlan ? "upcoming-planned" : "upcoming";
-  if (!hasAnyPlan) return "no-plan";
+  if (date > todayIso) return hasTasks ? "upcoming-planned" : "upcoming";
+  if (!hasTasks) return "no-plan";
 
-  // Past/today-adjacent day with a plan from at least one source - each
-  // source that has content contributes a 0 / 0.5 / 1 "done-ness" signal;
-  // completed only if every source that was actually used is fully done,
-  // missed only if every source that was used is fully untouched, anything
-  // else (including a grid day missing just one box) is "partial."
-  const taskSignal = !hasTasks ? null : dayTasks.every((t) => t.completed) ? 1 : dayTasks.some((t) => t.completed) ? 0.5 : 0;
-  const gridSignal = !gridHasAny ? null : gridFullyDone ? 1 : 0.5;
-  const signals = [taskSignal, gridSignal].filter((s): s is number => s !== null);
-
-  if (signals.every((s) => s === 1)) return "completed";
-  if (signals.every((s) => s === 0)) return "missed";
+  if (dayTasks.every((t) => t.completed)) return "completed";
+  if (dayTasks.every((t) => !t.completed)) return "missed";
   return "partial";
 }
 
@@ -165,14 +158,15 @@ export function computeSchedulePaceDays(
   // Credit for future days already fully completed (worked ahead) - stop
   // looking once we hit the first day that ISN'T fully done, since "ahead"
   // should mean a consecutive run from today, not scattered future days.
+  // Same fix as computeDayStatus above: judged purely on Assignments now,
+  // not the retired flat grid (entriesByDate/activeColumns kept as params
+  // for compatibility but no longer consulted here).
   cursor = addDays(todayIso, 1);
   guard = 0;
   while (guard < 400) {
     const dayTasks = tasksByDate[cursor];
     const tasksFullyDone = !!dayTasks && dayTasks.length > 0 && dayTasks.every((t) => t.completed);
-    const gridValues = entriesByDate[cursor]?.field_values ?? {};
-    const gridFullyDone = activeColumns.length > 0 && activeColumns.every((col) => isBoxFilled(col, gridValues[col.key]));
-    if (!tasksFullyDone && !gridFullyDone) break;
+    if (!tasksFullyDone) break;
     pace += 1;
     cursor = addDays(cursor, 1);
     guard++;
