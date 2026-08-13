@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+const ERROR_MESSAGES: Record<string, string> = {
+  mentor_account: "That email belongs to a mentor account. Please use the mentor login instead.",
+};
+
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
@@ -20,7 +24,9 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    ERROR_MESSAGES[params.get("error") ?? ""] ?? null
+  );
 
   async function handleGoogle() {
     setError(null);
@@ -28,10 +34,12 @@ function LoginForm() {
     const supabase = createClient();
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
     const next = params.get("next");
+    const callbackParams = new URLSearchParams({ portal: "student" });
+    if (next) callbackParams.set("next", next);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${siteUrl}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+        redirectTo: `${siteUrl}/auth/callback?${callbackParams.toString()}`,
       },
     });
     if (error) {
@@ -49,11 +57,26 @@ function LoginForm() {
       email,
       password,
     });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setError(error.message);
       return;
     }
+
+    const { data: mentorRow } = await supabase
+      .from("mentors")
+      .select("id")
+      .ilike("email", email)
+      .eq("active", true)
+      .maybeSingle();
+    if (mentorRow) {
+      await supabase.auth.signOut();
+      setLoading(false);
+      setError("That email belongs to a mentor account. Please use the mentor login instead.");
+      return;
+    }
+
+    setLoading(false);
     window.location.href = params.get("next") || "/dashboard";
   }
 
@@ -129,6 +152,12 @@ function LoginForm() {
           No account yet?{" "}
           <Link href="/signup" className="text-brand-400 font-semibold">
             Sign up
+          </Link>
+        </p>
+        <p className="text-xs text-slate-500 mt-3 text-center">
+          Are you a mentor?{" "}
+          <Link href="/mentor/login" className="text-brand-400 font-semibold">
+            Log in here
           </Link>
         </p>
         </form>
