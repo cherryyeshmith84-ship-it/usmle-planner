@@ -30,20 +30,12 @@ export interface MentorSlot {
   booked_at: string | null;
   student_note: string | null;
   created_at?: string;
-  // Structured pre-booking questionnaire (replaces the old packed
-  // "Stage: X | Currently: Y" string in student_note).
   current_stage?: string | null;
   current_nbme?: string | null;
   target_exam_date?: string | null;
   biggest_challenge?: string | null;
-  // Cancellation - kept separate from is_booked so a cancelled session
-  // stays distinguishable from a slot that was simply never booked.
   cancelled_at?: string | null;
   cancelled_by?: string | null;
-  // Who this open slot is for: "existing" = only students already linked to
-  // this mentor (via their Settings "mentor's email" field), "new" = only
-  // students who aren't linked to this mentor yet, null/undefined = open to
-  // everyone (the default for every slot created before this existed).
   audience?: "existing" | "new" | null;
 }
 
@@ -152,6 +144,25 @@ export function findMentorByEmail(mentors: Mentor[], email: string | null | unde
   if (!email) return null;
   const lower = email.toLowerCase();
   return mentors.find((m) => m.email.toLowerCase() === lower) ?? null;
+}
+
+/** Lowercased set of every mentor email (active or not) - a deactivated
+ *  mentor's account is still a mentor account, not a student, so exclusion
+ *  from student listings shouldn't depend on active status the way
+ *  assignment eligibility does. Build once per page load, then check
+ *  membership with isMentorProfile below for every profile row. */
+export function mentorEmailSet(mentors: { email: string }[]): Set<string> {
+  return new Set(mentors.map((m) => m.email.trim().toLowerCase()));
+}
+
+/** Whether a profiles row belongs to a mentor account. Mentors sign up
+ *  through the exact same public /signup (and now /mentor/signup) form as
+ *  students, so their row lives in the same profiles table - without this
+ *  check, a mentor who's signed up shows up mixed into admin "Students"
+ *  listings right alongside real students. */
+export function isMentorProfile(profileEmail: string | null | undefined, mentorEmails: Set<string>): boolean {
+  if (!profileEmail) return false;
+  return mentorEmails.has(profileEmail.trim().toLowerCase());
 }
 
 // Mentorship times are always shown in Eastern Time, regardless of the
