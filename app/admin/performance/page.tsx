@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { Profile } from "@/lib/types";
 import { computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
+import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 import AdminNav from "@/components/AdminNav";
 
 export const dynamic = "force-dynamic";
@@ -25,12 +26,19 @@ function scoreBadgeClass(pct: number | null) {
 export default async function AdminPerformanceOverviewPage() {
   const { supabase, user } = await requireAdmin();
 
-  const [profilesRes, reportsRes] = await Promise.all([
+  const [profilesRes, reportsRes, mentorsRes] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("full_name", { ascending: true }),
     supabase.from("score_reports").select("*").order("taken_date", { ascending: false }),
+    supabase.from("mentors").select("email"),
   ]);
 
-  const students = (profilesRes.data ?? []) as Profile[];
+  // Mentors sign up through the same profiles table as students - without
+  // this, a mentor with no score reports yet would show up under "No score
+  // reports yet" mixed in with actual students.
+  const excludeMentorEmails = mentorEmailSet((mentorsRes.data ?? []) as { email: string }[]);
+  const students = ((profilesRes.data ?? []) as Profile[]).filter(
+    (s) => !isMentorProfile(s.email, excludeMentorEmails)
+  );
   const allReports = (reportsRes.data ?? []) as ScoreReport[];
   const reportsByStudent = new Map<string, ScoreReport[]>();
   for (const r of allReports) {
