@@ -80,19 +80,7 @@ export default async function AdminMentorDetailPage({ params }: { params: { id: 
       .order("created_at", { ascending: false }),
   ]);
 
-  const students = (linkedStudentsRes.data ?? []) as Pick
-    Profile,
-    | "id"
-    | "full_name"
-    | "email"
-    | "exam_track"
-    | "subject_name"
-    | "prep_stage"
-    | "exam_date"
-    | "onboarding_completed"
-    | "assigned_template_id"
-    | "track_changed_pending"
-  >[];
+  const students = (linkedStudentsRes.data ?? []) as Pick<Profile, "id" | "full_name" | "email" | "exam_track" | "subject_name" | "prep_stage" | "exam_date" | "onboarding_completed" | "assigned_template_id" | "track_changed_pending">[];
   const slots = (slotsRes.data ?? []) as SlotRow[];
   const feedback = (feedbackRes.data ?? []) as FeedbackRow[];
 
