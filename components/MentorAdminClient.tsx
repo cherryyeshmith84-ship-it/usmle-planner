@@ -1,13 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { mentorPhotoUrl, type Mentor } from "@/lib/mentors";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
-export default function MentorAdminClient({ initialMentors }: { initialMentors: Mentor[] }) {
+export default function MentorAdminClient({
+  initialMentors,
+  studentCounts,
+}: {
+  initialMentors: Mentor[];
+  // Lowercased-email -> linked student count, computed server-side in
+  // app/admin/mentors/page.tsx. Just enough to show inline here; the full
+  // breakdown lives at /admin/mentors/[id].
+  studentCounts: Record<string, number>;
+}) {
   const router = useRouter();
   const mentors = initialMentors;
 
@@ -117,12 +127,6 @@ export default function MentorAdminClient({ initialMentors }: { initialMentors: 
     setEditError(null);
     const supabase = createClient();
 
-    // Keep the existing photo unless a new file was chosen - swapping in a
-    // new one uploads it first, then the mentors row is pointed at the new
-    // path. The old file is removed afterward on a best-effort basis so
-    // storage doesn't quietly accumulate replaced photos; if that cleanup
-    // fails it's not treated as an error since the mentor record itself is
-    // already correct at that point.
     let photoPath = m.photo_path;
     const oldPhotoPath = m.photo_path;
     if (editPhotoFile) {
@@ -297,6 +301,13 @@ export default function MentorAdminClient({ initialMentors }: { initialMentors: 
                   {!m.active && <span className="ml-2 text-xs text-slate-500 font-normal">(inactive)</span>}
                 </p>
                 <p className="text-xs text-slate-400 truncate">{m.email}</p>
+                <Link
+                  href={`/admin/mentors/${m.id}`}
+                  className="text-xs text-brand-400 hover:text-brand-300 inline-block mt-0.5"
+                >
+                  {studentCounts[m.email.toLowerCase()] ?? 0} student
+                  {(studentCounts[m.email.toLowerCase()] ?? 0) === 1 ? "" : "s"} &middot; View dashboard &rarr;
+                </Link>
                 {m.bio && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{m.bio}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
