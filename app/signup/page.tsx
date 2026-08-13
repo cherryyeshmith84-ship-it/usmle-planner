@@ -21,7 +21,7 @@ export default function SignupPage() {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${siteUrl}/auth/callback` },
+      options: { redirectTo: `${siteUrl}/auth/callback?portal=student` },
     });
     if (error) {
       setError(error.message);
@@ -42,7 +42,7 @@ export default function SignupPage() {
       password,
       options: {
         data: { full_name: fullName },
-        emailRedirectTo: `${siteUrl}/auth/callback`,
+        emailRedirectTo: `${siteUrl}/auth/callback?portal=student`,
       },
     });
 
@@ -153,6 +153,12 @@ export default function SignupPage() {
           Already have an account?{" "}
           <Link href="/login" className="text-brand-400 font-semibold">
             Log in
+          </Link>
+        </p>
+        <p className="text-xs text-slate-500 mt-3 text-center">
+          Are you a mentor?{" "}
+          <Link href="/mentor/signup" className="text-brand-400 font-semibold">
+            Sign up here
           </Link>
         </p>
         </form>
