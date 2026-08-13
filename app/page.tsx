@@ -77,7 +77,10 @@ export default async function Home() {
             </a>
           ))}
         </nav>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <Link href="/mentor/login" className="text-xs text-slate-500 hover:text-slate-300 hidden sm:inline">
+            Mentor login
+          </Link>
           <Link href="/login" className="btn-secondary">Log in</Link>
           <Link href="/signup" className="btn-primary">Apply for Mentorship</Link>
         </div>
