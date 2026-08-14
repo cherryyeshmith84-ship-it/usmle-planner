@@ -5,46 +5,46 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 const RECEIVES = [
-  "Personalized study roadmap",
-  "Weekly performance review",
-  "Daily accountability",
-  "Weak-topic analysis",
-  "Study schedule adjustments",
-  "Progress tracking dashboard",
-  "Mistake pattern analysis",
-  "Guidance until exam day",
+  "A study plan built around your real exam date, not a generic 90-day template",
+  "A weekly 1-on-1 review with your mentor, not just more solo grinding",
+  "Daily accountability check-ins so momentum doesn't quietly disappear in week 3",
+  "Weak-topic analysis down to the exact concept, not just the subject",
+  "A plan that adjusts the moment your schedule slips, instead of falling apart",
+  "One dashboard that shows exactly how you're trending toward exam day",
+  "Every wrong answer explained: what you confused it with, and why",
+  "A mentor in your corner from day one until you walk out of the exam",
 ];
 
 const WHY_FAIL = [
-  "Review everything instead of weak topics",
-  "Repeat the same mistakes",
-  "Don't know if they're improving",
-  "Lose consistency",
-  "Have no one reviewing their progress",
+  "Re-review everything the night before instead of fixing the 20% actually costing them points",
+  "Miss the same concept three different ways and never notice the pattern",
+  "Study for weeks with no real signal on whether their score is moving",
+  "Start strong in week one and quietly stop showing up by week four",
+  "Have no one checking in until a low NBME forces the conversation",
 ];
 
 const MENTOR_HELPS = [
-  "Plan every week",
-  "Track your progress",
-  "Find your weak concepts",
-  "Improve NBME performance",
-  "Stay accountable",
-  "Reach exam day with confidence",
+  "Build a week-by-week plan around your actual exam date",
+  "Catch weak concepts before they cost you points on an NBME",
+  "Read your Error Notes with you, not just your score",
+  "Course-correct your plan the moment something stops working",
+  "Keep you accountable on the weeks your motivation dips",
+  "Get you to exam day with a score you can trust",
 ];
 
 const NUMBERS = [
-  { value: "100", label: "Students" },
+  { value: "100", label: "Spots in Founding Cohort" },
   { value: "6-Month", label: "Mentorship" },
-  { value: "Weekly", label: "Reviews" },
+  { value: "Weekly", label: "1-on-1 Reviews" },
   { value: "Daily", label: "Progress Tracking" },
-  { value: "Limited", label: "Founding Cohort" },
+  { value: "$0", label: "Cost to Join" },
 ];
 
 const HOW_IT_WORKS = [
-  { title: "Build Your Plan", desc: "Create a personalized study schedule based on your timeline and current performance." },
-  { title: "Learn with Purpose", desc: "Complete questions and identify knowledge gaps instead of studying everything equally." },
-  { title: "Review with Your Mentor", desc: "Get feedback, adjust your plan, and focus on the concepts that matter most." },
-  { title: "Improve Every Week", desc: "Track your progress through analytics, error patterns, and targeted revision." },
+  { title: "Build Your Plan", desc: "Get a study schedule built around your actual timeline and current performance, not a generic countdown." },
+  { title: "Learn with Purpose", desc: "Answer questions that target your specific gaps instead of reviewing everything equally." },
+  { title: "Review with Your Mentor", desc: "Sit down weekly with someone who reads your data with you and adjusts the plan in real time." },
+  { title: "Improve Every Week", desc: "Watch your weak concepts turn into strengths through analytics, Error Notes, and targeted revision." },
 ];
 
 const NAV_LINKS = [
@@ -88,22 +88,25 @@ export default async function Home() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-10 text-center">
+        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-4">
+          Built for Caribbean &amp; International Medical Students
+        </p>
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-slate-100 leading-[1.05] mb-6">
-          Pass Step 1 with a Personalized Learning System
+          Stop Studying Everything. Start Fixing What&apos;s Actually Costing You Points.
         </h1>
         <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-4">
-          You&apos;re not failing because you&apos;re studying less.
+          You&apos;re not failing Step 1 because you&apos;re studying less than everyone else.
           <br />
-          You&apos;re struggling because you don&apos;t know what to study next.
+          You&apos;re stuck because no one is telling you what to study next.
         </p>
         <p className="text-base text-slate-500 max-w-2xl mx-auto mb-10">
-          Master Grid combines experienced mentors, personalized study planning, performance
-          analytics, and structured review into one learning system designed to help you study
-          smarter every day.
+          Master Grid pairs you with a real mentor and a study system that tracks every mistake
+          down to the exact concept, so your next practice block targets what&apos;s actually
+          weak instead of everything at once.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
-            Apply for Mentorship
+            Apply for Mentorship — Free
           </Link>
           <a href="#how-it-works" className="btn-secondary text-base px-7 py-3.5">
             See How It Works
@@ -115,14 +118,14 @@ export default async function Home() {
       <section id="apply" className="max-w-3xl mx-auto w-full px-6 pb-20 scroll-mt-20">
         <div className="card text-center border-brand-500/50">
           <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
-            🚀 Founding Cohort
+            🚀 Founding Cohort — Limited to 100 Students
           </p>
           <h2 className="text-2xl md:text-3xl font-extrabold mb-3">
-            Free for the First 100 Students
+            Full Mentorship, Free — While the Founding Cohort Is Open
           </h2>
           <p className="text-sm text-slate-400 max-w-xl mx-auto mb-6">
-            Become one of our first members, help shape the platform, and receive complete
-            mentorship at no cost during the founding program.
+            Join early, help shape the platform as we build it, and get full mentorship access
+            at no cost while we&apos;re accepting the first 100 students.
           </p>
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
             Apply for Mentorship
@@ -133,7 +136,7 @@ export default async function Home() {
       {/* Every student receives */}
       <section id="what-you-get" className="max-w-4xl mx-auto w-full px-6 py-20 scroll-mt-20">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
-          Every Student Receives
+          What You Actually Get, Not Just What You&apos;re Promised
         </h2>
         <div className="grid sm:grid-cols-2 gap-3">
           {RECEIVES.map((item) => (
@@ -188,10 +191,11 @@ export default async function Home() {
       {/* Why students fail */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-4">
-          Why Students Fail
+          It&apos;s Not a Lack of Effort. It&apos;s a Lack of Direction.
         </h2>
         <p className="text-slate-400 text-center text-lg mb-8">
-          Students usually don&apos;t fail because they are lazy. They fail because they:
+          Most students who struggle on Step 1 aren&apos;t working less than the ones who pass.
+          They just spend that effort in the wrong place. They:
         </p>
         <div className="space-y-2 mb-8">
           {WHY_FAIL.map((item) => (
@@ -202,18 +206,18 @@ export default async function Home() {
           ))}
         </div>
         <p className="text-center text-slate-200 font-semibold">
-          Master Grid is built to solve these problems.
+          Master Grid exists to fix exactly these five things.
         </p>
       </section>
 
       {/* Meet your mentor */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20">
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
-          Meet Your Mentor
+          A Mentor Who Actually Knows Your Weak Spots
         </h2>
         <p className="text-slate-400 text-center text-lg mb-10">
-          Your mentor doesn&apos;t just answer questions. They help you
-        </p>
+          Not a generic office-hours call. A weekly session with someone who&apos;s already
+          looked at your data and shows up ready to help you
         <div className="grid sm:grid-cols-2 gap-3">
           {MENTOR_HELPS.map((item) => (
             <div key={item} className="flex items-center gap-3 card py-3">
@@ -262,12 +266,12 @@ export default async function Home() {
           Applications Open &middot; Founding Cohort
         </p>
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
-          Only 100 students will be accepted.
+          Only 100 Students Will Get In. Here&apos;s Your Shot.
         </h2>
-        <p className="text-slate-400 max-w-xl mx-auto mb-2">No payment required.</p>
+        <p className="text-slate-400 max-w-xl mx-auto mb-2">No payment, no catch, no credit card.</p>
         <p className="text-slate-400 max-w-xl mx-auto mb-8">
-          Apply now and work directly with our mentors while helping build the next generation
-          of medical learning.
+          Apply now, get matched with a mentor, and start studying with a plan built around your
+          actual weak spots instead of a generic checklist.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
