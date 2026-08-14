@@ -90,6 +90,16 @@ export default function NavBar({
 }) {
   const pathname = usePathname();
   const [isMentor, setIsMentor] = useState(false);
+  // Sidebar is a fixed 240px column, which works fine on desktop but would
+  // eat most of the screen on a phone - below the md breakpoint it now
+  // renders as an off-canvas drawer (closed by default) toggled by the
+  // hamburger button below, and auto-closes whenever the route changes so
+  // tapping a link doesn't leave the drawer open over the new page.
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   // Whether the signed-in user is an active mentor - checked client-side
   // (rather than threading an isMentor prop through every single page that
@@ -136,16 +146,49 @@ export default function NavBar({
   }
 
   return (
-    // h-screen (not min-h-screen + sticky) - the old "min-h-screen sticky
-    // top-0" relied on this aside staying pinned via CSS sticky while the
-    // whole page scrolled around it, but the parent flex row stretching this
-    // aside to match the (much taller) content column's height made that
-    // unreliable in practice - the sidebar scrolled away with everything
-    // else instead of staying put. Now AppShell makes only the content
-    // column scroll, so this just needs to be exactly one viewport tall and
-    // never move at all. The nav below still scrolls internally
-    // (overflow-y-auto) if there are ever more links than fit.
-    <aside className="w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col">
+    <>
+      {/* Hamburger toggle - only rendered below the md breakpoint, since the
+          sidebar is always visible above it. Stays visible whether the
+          drawer is open or closed so there's always a way to get back to
+          it. */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen((v) => !v)}
+        aria-label={mobileOpen ? "Close menu" : "Open menu"}
+        className="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-lg bg-white border border-slate-800 shadow-sm flex items-center justify-center text-slate-300"
+      >
+        {mobileOpen ? "✕" : "☰"}
+      </button>
+
+      {/* Backdrop - tapping it closes the drawer, same as tapping a link. */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-slate-950/50 z-40"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/*
+        h-screen (not min-h-screen + sticky) - the old "min-h-screen sticky
+        top-0" relied on this aside staying pinned via CSS sticky while the
+        whole page scrolled around it, but the parent flex row stretching this
+        aside to match the (much taller) content column's height made that
+        unreliable in practice - the sidebar scrolled away with everything
+        else instead of staying put. Now AppShell makes only the content
+        column scroll, so this just needs to be exactly one viewport tall and
+        never move at all. The nav below still scrolls internally
+        (overflow-y-auto) if there are ever more links than fit.
+
+        Below md: fixed off-canvas drawer, slid in/out with mobileOpen via
+        translate-x (position:fixed takes it out of the flex row entirely, so
+        the content column fills the screen when the drawer is closed).
+        At/above md: back to the normal static, always-visible column.
+      */}
+      <aside
+        className={`w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } md:translate-x-0`}
+      >
       <div className="px-5 py-6">
         <div className="flex items-center gap-2">
           <Image
@@ -224,6 +267,7 @@ export default function NavBar({
           </button>
         </form>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
