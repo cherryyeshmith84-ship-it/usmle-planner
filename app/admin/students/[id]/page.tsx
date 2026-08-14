@@ -10,11 +10,16 @@ import type {
 } from "@/lib/types";
 import { buildRoadmap, computePlanProgress, getTemplateDays, type PlanProgress } from "@/lib/templateDays";
 import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
-import { resolvePlannerColumns } from "@/lib/plannerColumns";
+import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import type { PlanTask } from "@/lib/planTasks";
+import type { StudyResource } from "@/lib/plannerColumns";
+import { easternDateStringNow } from "@/lib/timezone";
 import type { ScoreReport } from "@/lib/scoreReports";
 import AdminNav from "@/components/AdminNav";
 import AdminStudentDetail from "@/components/AdminStudentDetail";
-import PlannerGridClient from "@/components/PlannerGridClient";
+import PlannerCalendar from "@/components/PlannerCalendar";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import PerformanceClient from "@/components/PerformanceClient";
 
@@ -40,6 +45,10 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
     plannerEntriesRes,
     scoreReportsRes,
     plannerSettingsRes,
+    planTasksRes,
+    blocksRes,
+    dailyNotesRes,
+    resourcesRes,
   ] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", params.id).single(),
       supabase
@@ -64,6 +73,14 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
       supabase.from("planner_entries").select("*").eq("user_id", params.id),
       supabase.from("score_reports").select("*").eq("user_id", params.id).order("taken_date", { ascending: false }),
       supabase.from("student_planner_settings").select("start_date").eq("student_id", params.id).maybeSingle(),
+      // The following four match exactly what PlannerCalendar needs - same
+      // queries app/mentorship/student/[studentId]/page.tsx runs, so this
+      // page renders the same calendar+daily-card UI a mentor (and the
+      // student themselves) sees, not the old retired flat grid.
+      supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.id),
+      supabase.from("uworld_blocks").select("*").eq("user_id", params.id),
+      supabase.from("mentor_daily_notes").select("*").eq("student_id", params.id),
+      supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
     ]);
 
   if (!studentRes.data) notFound();
@@ -75,10 +92,16 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
     (r: any) => (r.block_scores ?? []) as BlockScore[]
   );
   const personalTemplate = (personalRes.data as PersonalTemplate) ?? null;
-  const plannerColumns = resolvePlannerColumns((plannerColumnsRes.data ?? []) as PlannerColumn[], params.id);
+  const plannerColumns = resolvePlannerColumns((plannerColumnsRes.data ?? []) as PlannerColumn[], params.id).filter(
+    (c) => c.active
+  );
   const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  const planTasks = (planTasksRes.data ?? []) as PlanTask[];
+  const uworldBlocks = (blocksRes.data ?? []) as UWorldBlock[];
+  const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
+  const studyResources = (resourcesRes.data ?? []) as StudyResource[];
 
   // Full day-by-day roadmap for whatever this student is currently using -
   // their coach-assigned plan, or their own self-built one - so the coach
@@ -125,17 +148,25 @@ export default async function StudentDetailPage({ params }: { params: { id: stri
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-1">Study Planner</h2>
           <p className="text-sm text-slate-400 mb-3">
-            Same day-by-day grid the student sees and edits themselves - you can fill in "Planned
-            system" ahead of time or correct anything here.
+            The same calendar the student sees on their own /planner - click a day to see and
+            edit Assignments, UWorld blocks, and their journal for it.
           </p>
           <div className="mb-3">
             <PlannerStartDateControl studentId={params.id} initialStartDate={plannerStartDate} />
           </div>
-          <PlannerGridClient
+          <PlannerCalendar
             targetUserId={params.id}
-            columns={plannerColumns}
+            initialTasks={planTasks}
             initialEntries={plannerEntries}
+            initialBlocks={uworldBlocks}
+            initialMentorNotes={dailyNotes}
+            studyResources={studyResources}
+            mainColumns={mainPlannerColumns(plannerColumns)}
+            columns={plannerColumns}
+            canEdit
+            mentorId={null}
             startDate={plannerStartDate}
+            todayIso={easternDateStringNow()}
           />
         </div>
 
