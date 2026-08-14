@@ -9,6 +9,8 @@ import {
   formatSlotTime,
   getSlotStatus,
   groupSlotsByDate,
+  isExistingStudentOf,
+  slotVisibleToStudent,
 } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
@@ -39,10 +41,10 @@ export default async function MentorshipPage() {
 
   const { data: profileData } = await supabase
     .from("profiles")
-    .select("is_admin, full_name")
+    .select("is_admin, full_name, mentor_email")
     .eq("id", user.id)
     .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
+  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
@@ -320,15 +322,29 @@ export default async function MentorshipPage() {
 
   const availableThisWeekMentorIds = new Set<string>();
   if (mentorIds.length > 0) {
+    // audience is included (and checked below via slotVisibleToStudent) so
+    // this badge agrees with the per-mentor profile page - a slot reserved
+    // for a mentor's existing students shouldn't make that mentor show
+    // "Available this week" to a student who isn't linked to them yet (and
+    // vice versa for "new students only" slots), since they'd land on the
+    // profile page and find nothing bookable. isExistingStudentOf is
+    // per-mentor (the same viewer can be an existing student of one mentor
+    // and a stranger to another), so this has to be checked per-row, not
+    // once for the whole batch.
     const { data: upcomingOpenRows } = await supabase
       .from("mentor_slots")
-      .select("mentor_id")
+      .select("mentor_id, audience")
       .in("mentor_id", mentorIds)
       .eq("is_booked", false)
       .gte("end_time", now)
       .lt("start_time", weekFromNow);
     for (const row of (upcomingOpenRows ?? []) as any[]) {
-      availableThisWeekMentorIds.add(row.mentor_id);
+      const rowMentor = mentors.find((m) => m.id === row.mentor_id);
+      if (!rowMentor) continue;
+      const viewerIsExisting = isExistingStudentOf(profile?.mentor_email, rowMentor.email);
+      if (slotVisibleToStudent(row, viewerIsExisting)) {
+        availableThisWeekMentorIds.add(row.mentor_id);
+      }
     }
   }
 
