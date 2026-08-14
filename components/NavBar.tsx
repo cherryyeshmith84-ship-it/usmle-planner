@@ -149,7 +149,7 @@ export default function NavBar({
       <div className="px-5 py-6">
         <div className="flex items-center gap-2">
           <Image
-            src="/logo.jpg"
+            src="/logo.png"
             alt=""
             width={28}
             height={28}
