@@ -146,9 +146,12 @@ export default function PlannerConfigClient({
       <div>
         <h2 className="text-lg font-bold mb-1">Planner columns</h2>
         <p className="text-sm text-slate-400 mb-4">
-          These are the fields every student's daily planner row tracks - matches your spreadsheet
-          (Planned system, PP FA, CP FA, Hours, Q solved, and so on). Reorder, rename by removing and
-          re-adding, hide without losing data, or delete.
+          Only the journal-style fields below (Mood, Study Issues, Resources Used, Tomorrow&apos;s
+          Goal, Reflection, Student Notes) and Study Status actually have an input anywhere in the
+          app - they show up in each day&apos;s card on the Study Planner calendar. The old flat
+          grid (Planned System, Hours, Q solved, and similar freeform columns) was retired, so
+          adding a new column of that kind here won&apos;t have anywhere for a student to fill it
+          in - it'll just be permanently blank. Reorder, hide without losing data, or delete.
         </p>
 
         <div className="space-y-2 mb-4">
