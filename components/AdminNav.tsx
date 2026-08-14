@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 interface NavItem {
   href: string;
   label: string;
+  addHref?: string;
+  addLabel?: string;
 }
 
 interface NavGroup {
@@ -18,136 +19,80 @@ interface NavGroup {
 
 const GROUPS: NavGroup[] = [
   {
-    title: "Learn",
+    title: "Overview",
     items: [
-      { href: "/qbank", label: "Question Bank" },
-      { href: "/assessments", label: "Self Assessments" },
+      { href: "/admin", label: "Students" },
+      { href: "/admin/performance", label: "Performance" },
     ],
   },
   {
-    title: "Improve",
+    title: "Content",
     items: [
-      { href: "/master-grid", label: "Master Grid" },
-      { href: "/anki", label: "Anki" },
-      { href: "/error-notes", label: "Error Notes" },
-      { href: "/visual-lab", label: "Visual Lab" },
+      { href: "/admin/qbank", label: "Question Bank", addHref: "/admin/qbank/new", addLabel: "New question" },
+      { href: "/admin/qbank/bulk-import", label: "Bulk import" },
+      { href: "/admin/qbank/review", label: "Review queue" },
+      { href: "/admin/error-dna", label: "Error DNA" },
+      { href: "/admin/concepts", label: "Concept Library" },
+      {
+        href: "/admin/assessments",
+        label: "Self Assessments",
+        addHref: "/admin/assessments/new?kind=qbank",
+        addLabel: "New assessment",
+      },
+      { href: "/admin/templates", label: "Templates", addHref: "/admin/templates/new", addLabel: "New template" },
     ],
   },
   {
     title: "Mentorship",
-    items: [
-      // Same link for everyone - app/mentorship/page.tsx decides server-side
-      // whether the signed-in email belongs to a mentor (shows their
-      // availability manager) or a student (shows the mentor directory).
-      { href: "/mentorship", label: "Mentorship" },
-      { href: "/mentorship/sessions", label: "Upcoming Sessions" },
-      { href: "/planner", label: "Study Planner" },
-      // "Analysis" (was "Performance") absorbs what used to be the
-      // standalone History page - detailed day-by-day history lives here
-      // now, not as its own nav item.
-      { href: "/history", label: "Analysis" },
-    ],
+    items: [{ href: "/admin/mentors", label: "Mentors" }],
+  },
+  {
+    title: "Settings",
+    items: [{ href: "/admin/planner-config", label: "Planner Settings" }],
   },
 ];
 
-// Groups hidden from students until the admin flips the global publish
-// switch on. "Mentorship" (which now also holds Study Planner/Analysis) is
-// intentionally left out - that's always visible.
-const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
-
 function isActive(pathname: string, href: string) {
-  // Exact-match only for routes that now have their own sub-route (e.g.
-  // "/mentorship/sessions" nested under "/mentorship") - otherwise the
-  // parent nav item would light up alongside the child's on every one of
-  // its sub-pages, since a plain startsWith would match both.
-  if (href === "/dashboard" || href === "/mentorship") return pathname === href;
+  if (href === "/admin") return pathname === "/admin";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function initials(name: string | null | undefined) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
-  return (first + last).toUpperCase() || "?";
-}
-
-export default function NavBar({
-  isAdmin,
-  userName,
-  streak,
-  contentPublished = true,
-}: {
-  isAdmin?: boolean;
-  // Optional - pages that haven't been updated to pass these yet just won't
-  // show the streak badge / real name in the profile block below.
-  userName?: string | null;
-  streak?: number;
-  // Whether the coach has published student content yet. Defaults to true
-  // so any caller that hasn't been updated to pass this (or admins, who
-  // should never be gated) still sees the full nav.
-  contentPublished?: boolean;
-}) {
+export default function AdminNav() {
   const pathname = usePathname();
-  const [isMentor, setIsMentor] = useState(false);
+  // Same off-canvas mobile drawer pattern as NavBar.tsx - see the comments
+  // there. Admin pages don't go through AppShell (each renders AdminNav
+  // directly), so this has to be fully self-contained here too.
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Whether the signed-in user is an active mentor - checked client-side
-  // (rather than threading an isMentor prop through every single page that
-  // renders AppShell/NavBar, which would mean touching dozens of files) since
-  // NavBar is already "use client" and a browser-side read of the `mentors`
-  // table (the same one MentorBrowseClient reads for the public directory)
-  // is cheap and RLS-safe. Only used to decide whether to show "Students"
-  // below - everything else a mentor can already reach is unaffected if this
-  // hasn't resolved yet on first paint.
   useEffect(() => {
-    let cancelled = false;
-    async function checkMentor() {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.email) return;
-      const { data } = await supabase.from("mentors").select("email").eq("active", true);
-      const match = (data ?? []).some(
-        (m: { email: string }) => m.email.toLowerCase() === user.email!.toLowerCase()
-      );
-      if (!cancelled) setIsMentor(match);
-    }
-    checkMentor();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const groupsWithStudentsLink = GROUPS.map((group) => {
-    if (group.title !== "Mentorship" || !isMentor) return group;
-    const [mentorshipHome, ...rest] = group.items;
-    return { ...group, items: [mentorshipHome, { href: "/mentorship/students", label: "Students" }, ...rest] };
-  });
-  const visibleGroups = groupsWithStudentsLink.filter(
-    (group) => isAdmin || contentPublished || !GATED_GROUP_TITLES.has(group.title)
-  );
-
-  function linkClass(href: string) {
-    const active = isActive(pathname, href);
-    return `text-sm font-medium px-3 py-2.5 rounded-lg transition ${
-      active ? "bg-brand-900/40 text-brand-300" : "text-slate-300 hover:bg-slate-800"
-    }`;
-  }
+    setMobileOpen(false);
+  }, [pathname]);
 
   return (
-    // h-screen (not min-h-screen + sticky) - the old "min-h-screen sticky
-    // top-0" relied on this aside staying pinned via CSS sticky while the
-    // whole page scrolled around it, but the parent flex row stretching this
-    // aside to match the (much taller) content column's height made that
-    // unreliable in practice - the sidebar scrolled away with everything
-    // else instead of staying put. Now AppShell makes only the content
-    // column scroll, so this just needs to be exactly one viewport tall and
-    // never move at all. The nav below still scrolls internally
-    // (overflow-y-auto) if there are ever more links than fit.
-    <aside className="w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col">
+    <>
+      <button
+        type="button"
+        onClick={() => setMobileOpen((v) => !v)}
+        aria-label={mobileOpen ? "Close menu" : "Open menu"}
+        className="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-lg bg-white border border-slate-800 shadow-sm flex items-center justify-center text-slate-300"
+      >
+        {mobileOpen ? "✕" : "☰"}
+      </button>
+
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-slate-950/50 z-40"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`w-60 shrink-0 border-r border-slate-800 bg-white min-h-screen flex flex-col fixed md:sticky md:top-0 inset-y-0 left-0 z-40 transition-transform duration-200 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } md:translate-x-0`}
+      >
       <div className="px-5 py-6">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-1">
           <Image
             src="/logo.png"
             alt=""
@@ -157,73 +102,66 @@ export default function NavBar({
           />
           <span className="font-bold text-brand-300 block">Master Grid</span>
         </div>
-        {typeof streak === "number" && streak > 0 && (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 mt-1">
-            🔥 {streak} day{streak === 1 ? "" : "s"}
-          </span>
-        )}
+        <span className="text-xs font-semibold bg-brand-900/40 text-brand-300 rounded-full px-2 py-1">
+          Admin
+        </span>
       </div>
 
       <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
-        <Link href="/dashboard" data-tour="/dashboard" className={linkClass("/dashboard")}>
-          Home
-        </Link>
-
-        {visibleGroups.map((group) => (
+        {GROUPS.map((group) => (
           <div key={group.title}>
             <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
               {group.title}
             </p>
             <div className="flex flex-col gap-1">
-              {group.items.map((item) => (
-                // data-tour - lets OnboardingTour.tsx find and spotlight
-                // this exact link via a plain DOM query when it's the
-                // current tour step's target, without NavBar needing to
-                // know anything about the tour itself.
-                <Link key={item.href} href={item.href} data-tour={item.href} className={linkClass(item.href)}>
-                  {item.label}
-                </Link>
-              ))}
+              {group.items.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <div
+                    key={item.href}
+                    className={`group flex items-center justify-between gap-1 rounded-lg transition ${
+                      active ? "bg-brand-900/40" : "hover:bg-slate-800"
+                    }`}
+                  >
+                    <Link
+                      href={item.href}
+                      className={`flex-1 text-sm font-medium px-3 py-2.5 ${
+                        active ? "text-brand-300" : "text-slate-300"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                    {item.addHref && (
+                      <Link
+                        href={item.addHref}
+                        title={item.addLabel}
+                        className="shrink-0 pr-3 text-slate-500 hover:text-brand-300 text-base leading-none opacity-0 group-hover:opacity-100 transition"
+                      >
+                        +
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
-
-        {isAdmin && (
-          <div>
-            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Admin
-            </p>
-            <div className="flex flex-col gap-1">
-              <Link href="/lab-values" className={linkClass("/lab-values")}>
-                Lab Values
-              </Link>
-              <Link
-                href="/admin"
-                className="text-sm font-medium px-3 py-2.5 rounded-lg text-brand-300 bg-brand-900/40 hover:bg-brand-900/40"
-              >
-                Admin
-              </Link>
-            </div>
-          </div>
-        )}
       </nav>
 
       <div className="px-3 pb-6 pt-3 border-t border-slate-800">
-        <Link href="/settings" data-tour="/settings" className={linkClass("/settings")}>
-          Settings
+        <Link
+          href="/dashboard"
+          className="block text-sm font-medium px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800"
+        >
+          My dashboard
         </Link>
-        <div className="flex items-center gap-2.5 px-3 py-2.5 mt-1">
-          <span className="w-7 h-7 rounded-full bg-brand-900/50 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
-            {initials(userName)}
-          </span>
-          <span className="text-sm text-slate-300 truncate">{userName || "Your profile"}</span>
-        </div>
         <form action="/auth/signout" method="post">
-          <button className="w-full text-left text-sm font-medium px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-800 hover:text-slate-300">
-            Sign out
+          <button className="w-full text-left text-sm font-medium px-3 py-2.5 rounded-lg text-slate-400 hover:bg-slate-800">
+            Log out
           </button>
         </form>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
