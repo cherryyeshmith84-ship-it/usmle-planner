@@ -289,6 +289,29 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
     await advanceOrFinish(savedCount);
   }
 
+  /** Skips upload + AI parsing entirely - goes straight to the same
+   *  review/save form used after a parse, just pre-filled blank, so a
+   *  student who already knows their score (e.g. from a paper report, or
+   *  one they don't have a screenshot of) can type in just the percent and
+   *  date without needing a file at all. Everything else on the form stays
+   *  optional, same as the AI-parse path. */
+  function startManual() {
+    setError(null);
+    setDoneMsg(null);
+    setMode(null);
+    setImagePaths([]);
+    setDraft({
+      exam_type: "other",
+      exam_name: "",
+      taken_date: null,
+      overall_score: null,
+      overall_percent: null,
+      system_breakdown: {},
+      discipline_breakdown: {},
+    });
+    setStage("review");
+  }
+
   function cancel() {
     setStage("idle");
     setDraft(null);
@@ -321,6 +344,16 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
           className="text-sm text-slate-300"
         />
         <p className="text-xs text-slate-600 mt-1">Up to 6 files per report.</p>
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-800">
+          <span className="text-xs text-slate-500">Don&apos;t have a screenshot?</span>
+          <button
+            type="button"
+            onClick={startManual}
+            className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+          >
+            Enter a score manually
+          </button>
+        </div>
         {doneMsg && <p className="text-xs text-green-400 mt-2">{doneMsg}</p>}
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
       </div>
@@ -399,15 +432,22 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
 
   if (!draft) return null;
 
+  // mode is only ever null via startManual() above - every upload path sets
+  // it to "same" or "separate" before reaching this form.
+  const isManual = mode === null;
+
   return (
     <div className="card space-y-4">
       <div>
         <p className="text-sm font-semibold">
-          Check what the AI read
-          {mode === "separate" && queueTotal > 1 && ` - report ${queuePosition} of ${queueTotal}`}
+          {isManual
+            ? "Enter your score"
+            : `Check what the AI read${mode === "separate" && queueTotal > 1 ? ` - report ${queuePosition} of ${queueTotal}` : ""}`}
         </p>
         <p className="text-xs text-slate-400">
-          Fix anything that's wrong before saving.
+          {isManual
+            ? "Percent and date are the only fields you really need - everything else is optional."
+            : "Fix anything that's wrong before saving."}
           {mode === "same" && imagePaths.length > 1 && ` Combined from ${imagePaths.length} files you uploaded.`}
         </p>
         {error && <p className="text-xs text-amber-400 mt-1">{error}</p>}
