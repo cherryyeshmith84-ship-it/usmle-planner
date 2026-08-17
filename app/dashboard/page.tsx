@@ -30,7 +30,6 @@ import AppShell from "@/components/AppShell";
 import StatusUpdateCard from "@/components/StatusUpdateCard";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 import WeeklyProgress from "@/components/WeeklyProgress";
-import MarkDayCompleteButton from "@/components/MarkDayCompleteButton";
 import MissedDayPrompt from "@/components/MissedDayPrompt";
 import AdaptiveInsights from "@/components/AdaptiveInsights";
 import {
@@ -322,19 +321,7 @@ export default async function DashboardPage() {
           initialUpdatedAt={profile.status_updated_at ?? null}
         />
 
-        <TodaysPlanCard
-          plannedSystem={plannedSystem}
-          tasks={todaysTasks}
-          markCompleteSlot={
-            <MarkDayCompleteButton
-              userId={user.id}
-              todayIso={today}
-              existingFieldValues={todaysEntry?.field_values ?? {}}
-              alreadyComplete={todayStatus.studyCompleted}
-              mentorId={mentorFromEmail?.id ?? null}
-            />
-          }
-        />
+        <TodaysPlanCard plannedSystem={plannedSystem} tasks={todaysTasks} />
 
         <PlannerStatusHeader status={todayStatus} />
 
