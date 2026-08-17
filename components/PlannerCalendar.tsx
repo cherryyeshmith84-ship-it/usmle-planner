@@ -114,14 +114,14 @@ export default function PlannerCalendar({
   const gridStart = monthGridStart(monthAnchor);
   const gridEnd = monthGridEnd(monthAnchor);
   const days = useMemo(
-    () => buildCalendarRange(tasksByDate, gridStart, gridEnd, todayIso, entriesByDate, mainColumns),
-    [tasksByDate, gridStart, gridEnd, todayIso, entriesByDate, mainColumns]
+    () => buildCalendarRange(tasksByDate, gridStart, gridEnd, todayIso, entriesByDate, mainColumns, columns, blocksByDate),
+    [tasksByDate, gridStart, gridEnd, todayIso, entriesByDate, mainColumns, columns, blocksByDate]
   );
 
   const currentMonthPrefix = monthAnchor.slice(0, 7);
   const pace = useMemo(
-    () => computeSchedulePaceDays(tasksByDate, startDate, todayIso, entriesByDate, mainColumns),
-    [tasksByDate, startDate, todayIso, entriesByDate, mainColumns]
+    () => computeSchedulePaceDays(tasksByDate, startDate, todayIso, entriesByDate, mainColumns, columns, blocksByDate),
+    [tasksByDate, startDate, todayIso, entriesByDate, mainColumns, columns, blocksByDate]
   );
 
   const selectedTasks = sortTasks(tasksByDate[selectedDate] ?? []);
