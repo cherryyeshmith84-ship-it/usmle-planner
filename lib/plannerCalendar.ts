@@ -1,5 +1,7 @@
 import type { PlanTask } from "./planTasks";
 import type { PlannerColumn, PlannerEntry } from "./plannerColumns";
+import { hasActiveColumn } from "./plannerColumns";
+import type { UWorldBlock } from "./uworldBlocks";
 
 // Pure UTC date-string arithmetic - never touches the browser/server's local
 // timezone (see the matching comment in PlannerGridClient.tsx's addDays for
@@ -42,39 +44,42 @@ export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; lab
 
 /**
  * Single day's calendar status - based on mentor_plan_tasks ("Assignments",
- * the checklist a mentor sets and a student checks off).
+ * the checklist a mentor sets and a student checks off), same as before.
  *
- * `gridEntry`/`activeColumns` are accepted for backward compatibility with
- * existing callers but are NO LONGER factored into the status. They used to
- * represent the flat planner_columns grid (Planned System, First Aid Pages,
- * etc.) as an alternate source of "the plan" for mentors who didn't use
- * Assignments. That grid is retired - MentorPlannerColumnsEditor (the only
- * UI that could ever fill most of those columns) was removed as dead
- * clutter, so a handful of the globally-active planner_columns
- * (planned_system, q_solved, q_reviewed, first_aid_pages, questions_planned,
- * task_completed) now have NO way to be filled in from any current UI. The
- * few columns DailyPlannerPanel still writes (mood, notes, reflections,
- * tomorrow's goal) are journal entries ABOUT the day, not a checklist of
- * what was planned - but counting them as "grid activity" meant a day with
- * just a mood/notes entry, and zero real Assignments, got treated as having
- * a plan that could mathematically never reach 100% (since those other
- * columns are permanently unfillable) - stuck on "partial" (yellow) forever,
- * even after a student finished every single Assignment for that day. This
- * was the root cause of "I completed everything but it's still showing
- * yellow," reported across multiple students. Assignments are the only real
- * source of "what was planned for this day" now.
+ * `_mainColumns` is accepted for backward compatibility with existing
+ * callers but is NOT factored into the status - it's the old retired flat
+ * planner_columns grid (Planned System, First Aid Pages, etc.), which has no
+ * way to be filled in from any current UI. See the long-standing comment
+ * history here: counting that grid as "the plan" used to trap days on
+ * "partial" (yellow) forever even after every Assignment was done.
+ *
+ * `journalColumns`/`dayBlocks` ARE factored in, though, and are new: once
+ * every Assignment for a day is checked off, the day only counts as fully
+ * "completed" (green) if the journal sections this student's mentor has
+ * actually turned on - Daily Mood, Today's Biggest Issue, Resources Used,
+ * Student Notes - are also filled in, and any Question Bank Block the
+ * student started logging is fully filled in (a block card added and left
+ * blank doesn't count). Daily Reflection is deliberately NOT required. A
+ * journal section the mentor has switched off for this student is skipped
+ * entirely - it can never block green. This closes the "student left
+ * everything blank but the day still shows green" gap: a day now needs
+ * BOTH all Assignments done AND its journal actually filled in before it's
+ * green; missing either one leaves it "partial" (yellow).
  *
  * "today" always wins regardless of completion state. Future days with
  * Assignments get a distinct "upcoming-planned" tint instead of plain gray
  * "upcoming" - visible, immediate confirmation that a plan actually reached
- * the system, without claiming it's "done" before it's even arrived.
+ * the system, without claiming it's "done" before it's even arrived. A day
+ * with zero assigned tasks can never be "completed" - only "no-plan".
  */
 export function computeDayStatus(
   dayTasks: PlanTask[],
   date: string,
   todayIso: string,
-  _gridEntry?: PlannerEntry,
-  _activeColumns: PlannerColumn[] = []
+  entry?: PlannerEntry,
+  _mainColumns: PlannerColumn[] = [],
+  journalColumns: PlannerColumn[] = [],
+  dayBlocks: UWorldBlock[] = []
 ): DayStatus {
   const hasTasks = dayTasks.length > 0;
 
@@ -82,9 +87,21 @@ export function computeDayStatus(
   if (date > todayIso) return hasTasks ? "upcoming-planned" : "upcoming";
   if (!hasTasks) return "no-plan";
 
-  if (dayTasks.every((t) => t.completed)) return "completed";
   if (dayTasks.every((t) => !t.completed)) return "missed";
-  return "partial";
+  if (!dayTasks.every((t) => t.completed)) return "partial";
+
+  const v = entry?.field_values ?? {};
+  const moodOk = !hasActiveColumn(journalColumns, "mood") || !!v["mood"];
+  const issueOk = !hasActiveColumn(journalColumns, "study_issue") || !!v["study_issue"];
+  const resourcesOk =
+    !hasActiveColumn(journalColumns, "resources_used") ||
+    (typeof v["resources_used"] === "string" && v["resources_used"].trim() !== "");
+  const notesOk =
+    !hasActiveColumn(journalColumns, "student_notes") ||
+    (typeof v["student_notes"] === "string" && v["student_notes"].trim() !== "");
+  const blocksOk = dayBlocks.every((b) => b.questions !== null && b.questions !== undefined);
+
+  return moodOk && issueOk && resourcesOk && notesOk && blocksOk ? "completed" : "partial";
 }
 
 export interface CalendarDay {
@@ -106,7 +123,9 @@ export function buildCalendarRange(
   end: string,
   todayIso: string,
   entriesByDate: Record<string, PlannerEntry> = {},
-  activeColumns: PlannerColumn[] = []
+  activeColumns: PlannerColumn[] = [],
+  journalColumns: PlannerColumn[] = [],
+  blocksByDate: Record<string, UWorldBlock[]> = {}
 ): CalendarDay[] {
   const days: CalendarDay[] = [];
   let cursor = start;
@@ -115,7 +134,15 @@ export function buildCalendarRange(
     const dayTasks = tasksByDate[cursor] ?? [];
     days.push({
       date: cursor,
-      status: computeDayStatus(dayTasks, cursor, todayIso, entriesByDate[cursor], activeColumns),
+      status: computeDayStatus(
+        dayTasks,
+        cursor,
+        todayIso,
+        entriesByDate[cursor],
+        activeColumns,
+        journalColumns,
+        blocksByDate[cursor] ?? []
+      ),
       completedCount: dayTasks.filter((t) => t.completed).length,
       totalCount: dayTasks.length,
     });
@@ -143,14 +170,24 @@ export function computeSchedulePaceDays(
   startDate: string | null,
   todayIso: string,
   entriesByDate: Record<string, PlannerEntry> = {},
-  activeColumns: PlannerColumn[] = []
+  activeColumns: PlannerColumn[] = [],
+  journalColumns: PlannerColumn[] = [],
+  blocksByDate: Record<string, UWorldBlock[]> = {}
 ): number {
   if (!startDate || startDate > todayIso) return 0;
   let pace = 0;
   let cursor = startDate;
   let guard = 0;
   while (cursor < todayIso && guard < 400) {
-    const status = computeDayStatus(tasksByDate[cursor] ?? [], cursor, todayIso, entriesByDate[cursor], activeColumns);
+    const status = computeDayStatus(
+      tasksByDate[cursor] ?? [],
+      cursor,
+      todayIso,
+      entriesByDate[cursor],
+      activeColumns,
+      journalColumns,
+      blocksByDate[cursor] ?? []
+    );
     if (status === "missed" || status === "partial") pace -= 1;
     cursor = addDays(cursor, 1);
     guard++;
