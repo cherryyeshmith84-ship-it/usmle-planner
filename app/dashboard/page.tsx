@@ -8,6 +8,7 @@ import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
 import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
 import { isBoxFilled } from "@/lib/planProgress";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { groupBlocksByDate } from "@/lib/uworldBlocks";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeTaskProgress, groupTasksByDate, sortTasks } from "@/lib/planTasks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
@@ -163,7 +164,16 @@ export default async function DashboardPage() {
   const bookings = (bookingsRes.data ?? []) as Booking[];
   const meetingLinkRow = meetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
-  const activeMainColumns = mainPlannerColumns(resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id));
+  // Full resolved+active columns (Mood, Today's Biggest Issue, Resources
+  // Used, Student Notes, ...) - not just the flat-grid subset - needed so
+  // computeTodayStatus/computeSchedulePaceDays can check whether this
+  // student's journal sections are actually filled in, the same way the
+  // Study Planner calendar does (see lib/plannerCalendar.ts).
+  const resolvedColumns = resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id).filter(
+    (c) => c.active
+  );
+  const activeMainColumns = mainPlannerColumns(resolvedColumns);
+  const blocksByDate = groupBlocksByDate(blocks);
   const entryByDate: Record<string, PlannerEntry> = {};
   for (const e of entries) entryByDate[e.log_date] = e;
 
@@ -173,7 +183,7 @@ export default async function DashboardPage() {
   const todaysTasks = sortTasks(planTasks.filter((t) => t.task_date === today));
 
   const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
-  const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
+  const todayStatus = computeTodayStatus(entries, blocks, planTasks, today, resolvedColumns);
   const streaks = computeStreaks(
     [...entries.map((e) => e.log_date), ...blocks.map((b) => b.log_date)],
     today
@@ -249,7 +259,15 @@ export default async function DashboardPage() {
     ? "warning"
     : "neutral";
   const tasksByDate = groupTasksByDate(planTasks);
-  const pace = computeSchedulePaceDays(tasksByDate, plannerStartDate, today, entryByDate, activeMainColumns);
+  const pace = computeSchedulePaceDays(
+    tasksByDate,
+    plannerStartDate,
+    today,
+    entryByDate,
+    activeMainColumns,
+    resolvedColumns,
+    blocksByDate
+  );
   const todayTaskProgress = computeTaskProgress(todaysTasks);
   const todayGridValues = todaysEntry?.field_values ?? {};
   const todayGridFullyDone =
