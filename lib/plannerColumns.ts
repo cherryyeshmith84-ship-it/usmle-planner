@@ -80,6 +80,16 @@ export function mainPlannerColumns(columns: PlannerColumn[]): PlannerColumn[] {
   return columns.filter((c) => c.active && !NON_GRID_KEYS.has(c.key));
 }
 
+/** True if a given journal-style column (by key) is actually turned on for
+ *  this student - i.e. DailyPlannerPanel would render that section for them.
+ *  Used to gate the "is this day fully Completed" check (see computeDayStatus
+ *  in lib/plannerCalendar.ts and computeTodayStatus in lib/plannerStatus.ts)
+ *  so a section a mentor has switched off for a student never blocks that
+ *  student from ever reaching green. */
+export function hasActiveColumn(columns: PlannerColumn[], key: string): boolean {
+  return columns.some((c) => c.active && c.key === key);
+}
+
 /** Reads a single field value out of a (possibly missing) planner entry, typed per column. */
 export function readField(
   entry: PlannerEntry | undefined,
