@@ -1,4 +1,5 @@
-import type { PlannerEntry } from "./plannerColumns";
+import type { PlannerColumn, PlannerEntry } from "./plannerColumns";
+import { hasActiveColumn } from "./plannerColumns";
 import type { UWorldBlock } from "./uworldBlocks";
 import type { PlanTask } from "./planTasks";
 
@@ -25,7 +26,13 @@ export function computeTodayStatus(
   entries: PlannerEntry[],
   blocks: UWorldBlock[],
   planTasks: PlanTask[],
-  todayIso: string
+  todayIso: string,
+  // This student's active journal columns (Mood, Today's Biggest Issue,
+  // Resources Used, Student Notes, ...) - same list PlannerCalendar.tsx
+  // passes as `columns`. Optional/defaults to [] so callers that don't pass
+  // it still work, just with those checks skipped. See computeDayStatus in
+  // lib/plannerCalendar.ts for the twin of this logic used on the calendar.
+  journalColumns: PlannerColumn[] = []
 ): TodayStatus {
   const entry = entries.find((e) => e.log_date === todayIso) ?? null;
   const dayBlocks = blocks.filter((b) => b.log_date === todayIso);
@@ -39,20 +46,39 @@ export function computeTodayStatus(
   const assignmentsCompleted = dayTasks.filter((t) => t.completed).length;
   const assignmentsTotal = dayTasks.length;
 
+  // Same rule as computeDayStatus: every Assignment checked off is
+  // necessary but no longer sufficient on its own. Mood/Issue/Resources/
+  // Notes (when that section is turned on for this student) must also be
+  // filled in, and any Question Bank Block that was started must be fully
+  // filled in - a half-filled block (added, no question count entered)
+  // blocks "Completed" until it's finished. Daily Reflection is NOT
+  // required.
+  const moodOk = !hasActiveColumn(journalColumns, "mood") || !!v["mood"];
+  const issueOk = !hasActiveColumn(journalColumns, "study_issue") || !!v["study_issue"];
+  const resourcesOk =
+    !hasActiveColumn(journalColumns, "resources_used") ||
+    (typeof v["resources_used"] === "string" && v["resources_used"].trim() !== "");
+  const notesOk =
+    !hasActiveColumn(journalColumns, "student_notes") ||
+    (typeof v["student_notes"] === "string" && v["student_notes"].trim() !== "");
+  const blocksOk = dayBlocks.every((b) => b.questions !== null && b.questions !== undefined);
+
   return {
     questionsCompleted,
     questionsPlanned: Number(v["questions_planned"] ?? 0) || 0,
     hours: Number(v["hours"] ?? 0) || 0,
     assignmentsCompleted,
     assignmentsTotal,
-    // Used to read planner_entries.field_values["task_completed"], a manual
-    // checkbox that only existed on the old flat grid - retired along with
-    // it, so nothing ever sets that field anymore and this was silently
-    // stuck on "Not Started"/"In Progress" forever, never "Completed". Now
-    // derived from real data: today counts as complete once every
-    // Assignment for it is checked off (there has to be at least one - an
-    // empty day with nothing assigned can't be "Completed").
-    studyCompleted: assignmentsTotal > 0 && assignmentsCompleted === assignmentsTotal,
+    // A day with zero assigned tasks can never be "Completed", no matter
+    // what else is filled in.
+    studyCompleted:
+      assignmentsTotal > 0 &&
+      assignmentsCompleted === assignmentsTotal &&
+      moodOk &&
+      issueOk &&
+      resourcesOk &&
+      notesOk &&
+      blocksOk,
     hasEntry: !!entry || dayBlocks.length > 0 || dayTasks.length > 0,
   };
 }
