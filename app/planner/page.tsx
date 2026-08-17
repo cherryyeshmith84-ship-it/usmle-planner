@@ -4,6 +4,7 @@ import type { Profile } from "@/lib/types";
 import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
 import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { groupBlocksByDate } from "@/lib/uworldBlocks";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeWeeklyProgress } from "@/lib/weeklyProgress";
@@ -91,7 +92,7 @@ export default async function PlannerPage() {
   // tomorrow's date hours before it actually is tomorrow in ET.
   const today = easternDateStringNow();
   const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
-  const todayStatus = computeTodayStatus(entries, blocks, planTasks, today);
+  const todayStatus = computeTodayStatus(entries, blocks, planTasks, today, columns);
 
   // Weekly View / Monthly Statistics / Heatmap (Study Planner v2, phase 2) -
   // derived from BOTH mentor_plan_tasks ("Assignments") and the flat grid
@@ -102,6 +103,7 @@ export default async function PlannerPage() {
   const entryByDate: Record<string, PlannerEntry> = {};
   for (const e of entries) entryByDate[e.log_date] = e;
   const activeMainColumns = mainPlannerColumns(columns);
+  const blocksByDate = groupBlocksByDate(blocks);
   const weekStart = weekStartMonday(today);
   const weekDays = buildCalendarRange(
     tasksByDate,
@@ -109,7 +111,9 @@ export default async function PlannerPage() {
     addDaysIso(weekStart, 6),
     today,
     entryByDate,
-    activeMainColumns
+    activeMainColumns,
+    columns,
+    blocksByDate
   );
   const currentWeekNumber = weekNumberInPlan(today, plannerStartDate);
 
@@ -121,7 +125,9 @@ export default async function PlannerPage() {
     addDaysIso(monthGridBegin, 41),
     today,
     entryByDate,
-    activeMainColumns
+    activeMainColumns,
+    columns,
+    blocksByDate
   ).filter((d) => d.date.startsWith(currentMonthPrefix));
   const monthStats = computeMonthStats(monthDays, entries);
   const streaks = computeStreaks([...entries.map((e) => e.log_date), ...blocks.map((b) => b.log_date)], today);
@@ -136,7 +142,16 @@ export default async function PlannerPage() {
   // heatmap - deliberately its own range from the month grid above since it
   // spans months.
   const heatmapStart = weekStartMonday(addDaysIso(today, -83));
-  const heatmapDays = buildCalendarRange(tasksByDate, heatmapStart, today, today, entryByDate, activeMainColumns);
+  const heatmapDays = buildCalendarRange(
+    tasksByDate,
+    heatmapStart,
+    today,
+    today,
+    entryByDate,
+    activeMainColumns,
+    columns,
+    blocksByDate
+  );
 
   // Achievement badges (Study Planner v2, phase 3) - "reward consistency,
   // not perfection." Streak badges use the longest streak ever reached (see
