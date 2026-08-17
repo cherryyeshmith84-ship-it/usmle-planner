@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import type { PlanTask } from "@/lib/planTasks";
 import { computeTaskProgress, formatEstimatedTime } from "@/lib/planTasks";
@@ -11,9 +10,15 @@ import AssignmentsChecklist from "./AssignmentsChecklist";
 /**
  * Home dashboard cards (see app/dashboard/page.tsx) - kept in one file since
  * they're all small, purely presentational, and only ever used together on
- * that one page. None of these need client-side state, so they stay plain
- * Server Components (the one interactive piece, "Mark Day Complete", is its
- * own small Client Component - MarkDayCompleteButton.tsx).
+ * that one page. All plain Server Components - no client-side state needed.
+ *
+ * Note: the old manual "Mark Day Complete" button (MarkDayCompleteButton.tsx)
+ * was removed from here. It let a student flip today to a green "Completed"
+ * checkmark with one click regardless of whether their actual Assignments
+ * were checked off, which is exactly why some students saw green on days
+ * they hadn't finished everything. Completion status now comes ONLY from
+ * PlannerStatusHeader/computeTodayStatus, which is derived purely from real
+ * Assignment checkbox state (see lib/plannerStatus.ts) - no manual override.
  */
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -119,11 +124,9 @@ export function WelcomeCard({
 export function TodaysPlanCard({
   plannedSystem,
   tasks,
-  markCompleteSlot,
 }: {
   plannedSystem: string | null;
   tasks: PlanTask[];
-  markCompleteSlot: ReactNode;
 }) {
   const progress = computeTaskProgress(tasks);
   const estimatedTime = formatEstimatedTime(tasks);
@@ -153,7 +156,6 @@ export function TodaysPlanCard({
         <Link href="/planner" className="btn-primary text-sm">
           Open Study Planner
         </Link>
-        {markCompleteSlot}
       </div>
     </div>
   );
