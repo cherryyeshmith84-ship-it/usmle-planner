@@ -61,6 +61,9 @@ export default async function AdminMentorDetailPage({ params }: { params: { id: 
   const mentor = mentorData as Mentor;
 
   const [linkedStudentsRes, slotsRes, feedbackRes] = await Promise.all([
+    // Students who've linked THIS mentor's email under their own Settings -
+    // same definition used everywhere else (isExistingStudentOf / the
+    // mentor's own "My students" list).
     supabase
       .from("profiles")
       .select(
@@ -130,7 +133,11 @@ export default async function AdminMentorDetailPage({ params }: { params: { id: 
   const upcomingSessions = slots
     .filter((s) => s.is_booked && !s.cancelled_at && s.end_time > nowIso)
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
-  const completedSessions = slots.filter((s) => s.is_booked && !s.cancelled_at && s.end_time <= nowIso);
+  // Most-recent-first, same as the Upcoming list but reversed - a completed
+  // session an admin is checking on is almost always a recent one.
+  const completedSessions = slots
+    .filter((s) => s.is_booked && !s.cancelled_at && s.end_time <= nowIso)
+    .sort((a, b) => b.start_time.localeCompare(a.start_time));
   const avgRating = averageRating(feedback);
 
   return (
@@ -242,6 +249,32 @@ export default async function AdminMentorDetailPage({ params }: { params: { id: 
         ) : (
           <div className="space-y-2 mb-8">
             {upcomingSessions.map((slot) => (
+              <div key={slot.id} className="card py-3 flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm">
+                  {nameById.get(slot.booked_by ?? "") ?? "Unknown student"} &middot;{" "}
+                  {formatSlotDate(slot.start_time)}, {formatSlotTime(slot.start_time)}&ndash;
+                  {formatSlotTime(slot.end_time)}
+                </p>
+                {slot.booked_by && (
+                  <Link href={`/admin/students/${slot.booked_by}`} className="text-xs text-brand-400 hover:text-brand-300">
+                    View student &rarr;
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Completed sessions - previously just a count in the stats grid
+            above with no way to see who/when. Same list layout as Upcoming,
+            most-recent-first, so an admin can actually check what's already
+            happened without cross-referencing the Feedback section below. */}
+        <h2 className="text-lg font-bold mb-3">Completed sessions ({completedSessions.length})</h2>
+        {completedSessions.length === 0 ? (
+          <p className="text-sm text-slate-400 mb-8">No completed sessions yet.</p>
+        ) : (
+          <div className="space-y-2 mb-8">
+            {completedSessions.map((slot) => (
               <div key={slot.id} className="card py-3 flex items-center justify-between gap-3 flex-wrap">
                 <p className="text-sm">
                   {nameById.get(slot.booked_by ?? "") ?? "Unknown student"} &middot;{" "}
