@@ -11,6 +11,7 @@ import {
   type SessionNote,
   type SessionFeedback,
 } from "@/lib/mentors";
+import { nyWallTimeToUtcIso, utcIsoToNyWallParts } from "@/lib/timezone";
 
 /**
  * One row's worth of display data, pre-computed server-side so this
@@ -370,6 +371,114 @@ function FeedbackSection({
   );
 }
 
+/**
+ * Mentor-only reschedule control for an upcoming session. Previously a
+ * mentor could only Cancel a student's booking, never move it to a new
+ * time - the "edit" flow on the mentor's own Availability page explicitly
+ * only works on OPEN slots (saveEditSlot's `is_booked=false` guard in
+ * MentorAvailabilityClient.tsx), so a booked session had no reschedule path
+ * at all. This updates the SAME slot row's start_time/end_time (booked_by,
+ * notes, feedback - everything else about the session stays attached to
+ * the same row, nothing is deleted/recreated), then pings the student
+ * through relationship-update so it shows up both in their notification
+ * bell and as an on-screen popup (see SessionAlertPopup.tsx) - not just
+ * something they'd stumble onto if they happened to reopen this page.
+ */
+function RescheduleForm({ slot, onDone }: { slot: MentorSlot; onDone: () => void }) {
+  const router = useRouter();
+  const startParts = utcIsoToNyWallParts(slot.start_time);
+  const endParts = utcIsoToNyWallParts(slot.end_time);
+  const [date, setDate] = useState(startParts.date);
+  const [startTime, setStartTime] = useState(startParts.time);
+  const [endTime, setEndTime] = useState(endParts.time);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (!date || !startTime || !endTime) {
+      setError("Pick a date, start time, and end time.");
+      return;
+    }
+    const newStart = new Date(nyWallTimeToUtcIso(date, startTime));
+    const newEnd = new Date(nyWallTimeToUtcIso(date, endTime));
+    if (newEnd <= newStart) {
+      setError("End time has to be after the start time.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const oldDateLabel = formatSlotDate(slot.start_time);
+    const oldTimeLabel = `${formatSlotTime(slot.start_time)}–${formatSlotTime(slot.end_time)}`;
+    const { error: updateError } = await supabase
+      .from("mentor_slots")
+      .update({ start_time: newStart.toISOString(), end_time: newEnd.toISOString() })
+      .eq("id", slot.id);
+    if (updateError) {
+      setSaving(false);
+      setError(updateError.message);
+      return;
+    }
+    setSaving(false);
+
+    // Fire-and-forget notification to the student - a failure here
+    // shouldn't block the reschedule itself, which already succeeded above.
+    if (slot.booked_by) {
+      fetch("/api/notifications/relationship-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mentorId: slot.mentor_id,
+          studentId: slot.booked_by,
+          type: "session_rescheduled",
+          title: "Your mentor rescheduled your session",
+          detail: `Was ${oldDateLabel}, ${oldTimeLabel} → now ${formatSlotDate(
+            newStart.toISOString()
+          )}, ${formatSlotTime(newStart.toISOString())}–${formatSlotTime(newEnd.toISOString())}.`,
+          link: "/mentorship/sessions",
+        }),
+      }).catch(() => {});
+    }
+
+    onDone();
+    router.refresh();
+  }
+
+  return (
+    <div className="mt-3 pl-12 card bg-slate-900/60 space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <label className="label">Date</label>
+          <input type="date" className="input text-sm py-1.5" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Start</label>
+          <input
+            type="time"
+            className="input text-sm py-1.5"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">End</label>
+          <input type="time" className="input text-sm py-1.5" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+        </div>
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
+          {saving ? "Saving..." : "Save new time"}
+        </button>
+        <button type="button" onClick={onDone} className="btn-secondary text-xs">
+          Cancel
+        </button>
+      </div>
+      <p className="text-[11px] text-slate-500">The student will be notified of the new time.</p>
+    </div>
+  );
+}
+
 export default function SessionsListClient({
   rows,
   role,
@@ -380,9 +489,11 @@ export default function SessionsListClient({
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<{ id: string; message: string } | null>(null);
+  const [reschedulingId, setReschedulingId] = useState<string | null>(null);
 
-  async function cancelSession(slotId: string) {
+  async function cancelSession(row: SessionRow) {
     if (!confirm("Cancel this session? This can't be undone.")) return;
+    const slotId = row.slot.id;
     setBusyId(slotId);
     setErrorId(null);
     const supabase = createClient();
@@ -398,6 +509,30 @@ export default function SessionsListClient({
       setErrorId({ id: slotId, message: error.message });
       return;
     }
+
+    // Fire-and-forget notification to whichever side didn't do the
+    // cancelling - a failure here shouldn't block the cancellation itself,
+    // which already succeeded above. Uses the slot's own mentor_id/
+    // booked_by (always present regardless of role) rather than anything
+    // role-specific, so this works the same whether a mentor or a student
+    // triggered it.
+    if (row.slot.booked_by) {
+      fetch("/api/notifications/relationship-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mentorId: row.slot.mentor_id,
+          studentId: row.slot.booked_by,
+          type: "session_cancelled",
+          title: role === "mentor" ? "Your mentor cancelled a session" : "A student cancelled a session",
+          detail: `${formatSlotDate(row.slot.start_time)}, ${formatSlotTime(row.slot.start_time)}–${formatSlotTime(
+            row.slot.end_time
+          )}`,
+          link: "/mentorship/sessions",
+        }),
+      }).catch(() => {});
+    }
+
     router.refresh();
   }
 
@@ -439,31 +574,49 @@ export default function SessionsListClient({
         </div>
 
         {status === "upcoming" && (
-          <div className="flex items-center gap-3 mt-3 pl-12">
-            {row.meetingLink && (
-              <a
-                href={row.meetingLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-primary text-xs"
+          <>
+            <div className="flex items-center gap-3 mt-3 pl-12 flex-wrap">
+              {row.meetingLink && (
+                
+                  href={row.meetingLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary text-xs"
+                >
+                  Join Meeting
+                </a>
+              )}
+              {/* Student's own reschedule path - browse this mentor's other
+                  open slots and book one instead. Unrelated to the mentor's
+                  reschedule button below (which moves THIS slot's time
+                  directly), so both can coexist without conflicting. */}
+              {row.rescheduleMentorId && (
+                <a href={`/mentorship/mentor/${row.rescheduleMentorId}`} className="btn-secondary text-xs">
+                  Reschedule
+                </a>
+              )}
+              {role === "mentor" && (
+                <button
+                  type="button"
+                  onClick={() => setReschedulingId(reschedulingId === row.slot.id ? null : row.slot.id)}
+                  className="btn-secondary text-xs"
+                >
+                  {reschedulingId === row.slot.id ? "Close" : "Reschedule"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => cancelSession(row)}
+                disabled={busyId === row.slot.id}
+                className="text-xs text-red-400 hover:text-red-300"
               >
-                Join Meeting
-              </a>
+                {busyId === row.slot.id ? "Cancelling..." : "Cancel"}
+              </button>
+            </div>
+            {role === "mentor" && reschedulingId === row.slot.id && (
+              <RescheduleForm slot={row.slot} onDone={() => setReschedulingId(null)} />
             )}
-            {row.rescheduleMentorId && (
-              <a href={`/mentorship/mentor/${row.rescheduleMentorId}`} className="btn-secondary text-xs">
-                Reschedule
-              </a>
-            )}
-            <button
-              type="button"
-              onClick={() => cancelSession(row.slot.id)}
-              disabled={busyId === row.slot.id}
-              className="text-xs text-red-400 hover:text-red-300"
-            >
-              {busyId === row.slot.id ? "Cancelling..." : "Cancel"}
-            </button>
-          </div>
+          </>
         )}
         {status === "completed" && (
           <>
