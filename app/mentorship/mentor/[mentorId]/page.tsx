@@ -69,7 +69,16 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
     .lt("end_time", now);
   const helpedCount = new Set((pastBookedRows ?? []).map((r: any) => r.booked_by).filter(Boolean)).size;
 
-  const { data: myBookingsData } = await supabase.from("mentor_slots").select("*").eq("booked_by", user.id);
+  // Feeds MentorProfileClient's one-booking-per-week check - only counts
+  // still-active bookings. A cancelled slot (by either the student or the
+  // mentor) keeps booked_by/is_booked set for history, but no longer holds
+  // that student's weekly slot, so it shouldn't stop them from booking a
+  // different one the same week.
+  const { data: myBookingsData } = await supabase
+    .from("mentor_slots")
+    .select("*")
+    .eq("booked_by", user.id)
+    .is("cancelled_at", null);
   const myBookings = (myBookingsData ?? []) as MentorSlot[];
 
   // This viewer's own permanent meeting link with this specific mentor, if
