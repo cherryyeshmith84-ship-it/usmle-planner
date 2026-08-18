@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import NavBar from "./NavBar";
 import TopHeader from "./TopHeader";
+import OnboardingTour from "./OnboardingTour";
+import SessionAlertPopup from "./SessionAlertPopup";
 
 /**
  * Shared page shell: sidebar (NavBar) + persistent top header, wrapping
@@ -47,6 +49,17 @@ export default function AppShell({
         <TopHeader userName={userName} streak={streak} />
         {children}
       </div>
+      {/* Mounted once here (not per-page) so every page gets the app-wide
+          onboarding tour automatically - it resolves entirely client-side
+          whether to actually show itself (see OnboardingTour.tsx's own doc
+          comment), so this is safe to render unconditionally. */}
+      <OnboardingTour />
+      {/* Same "mount once, resolves itself" pattern as OnboardingTour above -
+          pops up a modal over whatever page is open the moment a mentor
+          reschedules or cancels a student's session (see
+          SessionAlertPopup.tsx's own doc comment for why this needs to be
+          more attention-grabbing than the quiet bell dropdown). */}
+      <SessionAlertPopup />
     </div>
   );
 }
