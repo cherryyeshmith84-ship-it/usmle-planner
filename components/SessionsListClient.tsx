@@ -577,7 +577,7 @@ export default function SessionsListClient({
           <>
             <div className="flex items-center gap-3 mt-3 pl-12 flex-wrap">
               {row.meetingLink && (
-                
+                <a
                   href={row.meetingLink}
                   target="_blank"
                   rel="noopener noreferrer"
