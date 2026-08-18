@@ -5,6 +5,52 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { PlanTask } from "@/lib/planTasks";
 
+// Common Step 1 study resources - lets a mentor pick from a list instead of
+// retyping the same handful of resource names on every assignment (and
+// keeps spelling/capitalization consistent, e.g. always "BNB" not
+// sometimes "Boards and Beyond"). "Other" falls through to a free-text box
+// for anything not on this list.
+const RESOURCE_OPTIONS = [
+  "BNB",
+  "FIRST AID",
+  "PATHOMA",
+  "SKETCHY MEDICAL",
+  "SKETCHY PHARM",
+  "UWORLD",
+  "AMBOSS",
+  "PHYSEO",
+  "DIVINE INTERVENTION PHARM",
+  "PIXORIZE",
+  "OSMOSIS",
+  "USMLE RX",
+  "NBME / FREE 120",
+  "UWSA",
+];
+
+// Every organ system/subject a mentor would organize a Step 1 assignment
+// under. Same "Other" fallback as resources above.
+const SYSTEM_OPTIONS = [
+  "CARDIOVASCULAR",
+  "RESPIRATORY/PULMONARY",
+  "RENAL/GENITOURINARY",
+  "GASTROINTESTINAL",
+  "ENDOCRINE",
+  "REPRODUCTIVE",
+  "HEMATOLOGY/ONCOLOGY",
+  "MUSCULOSKELETAL/RHEUMATOLOGY",
+  "NEUROLOGY",
+  "PSYCHIATRY/BEHAVIORAL SCIENCE",
+  "DERMATOLOGY",
+  "IMMUNOLOGY",
+  "MICROBIOLOGY",
+  "BIOCHEMISTRY",
+  "PHARMACOLOGY",
+  "GENERAL PRINCIPLES/PATHOLOGY",
+  "BIOSTATISTICS/EPIDEMIOLOGY",
+];
+
+const CUSTOM_OPTION = "__custom__";
+
 interface DraftTask {
   key: string; // real id for existing rows, "new-N" for freshly added ones
   id: string | null;
@@ -79,16 +125,72 @@ export default function MentorAssignmentsEditor({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // "Add from list" dialog - lets a mentor build an assignment by picking a
+  // Resource and a System from dropdowns instead of typing "BNB/ENDOCRINE"
+  // out by hand every time, with an optional free-text Topic (e.g.
+  // "Thyroid") tacked on as a third segment. Either dropdown can be set to
+  // "Other" to reveal a plain text box for something not on the list.
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [dialogResource, setDialogResource] = useState(RESOURCE_OPTIONS[0]);
+  const [dialogResourceCustom, setDialogResourceCustom] = useState("");
+  const [dialogSystem, setDialogSystem] = useState(SYSTEM_OPTIONS[0]);
+  const [dialogSystemCustom, setDialogSystemCustom] = useState("");
+  const [dialogTopic, setDialogTopic] = useState("");
+  const [dialogOptional, setDialogOptional] = useState(false);
+  const [dialogRepeatDays, setDialogRepeatDays] = useState(1);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
   function updateDraft(key: string, patch: Partial<DraftTask>) {
     setSaveMessage(null);
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   }
 
+  // Unchanged - adds a blank free-text row, for one-off assignments that
+  // don't fit the Resource/System pattern (e.g. "40 Cardiology Questions").
   function addAssignment() {
     setSaveMessage(null);
     const key = `new-${nextNewId}`;
     setNextNewId((n) => n + 1);
     setDrafts((prev) => [...prev, { key, id: null, title: "", isOptional: false, completed: false, repeatDays: 1 }]);
+  }
+
+  function openAddDialog() {
+    setSaveMessage(null);
+    setDialogResource(RESOURCE_OPTIONS[0]);
+    setDialogResourceCustom("");
+    setDialogSystem(SYSTEM_OPTIONS[0]);
+    setDialogSystemCustom("");
+    setDialogTopic("");
+    setDialogOptional(false);
+    setDialogRepeatDays(1);
+    setDialogError(null);
+    setShowAddDialog(true);
+  }
+
+  function addAssignmentFromDialog() {
+    const resource = dialogResource === CUSTOM_OPTION ? dialogResourceCustom.trim() : dialogResource;
+    const system = dialogSystem === CUSTOM_OPTION ? dialogSystemCustom.trim() : dialogSystem;
+    if (!resource || !system) {
+      setDialogError("Pick (or type) both a resource and a system.");
+      return;
+    }
+    const topic = dialogTopic.trim();
+    const title = [resource, system, topic].filter(Boolean).join("/").toUpperCase();
+    setSaveMessage(null);
+    const key = `new-${nextNewId}`;
+    setNextNewId((n) => n + 1);
+    setDrafts((prev) => [
+      ...prev,
+      {
+        key,
+        id: null,
+        title,
+        isOptional: dialogOptional,
+        completed: false,
+        repeatDays: Math.max(1, Math.min(90, Math.round(dialogRepeatDays) || 1)),
+      },
+    ]);
+    setShowAddDialog(false);
   }
 
   function removeAssignment(key: string) {
@@ -267,8 +369,11 @@ export default function MentorAssignmentsEditor({
         </div>
       )}
       <div className="flex items-center gap-3 flex-wrap pt-1">
+        <button type="button" onClick={openAddDialog} className="btn-secondary text-xs">
+          + Add From Resource List
+        </button>
         <button type="button" onClick={addAssignment} className="btn-secondary text-xs">
-          + Add Assignment
+          + Add Custom Assignment
         </button>
         <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
           {saving ? "Saving..." : "Save"}
@@ -280,6 +385,124 @@ export default function MentorAssignmentsEditor({
         Tip: set "Repeat for" on an assignment (e.g. 10) to apply it to today plus the next 9 days in one
         save, instead of adding it separately on every day.
       </p>
+
+      {showAddDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="card max-w-sm w-full space-y-3">
+            <p className="text-sm font-semibold">Add from resource list</p>
+
+            <div>
+              <label className="label">Resource</label>
+              <select
+                className="input text-sm"
+                value={dialogResource}
+                onChange={(e) => setDialogResource(e.target.value)}
+              >
+                {RESOURCE_OPTIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+                <option value={CUSTOM_OPTION}>Other...</option>
+              </select>
+              {dialogResource === CUSTOM_OPTION && (
+                <input
+                  type="text"
+                  className="input text-sm mt-1.5"
+                  placeholder="Type the resource name"
+                  value={dialogResourceCustom}
+                  onChange={(e) => setDialogResourceCustom(e.target.value)}
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="label">System</label>
+              <select
+                className="input text-sm"
+                value={dialogSystem}
+                onChange={(e) => setDialogSystem(e.target.value)}
+              >
+                {SYSTEM_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+                <option value={CUSTOM_OPTION}>Other...</option>
+              </select>
+              {dialogSystem === CUSTOM_OPTION && (
+                <input
+                  type="text"
+                  className="input text-sm mt-1.5"
+                  placeholder="Type the system name"
+                  value={dialogSystemCustom}
+                  onChange={(e) => setDialogSystemCustom(e.target.value)}
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="label">Specific topic (optional)</label>
+              <input
+                type="text"
+                className="input text-sm"
+                placeholder="e.g. Thyroid"
+                value={dialogTopic}
+                onChange={(e) => setDialogTopic(e.target.value)}
+              />
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Will be added as:{" "}
+              <span className="text-slate-300 font-medium">
+                {[
+                  dialogResource === CUSTOM_OPTION ? dialogResourceCustom.trim() || "..." : dialogResource,
+                  dialogSystem === CUSTOM_OPTION ? dialogSystemCustom.trim() || "..." : dialogSystem,
+                  dialogTopic.trim(),
+                ]
+                  .filter(Boolean)
+                  .join("/")
+                  .toUpperCase()}
+              </span>
+            </p>
+
+            <div className="flex items-center gap-4 flex-wrap">
+              <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={dialogOptional}
+                  onChange={(e) => setDialogOptional(e.target.checked)}
+                  className="w-3.5 h-3.5"
+                />
+                Optional
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                Repeat for
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={dialogRepeatDays}
+                  onChange={(e) => setDialogRepeatDays(Number(e.target.value) || 1)}
+                  className="input text-xs py-1 px-1.5 w-12 text-center"
+                />
+                day{dialogRepeatDays === 1 ? "" : "s"}
+              </label>
+            </div>
+
+            {dialogError && <p className="text-xs text-red-400">{dialogError}</p>}
+
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={addAssignmentFromDialog} className="btn-primary text-sm">
+                Add
+              </button>
+              <button type="button" onClick={() => setShowAddDialog(false)} className="btn-secondary text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
