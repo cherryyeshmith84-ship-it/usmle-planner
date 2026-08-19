@@ -26,15 +26,24 @@ export interface TopicChecklistRow {
  * into a "Save" button - there's no draft state to lose here, so an
  * immediate save keeps it simple and matches how MentorAvailabilityClient's
  * slot Remove/edit actions work.
+ *
+ * Also rendered read-only on the student's own Analysis page (app/history/
+ * page.tsx) with readOnly=true, so a student can see what their mentor has
+ * marked covered without being able to change it themselves - mirrors the
+ * RLS policy on student_topic_checklist, which only lets a student SELECT
+ * their own rows, not write them (only their mentor or an admin can).
  */
 export default function StudentTopicChecklist({
   studentId,
   mentorId,
   initialRows,
+  readOnly = false,
 }: {
   studentId: string;
-  mentorId: string;
+  // Only needed when readOnly is false, since it's only used on writes.
+  mentorId?: string;
   initialRows: TopicChecklistRow[];
+  readOnly?: boolean;
 }) {
   const [completed, setCompleted] = useState<Set<string>>(
     () => new Set(initialRows.filter((r) => r.completed).map((r) => `${r.category}:${r.topic}`))
@@ -47,6 +56,7 @@ export default function StudentTopicChecklist({
   }
 
   async function toggle(category: "system" | "subject", topic: string) {
+    if (readOnly || !mentorId) return;
     const k = key(category, topic);
     const wasCompleted = completed.has(k);
     // Optimistic - flips instantly instead of waiting on the round trip,
@@ -95,11 +105,14 @@ export default function StudentTopicChecklist({
           {topics.map((topic) => {
             const k = key(category, topic);
             return (
-              <label key={topic} className="flex items-center gap-2 text-sm cursor-pointer">
+              <label
+                key={topic}
+                className={`flex items-center gap-2 text-sm ${readOnly ? "" : "cursor-pointer"}`}
+              >
                 <input
                   type="checkbox"
                   checked={completed.has(k)}
-                  disabled={savingKey === k}
+                  disabled={readOnly || savingKey === k}
                   onChange={() => toggle(category, topic)}
                   className="w-4 h-4 shrink-0"
                 />
@@ -117,8 +130,9 @@ export default function StudentTopicChecklist({
       <div>
         <p className="text-sm font-semibold">Systems &amp; Disciplines Covered</p>
         <p className="text-xs text-slate-500 mt-1">
-          Check off each system and discipline as you work through it with this student - separate from how
-          well they&apos;re scoring (see the Analysis tab for that).
+          {readOnly
+            ? "Your mentor checks these off as you cover them together - separate from how well you're scoring (see your performance charts above for that)."
+            : "Check off each system and discipline as you work through it with this student - separate from how well they're scoring (see the Analysis tab for that)."}
         </p>
       </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
