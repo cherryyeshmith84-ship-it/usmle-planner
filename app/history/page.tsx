@@ -7,6 +7,7 @@ import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PerformanceClient from "@/components/PerformanceClient";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
+import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,16 @@ export default async function HistoryPage() {
   // full-length exam would reveal it.
   const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
   const qbankBreakdown = computeQBankSystemBreakdown((blocksData ?? []) as UWorldBlock[]);
+
+  // Read-only view of the same Systems & Disciplines checklist a mentor
+  // fills in on this student's profile page (components/
+  // StudentTopicChecklist.tsx) - RLS only lets a student SELECT their own
+  // rows here, not write them.
+  const { data: topicChecklistData } = await supabase
+    .from("student_topic_checklist")
+    .select("category, topic, completed")
+    .eq("student_id", user.id);
+  const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
 
   // Resolve the student's own mentor (if any) for the "Mentor Recommendation"
   // card. Used to also fall back to "have they ever sent this mentor a
@@ -118,6 +129,10 @@ export default async function HistoryPage() {
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
           <QBankSystemBreakdown cells={qbankBreakdown} />
+        </div>
+
+        <div className="mt-8">
+          <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
         </div>
       </main>
     </AppShell>
