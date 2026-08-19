@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 
@@ -45,6 +46,7 @@ export default function StudentTopicChecklist({
   initialRows: TopicChecklistRow[];
   readOnly?: boolean;
 }) {
+  const router = useRouter();
   const [completed, setCompleted] = useState<Set<string>>(
     () => new Set(initialRows.filter((r) => r.completed).map((r) => `${r.category}:${r.topic}`))
   );
@@ -91,7 +93,15 @@ export default function StudentTopicChecklist({
         else next.delete(k);
         return next;
       });
+      return;
     }
+    // Without this, Next's client-side router cache keeps serving the RSC
+    // snapshot from whenever this page was last fetched - so navigating
+    // away and back (or the student's own read-only copy) could show stale
+    // checkmarks even though the database write above already succeeded.
+    // The local optimistic state above already made this click feel
+    // instant; this just makes sure the next navigation picks up the truth.
+    router.refresh();
   }
 
   function renderGroup(label: string, category: "system" | "subject", topics: readonly string[]) {
