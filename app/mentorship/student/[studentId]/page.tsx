@@ -23,6 +23,7 @@ import MentorChatPanel from "@/components/MentorChatPanel";
 import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
+import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +145,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
     plannerSettingsRes,
     blocksRes,
     resourcesRes,
+    topicChecklistRes,
   ] = await Promise.all([
     supabase
       .from("score_reports")
@@ -201,6 +203,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
     supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
     supabase.from("uworld_blocks").select("*").eq("user_id", params.studentId),
     supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
+    supabase.from("student_topic_checklist").select("category, topic, completed").eq("student_id", params.studentId),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
@@ -216,6 +219,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
   const uworldBlocks = (blocksRes.data ?? []) as UWorldBlock[];
   const studyResources = (resourcesRes.data ?? []) as StudyResource[];
+  const topicChecklistRows = (topicChecklistRes.data ?? []) as TopicChecklistRow[];
 
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
@@ -312,6 +316,17 @@ export default async function StudentProgressPage({ params }: { params: { studen
             </div>
           )}
         </div>
+      )}
+
+      {/* Systems & Disciplines coverage checklist - mentor-only, so it only
+          renders when the viewer actually has a mentor relationship with
+          this student (same gating MeetingLinkEditor below uses). */}
+      {myMentorRecord && (
+        <StudentTopicChecklist
+          studentId={params.studentId}
+          mentorId={myMentorRecord.id}
+          initialRows={topicChecklistRows}
+        />
       )}
 
       {/* Meeting link - permanent per-(mentor, student) room, different
