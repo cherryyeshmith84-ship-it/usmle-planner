@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   formatSlotDate,
   formatSlotTime,
   getSlotStatus,
+  meetingLiveStatus,
   type MentorSlot,
   type SessionNote,
   type SessionFeedback,
@@ -372,6 +373,46 @@ function FeedbackSection({
 }
 
 /**
+ * Join Meeting button + Live/Waiting badge for one upcoming row. onJoin
+ * fires (fire-and-forget) the moment this person clicks, recording their
+ * own join timestamp - the badge only ever turns "Live" once BOTH sides'
+ * timestamps are set (see lib/mentors.ts's meetingLiveStatus). joinFields
+ * comes from the parent's poll (see SessionsListClient below) rather than
+ * straight off row.slot, so the OTHER person's click - which this browser
+ * has no other way to know about - still shows up without a manual reload.
+ */
+function MeetingJoinControls({
+  meetingLink,
+  slot,
+  joinFields,
+  onJoin,
+}: {
+  meetingLink: string;
+  slot: Pick<MentorSlot, "start_time" | "end_time">;
+  joinFields: { mentor_joined_at: string | null; student_joined_at: string | null };
+  onJoin: () => void;
+}) {
+  const status = meetingLiveStatus({ ...slot, ...joinFields });
+  return (
+    <>
+      <a href={meetingLink} target="_blank" rel="noopener noreferrer" onClick={onJoin} className="btn-primary text-xs">
+        Join Meeting
+      </a>
+      {status === "live" && (
+        <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-green-900/40 text-green-400">
+          ● Live
+        </span>
+      )}
+      {status === "waiting" && (
+        <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-yellow-900/40 text-yellow-400">
+          Waiting for both to join
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
  * Mentor-only reschedule control for an upcoming session. Previously a
  * mentor could only Cancel a student's booking, never move it to a new
  * time - the "edit" flow on the mentor's own Availability page explicitly
@@ -490,6 +531,60 @@ export default function SessionsListClient({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<{ id: string; message: string } | null>(null);
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
+  // Live/Waiting join state per slot id, seeded from each row's own slot and
+  // refreshed on a poll below - same "plain poll, no Realtime" tradeoff as
+  // NotificationsBell/SessionAlertPopup elsewhere in the app, so this
+  // browser can pick up the OTHER person's join click without a reload.
+  const [joinState, setJoinState] = useState<
+    Record<string, { mentor_joined_at: string | null; student_joined_at: string | null }>
+  >(() =>
+    Object.fromEntries(
+      rows.map((r) => [r.slot.id, { mentor_joined_at: r.slot.mentor_joined_at ?? null, student_joined_at: r.slot.student_joined_at ?? null }])
+    )
+  );
+
+  useEffect(() => {
+    const watchIds = rows
+      .filter((r) => getSlotStatus(r.slot) === "upcoming" && r.meetingLink)
+      .map((r) => r.slot.id);
+    if (watchIds.length === 0) return;
+    let cancelled = false;
+    async function poll() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("mentor_slots")
+        .select("id, mentor_joined_at, student_joined_at")
+        .in("id", watchIds);
+      if (cancelled || !data) return;
+      setJoinState((prev) => {
+        const next = { ...prev };
+        for (const s of data as { id: string; mentor_joined_at: string | null; student_joined_at: string | null }[]) {
+          next[s.id] = { mentor_joined_at: s.mentor_joined_at, student_joined_at: s.student_joined_at };
+        }
+        return next;
+      });
+    }
+    poll();
+    const interval = setInterval(poll, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  async function markJoined(slotId: string) {
+    const column = role === "mentor" ? "mentor_joined_at" : "student_joined_at";
+    const now = new Date().toISOString();
+    // Optimistic - this browser's own click should reflect immediately
+    // rather than waiting on the next 20s poll.
+    setJoinState((prev) => ({
+      ...prev,
+      [slotId]: { ...prev[slotId], [column]: now } as { mentor_joined_at: string | null; student_joined_at: string | null },
+    }));
+    const supabase = createClient();
+    await supabase.from("mentor_slots").update({ [column]: now }).eq("id", slotId);
+  }
 
   async function cancelSession(row: SessionRow) {
     if (!confirm("Cancel this session? This can't be undone.")) return;
@@ -577,14 +672,17 @@ export default function SessionsListClient({
           <>
             <div className="flex items-center gap-3 mt-3 pl-12 flex-wrap">
               {row.meetingLink && (
-                <a
-                  href={row.meetingLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary text-xs"
-                >
-                  Join Meeting
-                </a>
+                <MeetingJoinControls
+                  meetingLink={row.meetingLink}
+                  slot={row.slot}
+                  joinFields={
+                    joinState[row.slot.id] ?? {
+                      mentor_joined_at: row.slot.mentor_joined_at ?? null,
+                      student_joined_at: row.slot.student_joined_at ?? null,
+                    }
+                  }
+                  onJoin={() => markJoined(row.slot.id)}
+                />
               )}
               {/* Student's own reschedule path - browse this mentor's other
                   open slots and book one instead. Unrelated to the mentor's
