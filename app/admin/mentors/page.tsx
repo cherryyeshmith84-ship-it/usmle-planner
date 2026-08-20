@@ -26,7 +26,11 @@ export default async function AdminMentorsPage() {
     supabase.from("profiles").select("mentor_email").not("mentor_email", "is", null),
     supabase.from("profiles").select("tutor_email").not("tutor_email", "is", null),
   ]);
-  const mentors = (mentorsRes.data ?? []) as Mentor[];
+  // Mentors-only list now - a pure Tutor (role "tutor") belongs on the
+  // separate /admin/tutors page instead, even though both are rows in this
+  // same underlying mentors table. Mentor+Tutor rows still show up here
+  // (and also on /admin/tutors) since they genuinely do both jobs.
+  const mentors = ((mentorsRes.data ?? []) as Mentor[]).filter((m) => (m.role ?? "mentor") !== "tutor");
 
   const studentCounts: Record<string, number> = {};
   for (const row of (linkedViaMentorRes.data ?? []) as { mentor_email: string }[]) {
