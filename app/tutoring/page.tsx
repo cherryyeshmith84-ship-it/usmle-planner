@@ -50,10 +50,10 @@ export default async function TutoringPage() {
 
   const { data: profileData } = await supabase
     .from("profiles")
-    .select("is_admin, full_name, mentor_email")
+    .select("is_admin, full_name, mentor_email, tutor_email")
     .eq("id", user.id)
     .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
+  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email" | "tutor_email"> | null;
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
   const { data: mentorsData } = await supabase
@@ -99,10 +99,16 @@ export default async function TutoringPage() {
     const feedback = (feedbackData ?? []) as SessionFeedback[];
     const avgRating = averageRating(feedback);
 
+    // Tutoring students are tracked via profiles.tutor_email - a fully
+    // separate field from mentor_email (see lib/types.ts), so a "both" role
+    // person's tutoring roster here never mixes in their mentoring roster
+    // from /mentorship, and vice versa. RLS ("Tutors can view profiles of
+    // students who linked their tutor email") restricts this to exactly
+    // this tutor's matches.
     const { data: linkedStudentsData } = await supabase
       .from("profiles")
       .select("id, full_name, email, status_update, status_updated_at")
-      .not("mentor_email", "is", null)
+      .not("tutor_email", "is", null)
       .order("full_name", { ascending: true });
     const linkedStudents = (linkedStudentsData ?? []) as Pick<
       Profile,
@@ -161,11 +167,12 @@ export default async function TutoringPage() {
           </div>
 
           <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">My students</h2>
+            <h2 className="text-lg font-bold mb-3">My tutoring students</h2>
             {linkedStudents.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No students have linked your email yet - once a student adds your email under their
-                Settings, they&apos;ll show up here.
+                No students have linked your email as their tutor yet - once a student adds your
+                email under &ldquo;Your tutor&apos;s email&rdquo; in their Settings, they&apos;ll show
+                up here.
               </p>
             ) : (
               <div className="space-y-2">
@@ -373,7 +380,11 @@ export default async function TutoringPage() {
     for (const row of (upcomingOpenRows ?? []) as any[]) {
       const rowTutor = tutorsForDirectory.find((m) => m.id === row.mentor_id);
       if (!rowTutor) continue;
-      const viewerIsExisting = isExistingStudentOf(profile?.mentor_email, rowTutor.email);
+      // Existing-student status here is tutor_email-based, never
+      // mentor_email - a student who's already linked this person as their
+      // mentor (via /mentorship) isn't automatically an "existing student"
+      // on the tutoring side too, since those are tracked separately.
+      const viewerIsExisting = isExistingStudentOf(profile?.tutor_email, rowTutor.email);
       if (slotVisibleToStudent(row, viewerIsExisting)) {
         availableThisWeekTutorIds.add(row.mentor_id);
       }
