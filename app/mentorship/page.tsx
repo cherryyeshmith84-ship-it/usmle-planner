@@ -143,7 +143,17 @@ export default async function MentorshipPage() {
               <p className="text-xs text-slate-500">Avg rating ({feedback.length})</p>
             </div>
             <div className="card py-3 text-center">
-              <p className="text-2xl font-bold text-brand-300">{upcoming.length + todaysSessions.length}</p>
+              {/* Was upcoming.length + todaysSessions.length - todaysSessions
+                  only checks the CALENDAR DATE, not whether the session has
+                  actually happened yet, so a session earlier today that
+                  already ended still counted here even though it correctly
+                  drops out of the Upcoming Sessions page's Upcoming bucket
+                  (which filters on getSlotStatus === "upcoming"). Counting
+                  the same way here keeps this number and that page in
+                  agreement. */}
+              <p className="text-2xl font-bold text-brand-300">
+                {nonCancelled.filter((s) => getSlotStatus(s) === "upcoming").length}
+              </p>
               <p className="text-xs text-slate-500">Upcoming sessions</p>
             </div>
             <div className="card py-3 text-center">
