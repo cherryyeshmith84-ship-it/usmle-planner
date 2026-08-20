@@ -30,13 +30,27 @@ export interface MentorSlot {
   booked_at: string | null;
   student_note: string | null;
   created_at?: string;
+  // Structured pre-booking questionnaire (replaces the old packed
+  // "Stage: X | Currently: Y" string in student_note).
   current_stage?: string | null;
   current_nbme?: string | null;
   target_exam_date?: string | null;
   biggest_challenge?: string | null;
+  // Cancellation - kept separate from is_booked so a cancelled session
+  // stays distinguishable from a slot that was simply never booked.
   cancelled_at?: string | null;
   cancelled_by?: string | null;
+  // Who this open slot is for: "existing" = only students already linked to
+  // this mentor (via their Settings "mentor's email" field), "new" = only
+  // students who aren't linked to this mentor yet, null/undefined = open to
+  // everyone (the default for every slot created before this existed).
   audience?: "existing" | "new" | null;
+  // Set the moment each side clicks "Join Meeting" (see SessionsListClient's
+  // MeetingJoinControls) - drives the Live/Waiting badge below. Each row is
+  // one specific one-off session, so these never get reused across
+  // different meetings the way a recurring link would.
+  mentor_joined_at?: string | null;
+  student_joined_at?: string | null;
 }
 
 /** Whether a student counts as an "existing student" of a given mentor -
@@ -131,6 +145,31 @@ export type SlotStatus = "upcoming" | "completed" | "cancelled";
 export function getSlotStatus(slot: Pick<MentorSlot, "end_time" | "cancelled_at">): SlotStatus {
   if (slot.cancelled_at) return "cancelled";
   return slot.end_time < new Date().toISOString() ? "completed" : "upcoming";
+}
+
+export type MeetingLiveStatus = "not_yet" | "waiting" | "live" | "ended";
+
+// Shows the badge starting a few minutes early, so a mentor/student who
+// clicks Join Meeting slightly ahead of time doesn't just see nothing.
+const MEETING_GRACE_MS = 10 * 60 * 1000;
+
+/** Whether a booked session's meeting room counts as "Live" right now.
+ *  "live" only once BOTH the mentor and the student have clicked Join
+ *  Meeting - one side alone shows "waiting". Only meaningful within the
+ *  slot's own scheduled window (plus a short grace period beforehand);
+ *  well before or after the actual time, no badge is shown at all so
+ *  nothing implies a meeting is supposed to be happening yet. Each
+ *  mentor_slots row is one specific one-off session, so a join timestamp
+ *  from a past meeting is never mistaken for this one. */
+export function meetingLiveStatus(
+  slot: Pick<MentorSlot, "start_time" | "end_time" | "mentor_joined_at" | "student_joined_at">
+): MeetingLiveStatus {
+  const now = Date.now();
+  const start = new Date(slot.start_time).getTime();
+  const end = new Date(slot.end_time).getTime();
+  if (now < start - MEETING_GRACE_MS) return "not_yet";
+  if (now > end) return "ended";
+  return slot.mentor_joined_at && slot.student_joined_at ? "live" : "waiting";
 }
 
 /** Public URL for a photo stored in the mentor-photos bucket (bucket is public - no signing needed). */
