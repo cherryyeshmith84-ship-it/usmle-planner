@@ -14,7 +14,7 @@ import {
   mentorPhotoUrl,
   slotVisibleToStudent,
 } from "@/lib/mentors";
-import { getContentPublished } from "@/lib/platformSettings";
+import { getContentPublished, getTutoringPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import TutorDirectoryClient from "@/components/TutorDirectoryClient";
 import TutorSpecialtiesEditor from "@/components/TutorSpecialtiesEditor";
@@ -301,6 +301,27 @@ export default async function TutoringPage() {
         </main>
       </AppShell>
     );
+  }
+
+  // Student view, gated behind the admin-only publish switch (separate from
+  // getContentPublished - see lib/platformSettings.ts) - adding tutors on
+  // /admin/tutors never by itself exposes Tutoring to students; an admin has
+  // to deliberately flip this on first. Admins bypass this and always see
+  // the real directory below.
+  if (!profile?.is_admin) {
+    const tutoringPublished = await getTutoringPublished(supabase);
+    if (!tutoringPublished) {
+      return (
+        <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
+          <main className="flex-1 px-6 py-8 w-full">
+            <h1 className="text-xl font-bold mb-1">Tutoring</h1>
+            <p className="text-sm text-slate-400">
+              Tutoring is coming soon - check back here once it&apos;s live.
+            </p>
+          </main>
+        </AppShell>
+      );
+    }
   }
 
   // Student view - directory of tutors + this student's own upcoming
