@@ -24,10 +24,10 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
 
   const { data: profileData } = await supabase
     .from("profiles")
-    .select("is_admin, full_name, mentor_email")
+    .select("is_admin, full_name, mentor_email, tutor_email")
     .eq("id", user.id)
     .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
+  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email" | "tutor_email"> | null;
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
   const { data: mentorData } = await supabase
@@ -54,7 +54,20 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
   // out here, server-side, before anything reaches the client - a slot
   // reserved for this mentor's existing students never even reaches a
   // browsing student who hasn't linked them yet, and vice versa.
-  const isExistingStudent = isExistingStudentOf(profile?.mentor_email, mentor.email);
+  //
+  // This same page/route is reused for both Mentorship and Tutoring
+  // bookings (a "tutor" is just a mentors row with role tutor/both), so
+  // which of the student's two link fields counts depends on this
+  // specific person's role: a pure tutor checks tutor_email only, a pure
+  // mentor checks mentor_email only, and a mentor+tutor counts the viewer
+  // as existing if EITHER link matches (mentor_email/tutor_email are
+  // tracked as fully separate relationships - see lib/types.ts).
+  const isExistingStudent =
+    mentor.role === "tutor"
+      ? isExistingStudentOf(profile?.tutor_email, mentor.email)
+      : mentor.role === "both"
+      ? isExistingStudentOf(profile?.mentor_email, mentor.email) || isExistingStudentOf(profile?.tutor_email, mentor.email)
+      : isExistingStudentOf(profile?.mentor_email, mentor.email);
   const openSlots = allOpenSlots.filter((s) => slotVisibleToStudent(s, isExistingStudent));
 
   // "Helped X students" - distinct students across this mentor's past
