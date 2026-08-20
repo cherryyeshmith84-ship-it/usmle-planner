@@ -60,17 +60,27 @@ export default async function AdminMentorDetailPage({ params }: { params: { id: 
   if (!mentorData) notFound();
   const mentor = mentorData as Mentor;
 
+  // Students who've linked THIS person's email under their own Settings -
+  // same definition used everywhere else (isExistingStudentOf / their own
+  // "My students" list). mentor_email and tutor_email are tracked as fully
+  // separate relationships, so which column(s) count here depends on this
+  // person's role: pure mentor -> mentor_email only, pure tutor ->
+  // tutor_email only, both -> either.
+  const linkedStudentsQuery = supabase
+    .from("profiles")
+    .select(
+      "id, full_name, email, exam_track, subject_name, prep_stage, exam_date, onboarding_completed, assigned_template_id, track_changed_pending"
+    )
+    .order("full_name", { ascending: true });
+  const linkedStudentsFiltered =
+    mentor.role === "tutor"
+      ? linkedStudentsQuery.ilike("tutor_email", mentor.email)
+      : mentor.role === "both"
+      ? linkedStudentsQuery.or(`mentor_email.ilike.${mentor.email},tutor_email.ilike.${mentor.email}`)
+      : linkedStudentsQuery.ilike("mentor_email", mentor.email);
+
   const [linkedStudentsRes, slotsRes, feedbackRes] = await Promise.all([
-    // Students who've linked THIS mentor's email under their own Settings -
-    // same definition used everywhere else (isExistingStudentOf / the
-    // mentor's own "My students" list).
-    supabase
-      .from("profiles")
-      .select(
-        "id, full_name, email, exam_track, subject_name, prep_stage, exam_date, onboarding_completed, assigned_template_id, track_changed_pending"
-      )
-      .ilike("mentor_email", mentor.email)
-      .order("full_name", { ascending: true }),
+    linkedStudentsFiltered,
     supabase
       .from("mentor_slots")
       .select("id, start_time, end_time, is_booked, booked_by, cancelled_at")
