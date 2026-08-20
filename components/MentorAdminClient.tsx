@@ -54,7 +54,11 @@ export default function MentorAdminClient({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
-  const [role, setRole] = useState<MentorRole>("mentor");
+  // This page is Mentors-only now (see /admin/tutors for the separate
+  // tutor add flow) - a new row from here is always role "mentor", no
+  // selector needed. Edit below still has the full Mentor/Tutor/Both
+  // radio, as an escape hatch for the rare mentor+tutor person.
+  const role: MentorRole = "mentor";
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +116,6 @@ export default function MentorAdminClient({
     setName("");
     setEmail("");
     setBio("");
-    setRole("mentor");
     setPhotoFile(null);
     router.refresh();
   }
@@ -239,14 +242,6 @@ export default function MentorAdminClient({
           onChange={(e) => setBio(e.target.value)}
           placeholder="Background, specialties, what students can ask about..."
         />
-        <div className="mb-3">
-          <label className="label">Role</label>
-          <RoleRadioGroup value={role} onChange={setRole} name="add-role" />
-          <p className="text-xs text-slate-500 mt-1">
-            Mentors show up under the Mentorship nav item, Tutors under Tutoring - Both shows up in both
-            directories with the exact same availability/booking flow.
-          </p>
-        </div>
         <label className="label">Photo (optional)</label>
         <input
           type="file"
