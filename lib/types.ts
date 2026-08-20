@@ -45,6 +45,12 @@ export interface Profile {
   // is_mentor_of_student() in Postgres, which checks this alongside the
   // older booking/message paths.
   mentor_email?: string | null;
+  // Same idea as mentor_email, but for a Tutor/Mentor+Tutor row instead -
+  // kept as a fully separate field (not reused) so a student's mentoring
+  // relationship and tutoring relationship can be with two different
+  // people, and each professional's dashboard only ever shows their own
+  // linked students, never the other's.
+  tutor_email?: string | null;
   // Free-text status the student sets for their own mentor to see - not
   // tied to a specific day, just "the latest thing I want my mentor to
   // know" (e.g. "Feeling behind on Biochem this week"). Editable from
@@ -52,7 +58,7 @@ export interface Profile {
   status_update?: string | null;
   status_updated_at?: string | null;
   // Whether this student has finished or skipped the in-app tutorial
-  // (components/TutorialOverlay.tsx) - once true, it never shows again.
+  // (components/OnboardingTour.tsx) - once true, it never shows again.
   tutorial_completed?: boolean;
 }
 
