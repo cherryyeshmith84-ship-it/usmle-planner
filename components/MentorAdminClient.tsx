@@ -4,39 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { mentorPhotoUrl, type Mentor, type MentorRole } from "@/lib/mentors";
+import { mentorPhotoUrl, type Mentor } from "@/lib/mentors";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-
-const ROLE_LABELS: Record<MentorRole, string> = {
-  mentor: "Mentor",
-  tutor: "Tutor",
-  both: "Mentor + Tutor",
-};
-
-/** Shared Mentor/Tutor/Both radio group - same three options used in both
- *  the "Add" form and each row's inline "Edit" form below, so a mismatch
- *  between the two can't creep in. */
-function RoleRadioGroup({
-  value,
-  onChange,
-  name,
-}: {
-  value: MentorRole;
-  onChange: (role: MentorRole) => void;
-  name: string;
-}) {
-  return (
-    <div className="flex flex-wrap gap-3">
-      {(["mentor", "tutor", "both"] as MentorRole[]).map((r) => (
-        <label key={r} className="flex items-center gap-1.5 text-sm text-slate-300">
-          <input type="radio" name={name} checked={value === r} onChange={() => onChange(r)} />
-          {ROLE_LABELS[r]}
-        </label>
-      ))}
-    </div>
-  );
-}
 
 export default function MentorAdminClient({
   initialMentors,
@@ -54,11 +24,10 @@ export default function MentorAdminClient({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
-  // This page is Mentors-only now (see /admin/tutors for the separate
-  // tutor add flow) - a new row from here is always role "mentor", no
-  // selector needed. Edit below still has the full Mentor/Tutor/Both
-  // radio, as an escape hatch for the rare mentor+tutor person.
-  const role: MentorRole = "mentor";
+  // This page is Mentors-only, fully separate from /admin/tutors - every
+  // row added or edited here is always role "mentor". No role selector
+  // anywhere on this page, in Add or Edit.
+  const role = "mentor" as const;
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +41,6 @@ export default function MentorAdminClient({
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editBio, setEditBio] = useState("");
-  const [editRole, setEditRole] = useState<MentorRole>("mentor");
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -142,7 +110,6 @@ export default function MentorAdminClient({
     setEditName(m.name);
     setEditEmail(m.email);
     setEditBio(m.bio || "");
-    setEditRole(m.role ?? "mentor");
     setEditPhotoFile(null);
     setEditError(null);
   }
@@ -152,7 +119,6 @@ export default function MentorAdminClient({
     setEditName("");
     setEditEmail("");
     setEditBio("");
-    setEditRole("mentor");
     setEditPhotoFile(null);
     setEditError(null);
   }
@@ -195,7 +161,7 @@ export default function MentorAdminClient({
         email: editEmail.trim().toLowerCase(),
         bio: editBio.trim() || null,
         photo_path: photoPath,
-        role: editRole,
+        role: "mentor",
       })
       .eq("id", m.id);
 
@@ -289,10 +255,6 @@ export default function MentorAdminClient({
                   />
                 </div>
                 <div>
-                  <label className="label">Role</label>
-                  <RoleRadioGroup value={editRole} onChange={setEditRole} name={`edit-role-${m.id}`} />
-                </div>
-                <div>
                   <label className="label">Photo</label>
                   <div className="flex items-center gap-3">
                     {photoUrl ? (
@@ -348,9 +310,6 @@ export default function MentorAdminClient({
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate flex items-center gap-2">
                   {m.name}
-                  <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-slate-800 text-slate-400 shrink-0">
-                    {ROLE_LABELS[m.role ?? "mentor"]}
-                  </span>
                   {!m.active && <span className="text-xs text-slate-500 font-normal">(inactive)</span>}
                 </p>
                 <p className="text-xs text-slate-400 truncate">{m.email}</p>
