@@ -4,9 +4,39 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { mentorPhotoUrl, type Mentor } from "@/lib/mentors";
+import { mentorPhotoUrl, type Mentor, type MentorRole } from "@/lib/mentors";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+const ROLE_LABELS: Record<MentorRole, string> = {
+  mentor: "Mentor",
+  tutor: "Tutor",
+  both: "Mentor + Tutor",
+};
+
+/** Shared Mentor/Tutor/Both radio group - same three options used in both
+ *  the "Add" form and each row's inline "Edit" form below, so a mismatch
+ *  between the two can't creep in. */
+function RoleRadioGroup({
+  value,
+  onChange,
+  name,
+}: {
+  value: MentorRole;
+  onChange: (role: MentorRole) => void;
+  name: string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      {(["mentor", "tutor", "both"] as MentorRole[]).map((r) => (
+        <label key={r} className="flex items-center gap-1.5 text-sm text-slate-300">
+          <input type="radio" name={name} checked={value === r} onChange={() => onChange(r)} />
+          {ROLE_LABELS[r]}
+        </label>
+      ))}
+    </div>
+  );
+}
 
 export default function MentorAdminClient({
   initialMentors,
@@ -24,6 +54,7 @@ export default function MentorAdminClient({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
+  const [role, setRole] = useState<MentorRole>("mentor");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +68,7 @@ export default function MentorAdminClient({
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editBio, setEditBio] = useState("");
+  const [editRole, setEditRole] = useState<MentorRole>("mentor");
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -70,6 +102,7 @@ export default function MentorAdminClient({
       email: email.trim().toLowerCase(),
       bio: bio.trim() || null,
       photo_path: photoPath,
+      role,
     });
     setSaving(false);
     if (insertError) {
@@ -79,6 +112,7 @@ export default function MentorAdminClient({
     setName("");
     setEmail("");
     setBio("");
+    setRole("mentor");
     setPhotoFile(null);
     router.refresh();
   }
@@ -105,6 +139,7 @@ export default function MentorAdminClient({
     setEditName(m.name);
     setEditEmail(m.email);
     setEditBio(m.bio || "");
+    setEditRole(m.role ?? "mentor");
     setEditPhotoFile(null);
     setEditError(null);
   }
@@ -114,6 +149,7 @@ export default function MentorAdminClient({
     setEditName("");
     setEditEmail("");
     setEditBio("");
+    setEditRole("mentor");
     setEditPhotoFile(null);
     setEditError(null);
   }
@@ -127,6 +163,12 @@ export default function MentorAdminClient({
     setEditError(null);
     const supabase = createClient();
 
+    // Keep the existing photo unless a new file was chosen - swapping in a
+    // new one uploads it first, then the mentors row is pointed at the new
+    // path. The old file is removed afterward on a best-effort basis so
+    // storage doesn't quietly accumulate replaced photos; if that cleanup
+    // fails it's not treated as an error since the mentor record itself is
+    // already correct at that point.
     let photoPath = m.photo_path;
     const oldPhotoPath = m.photo_path;
     if (editPhotoFile) {
@@ -150,6 +192,7 @@ export default function MentorAdminClient({
         email: editEmail.trim().toLowerCase(),
         bio: editBio.trim() || null,
         photo_path: photoPath,
+        role: editRole,
       })
       .eq("id", m.id);
 
@@ -196,6 +239,14 @@ export default function MentorAdminClient({
           onChange={(e) => setBio(e.target.value)}
           placeholder="Background, specialties, what students can ask about..."
         />
+        <div className="mb-3">
+          <label className="label">Role</label>
+          <RoleRadioGroup value={role} onChange={setRole} name="add-role" />
+          <p className="text-xs text-slate-500 mt-1">
+            Mentors show up under the Mentorship nav item, Tutors under Tutoring - Both shows up in both
+            directories with the exact same availability/booking flow.
+          </p>
+        </div>
         <label className="label">Photo (optional)</label>
         <input
           type="file"
@@ -241,6 +292,10 @@ export default function MentorAdminClient({
                     value={editBio}
                     onChange={(e) => setEditBio(e.target.value)}
                   />
+                </div>
+                <div>
+                  <label className="label">Role</label>
+                  <RoleRadioGroup value={editRole} onChange={setEditRole} name={`edit-role-${m.id}`} />
                 </div>
                 <div>
                   <label className="label">Photo</label>
@@ -296,9 +351,12 @@ export default function MentorAdminClient({
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">
+                <p className="text-sm font-semibold truncate flex items-center gap-2">
                   {m.name}
-                  {!m.active && <span className="ml-2 text-xs text-slate-500 font-normal">(inactive)</span>}
+                  <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-slate-800 text-slate-400 shrink-0">
+                    {ROLE_LABELS[m.role ?? "mentor"]}
+                  </span>
+                  {!m.active && <span className="text-xs text-slate-500 font-normal">(inactive)</span>}
                 </p>
                 <p className="text-xs text-slate-400 truncate">{m.email}</p>
                 <Link
