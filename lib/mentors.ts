@@ -26,6 +26,13 @@ export interface Mentor {
   meeting_link?: string | null;
   response_time_note?: string | null;
   role?: MentorRole;
+  // Free-text specialties a Tutor/Mentor+Tutor fills in themselves (e.g.
+  // "Neuro", "Epi") - not a fixed dropdown list, since different tutors
+  // describe their focus differently. Drives the subject-grouped sections
+  // on the student-facing Tutoring directory (app/tutoring/page.tsx). Only
+  // ever edited from the tutor's own Tutoring dashboard - never shown or
+  // editable anywhere on the Mentorship side.
+  specialties?: string[] | null;
 }
 
 /** Whether a mentors row should show up wherever a given role is being
