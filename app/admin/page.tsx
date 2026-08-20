@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/adminGuard";
 import type { Profile, ScheduleTemplate } from "@/lib/types";
-import { getContentPublished } from "@/lib/platformSettings";
+import { getContentPublished, getTutoringPublished } from "@/lib/platformSettings";
 import AdminNav from "@/components/AdminNav";
 import PublishToggle from "@/components/PublishToggle";
+import TutoringPublishToggle from "@/components/TutoringPublishToggle";
 import MentorAssignSelect from "@/components/MentorAssignSelect";
 import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 
@@ -18,7 +19,7 @@ const STAGE_LABEL: Record<string, string> = {
 export default async function AdminHome() {
   const { supabase, user } = await requireAdmin();
 
-  const [profilesRes, templatesRes, mentorsRes, contentPublished] = await Promise.all([
+  const [profilesRes, templatesRes, mentorsRes, contentPublished, tutoringPublished] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
     supabase.from("schedule_templates").select("id, name"),
     // Every mentor row, active or not - active-only filtering happens below
@@ -27,6 +28,7 @@ export default async function AdminHome() {
     // active status.
     supabase.from("mentors").select("id, name, email, active").order("name"),
     getContentPublished(supabase),
+    getTutoringPublished(supabase),
   ]);
 
   const allMentorRows = (mentorsRes.data ?? []) as { id: string; name: string; email: string; active: boolean }[];
@@ -64,8 +66,9 @@ export default async function AdminHome() {
     <div className="min-h-screen flex">
       <AdminNav />
       <main className="flex-1 max-w-4xl mx-auto px-6 py-8">
-        <div className="mb-6">
+        <div className="mb-6 space-y-3">
           <PublishToggle initialPublished={contentPublished} />
+          <TutoringPublishToggle initialPublished={tutoringPublished} />
         </div>
 
         {/* Founding-cohort applicants with no mentor yet - the whole point is
@@ -132,6 +135,14 @@ export default async function AdminHome() {
             const needsPlanFlag = s.onboarding_completed && !s.assigned_template_id;
             const needsAttention = needsPlanFlag || !!s.track_changed_pending;
             return (
+              // A plain <div> now, not a <Link> - a Link wrapping the whole
+              // card meant a click on the MentorAssignSelect below (even
+              // with its own stopPropagation) could still trigger the
+              // card's navigation before the mentor update finished, so
+              // "Assign" looked like it just refreshed the page and did
+              // nothing. Same fix already used one section up for "Waiting
+              // for a mentor" - a plain card with its own explicit "View
+              // profile" link, so only that link navigates.
               <div
                 key={s.id}
                 className={`card transition ${
@@ -179,6 +190,10 @@ export default async function AdminHome() {
                       <span className="text-amber-400">No mentor yet</span>
                     )}
                   </p>
+                  {/* Same assign/remove control as the "Waiting for a mentor"
+                      section above, now on every student - picking "No
+                      mentor" and clicking Assign clears mentor_email, which
+                      is how an admin un-assigns someone. */}
                   {activeMentors.length > 0 && (
                     <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
                   )}
