@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { Mentor, MentorSlot, SessionNote, SessionFeedback } from "@/lib/mentors";
-import { findMentorByEmail, mentorPhotoUrl } from "@/lib/mentors";
+import { findMentorByEmail, mentorActsAs, mentorPhotoUrl } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import SessionsListClient, { type SessionRow } from "@/components/SessionsListClient";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
 type MyBooking = MentorSlot & {
-  mentors?: { id: string; name: string; photo_path: string | null } | null;
+  mentors?: { id: string; name: string; photo_path: string | null; role?: string | null } | null;
 };
 type BookedByMe = MentorSlot & {
   booked_by_profile?: { full_name: string | null; email: string | null } | null;
@@ -117,10 +117,17 @@ export default async function UpcomingSessionsPage() {
 
   const { data: myBookingsData } = await supabase
     .from("mentor_slots")
-    .select("*, mentors(id, name, photo_path)")
+    .select("*, mentors(id, name, photo_path, role)")
     .eq("booked_by", user.id)
     .order("start_time", { ascending: true });
-  const myBookings = (myBookingsData ?? []) as MyBooking[];
+  // Mentorship's own Upcoming Sessions only ever shows Mentor/Both bookings
+  // - a booking with a pure Tutor (role === "tutor") shows up on the
+  // separate /tutoring page instead, even though it's the exact same
+  // mentor_slots row under the hood. A booking made before this role field
+  // existed has role undefined, which mentorActsAs treats as "mentor".
+  const myBookings = ((myBookingsData ?? []) as MyBooking[]).filter((b) =>
+    mentorActsAs({ role: (b.mentors?.role as any) ?? "mentor" }, "mentor")
+  );
 
   // This student's own permanent meeting link (mentor_meeting_links) - the
   // table only ever holds one row total per student, so if this student
