@@ -14,19 +14,27 @@ export const dynamic = "force-dynamic";
  */
 export default async function AdminMentorsPage() {
   const { supabase } = await requireAdmin();
-  const [mentorsRes, linkedProfilesRes] = await Promise.all([
+  const [mentorsRes, linkedViaMentorRes, linkedViaTutorRes] = await Promise.all([
     supabase.from("mentors").select("*").order("created_at", { ascending: false }),
-    // Just the mentor_email column, for a quick per-mentor student count on
-    // each row below - the full per-mentor breakdown (which students, their
+    // Two separate columns, for a quick per-mentor/tutor student count on
+    // each row below - the full per-person breakdown (which students, their
     // progress, sessions, feedback) lives one click away at
-    // /admin/mentors/[id].
+    // /admin/mentors/[id]. mentor_email and tutor_email are tracked as
+    // fully separate relationships (see lib/types.ts), so both are counted
+    // and merged below - otherwise a tutor-only row would always show 0
+    // even with students linked via "Your tutor's email" in Settings.
     supabase.from("profiles").select("mentor_email").not("mentor_email", "is", null),
+    supabase.from("profiles").select("tutor_email").not("tutor_email", "is", null),
   ]);
   const mentors = (mentorsRes.data ?? []) as Mentor[];
 
   const studentCounts: Record<string, number> = {};
-  for (const row of (linkedProfilesRes.data ?? []) as { mentor_email: string }[]) {
+  for (const row of (linkedViaMentorRes.data ?? []) as { mentor_email: string }[]) {
     const key = row.mentor_email.trim().toLowerCase();
+    studentCounts[key] = (studentCounts[key] ?? 0) + 1;
+  }
+  for (const row of (linkedViaTutorRes.data ?? []) as { tutor_email: string }[]) {
+    const key = row.tutor_email.trim().toLowerCase();
     studentCounts[key] = (studentCounts[key] ?? 0) + 1;
   }
 
