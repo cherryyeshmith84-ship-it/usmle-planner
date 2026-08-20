@@ -10,6 +10,7 @@ import {
   getSlotStatus,
   groupSlotsByDate,
   isExistingStudentOf,
+  mentorActsAs,
   slotVisibleToStudent,
 } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
@@ -310,9 +311,14 @@ export default async function MentorshipPage() {
   // mentor): how many distinct students each mentor has already had a
   // completed session with ("helped X students"), and whether each mentor
   // has at least one open slot in the next 7 days ("Available this week").
+  // Mentorship's directory only ever shows Mentor/Both rows - a pure Tutor
+  // (role === "tutor") belongs on the separate /tutoring directory instead,
+  // even though they're stored in this same mentors table.
+  const mentorsForDirectory = mentors.filter((m) => mentorActsAs(m, "mentor"));
+
   const now = new Date().toISOString();
   const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const mentorIds = mentors.map((m) => m.id);
+  const mentorIds = mentorsForDirectory.map((m) => m.id);
 
   const helpedCountByMentor = new Map<string, Set<string>>();
   if (mentorIds.length > 0) {
@@ -349,7 +355,7 @@ export default async function MentorshipPage() {
       .gte("end_time", now)
       .lt("start_time", weekFromNow);
     for (const row of (upcomingOpenRows ?? []) as any[]) {
-      const rowMentor = mentors.find((m) => m.id === row.mentor_id);
+      const rowMentor = mentorsForDirectory.find((m) => m.id === row.mentor_id);
       if (!rowMentor) continue;
       const viewerIsExisting = isExistingStudentOf(profile?.mentor_email, rowMentor.email);
       if (slotVisibleToStudent(row, viewerIsExisting)) {
@@ -376,7 +382,7 @@ export default async function MentorshipPage() {
     }
   }
 
-  const mentorCards = mentors.map((m) => {
+  const mentorCards = mentorsForDirectory.map((m) => {
     const ratings = ratingsByMentor.get(m.id) ?? [];
     return {
       ...m,
