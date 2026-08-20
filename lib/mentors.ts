@@ -1,5 +1,12 @@
 import { EASTERN_TZ } from "./timezone";
 
+// A "mentors" row can act as a Mentor, a Tutor, or both - one shared roster
+// and one shared booking engine (mentor_slots, notes, feedback, join
+// tracking, all of it) rather than a separate parallel table/system for
+// Tutoring. "mentor" is the default so every row created before this field
+// existed keeps behaving exactly as it did (visible only in Mentorship).
+export type MentorRole = "mentor" | "tutor" | "both";
+
 export interface Mentor {
   id: string;
   name: string;
@@ -18,6 +25,16 @@ export interface Mentor {
   help_areas?: string[] | null;
   meeting_link?: string | null;
   response_time_note?: string | null;
+  role?: MentorRole;
+}
+
+/** Whether a mentors row should show up wherever a given role is being
+ *  listed - "both" counts for either. Centralized here so the Mentorship
+ *  directory, the Tutoring directory, and each one's "Upcoming Sessions"
+ *  filtering all agree on the exact same rule. */
+export function mentorActsAs(mentor: Pick<Mentor, "role">, wanted: "mentor" | "tutor"): boolean {
+  const role = mentor.role ?? "mentor";
+  return role === wanted || role === "both";
 }
 
 export interface MentorSlot {
