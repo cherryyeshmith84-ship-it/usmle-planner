@@ -16,7 +16,8 @@ import {
 } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
-import MentorBrowseClient from "@/components/MentorBrowseClient";
+import TutorDirectoryClient from "@/components/TutorDirectoryClient";
+import TutorSpecialtiesEditor from "@/components/TutorSpecialtiesEditor";
 import SessionsListClient, { type SessionRow } from "@/components/SessionsListClient";
 
 export const dynamic = "force-dynamic";
@@ -135,14 +136,13 @@ export default async function TutoringPage() {
     return (
       <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
         <main className="flex-1 px-6 py-8 w-full">
-          <div className="flex items-start justify-between gap-4 mb-6">
-            <div>
-              <h1 className="text-xl font-bold mb-1">Your tutoring dashboard</h1>
-              <p className="text-sm text-slate-400">Everything about your tutoring, at a glance.</p>
-            </div>
-            <a href="/mentorship/availability" className="btn-secondary text-xs shrink-0">
-              Manage availability &amp; profile
-            </a>
+          <div className="mb-6">
+            <h1 className="text-xl font-bold mb-1">Your tutoring dashboard</h1>
+            <p className="text-sm text-slate-400">Everything about your tutoring, at a glance.</p>
+          </div>
+
+          <div className="mb-8">
+            <TutorSpecialtiesEditor mentorId={myMentorRecord.id} initialSpecialties={myMentorRecord.specialties ?? []} />
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
@@ -431,7 +431,7 @@ export default async function TutoringPage() {
         )}
 
         <h2 className="text-lg font-bold mb-3">Find a tutor</h2>
-        <MentorBrowseClient mentors={tutorCards} emptyLabel="No tutors are listed yet." showSessionsLink={false} />
+        <TutorDirectoryClient tutors={tutorCards} />
       </main>
     </AppShell>
   );
