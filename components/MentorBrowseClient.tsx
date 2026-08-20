@@ -18,20 +18,38 @@ export type MentorCardData = Mentor & {
  * the actual bio/help-areas/availability/booking flow lives. This component
  * used to also handle picking a mentor + booking inline; that's been split
  * out so the directory itself stays a simple, scannable list of cards.
+ *
+ * Also reused as-is for the Tutoring directory (app/tutoring/page.tsx) -
+ * same cards, same booking flow (still /mentorship/mentor/[id], since a
+ * "tutor" is just a mentors row with role tutor/both and booking doesn't
+ * care about role at all), just fed a role-filtered list. showSessionsLink
+ * defaults to true for Mentorship's own use; Tutoring passes false since it
+ * already shows the student's upcoming tutoring sessions directly above
+ * this directory on the same page, making that blurb redundant there.
  */
-export default function MentorBrowseClient({ mentors }: { mentors: MentorCardData[] }) {
+export default function MentorBrowseClient({
+  mentors,
+  emptyLabel = "No mentors are listed yet.",
+  showSessionsLink = true,
+}: {
+  mentors: MentorCardData[];
+  emptyLabel?: string;
+  showSessionsLink?: boolean;
+}) {
   return (
     <div className="space-y-6">
-      <p className="text-xs text-slate-500">
-        Looking for sessions you&apos;ve already booked? See{" "}
-        <a href="/mentorship/sessions" className="text-brand-400 hover:text-brand-300">
-          Upcoming Sessions
-        </a>{" "}
-        in the sidebar.
-      </p>
+      {showSessionsLink && (
+        <p className="text-xs text-slate-500">
+          Looking for sessions you&apos;ve already booked? See{" "}
+          <a href="/mentorship/sessions" className="text-brand-400 hover:text-brand-300">
+            Upcoming Sessions
+          </a>{" "}
+          in the sidebar.
+        </p>
+      )}
 
       {mentors.length === 0 ? (
-        <p className="text-sm text-slate-400">No mentors are listed yet.</p>
+        <p className="text-sm text-slate-400">{emptyLabel}</p>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {mentors.map((m) => {
