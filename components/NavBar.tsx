@@ -48,6 +48,17 @@ const GROUPS: NavGroup[] = [
       { href: "/history", label: "Analysis" },
     ],
   },
+  {
+    title: "Tutoring",
+    items: [
+      // Same booking engine as Mentorship (mentor_slots, notes, feedback,
+      // all shared) - app/tutoring/page.tsx just scopes everything to
+      // mentors rows tagged role tutor/both instead of mentor/both, and
+      // shows a signed-in tutor's own upcoming sessions right on the page
+      // instead of a separate link the way Mentorship does.
+      { href: "/tutoring", label: "Tutoring" },
+    ],
+  },
 ];
 
 // Groups hidden from students until the admin flips the global publish
