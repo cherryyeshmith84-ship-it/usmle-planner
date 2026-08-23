@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { UWorldBlock, UWorldBlockMode, UWorldBlockQBank } from "@/lib/uworldBlocks";
 import { QBANKS } from "@/lib/uworldBlocks";
@@ -46,9 +46,26 @@ function toDraft(b: UWorldBlock): DraftBlock {
  * just won't show up broken out by bank/system.
  *
  * Save is explicit (not autosave) to match the rest of the planner's UX -
- * on save this simply replaces every block row for this user+date with
- * whatever's currently drafted, which keeps add/remove/reorder trivial
- * instead of diffing against the DB.
+ * on save this replaces every block row for this user+date with whatever's
+ * currently drafted, which keeps add/remove/reorder trivial instead of
+ * diffing against the DB.
+ *
+ * IMPORTANT ordering: insert the new rows FIRST, then delete the old ones -
+ * never delete-then-insert. A real bug report ("I updated my score, then
+ * refreshed, and it was gone") traced back to the old delete-then-insert
+ * order: if the delete succeeded but the insert afterward failed for any
+ * reason (dropped connection, validation error, etc.), the day's blocks were
+ * already gone with nothing to replace them - a refresh then showed a
+ * completely empty day. Insert-first means a failed insert leaves the
+ * original rows untouched; a failed cleanup-delete afterward just leaves a
+ * harmless duplicate that the next save clears out, never data loss.
+ *
+ * Also tracks `dirty` (any local edit not yet saved) and warns before the
+ * browser tab is closed/refreshed while dirty - the other likely cause of
+ * "I updated it and it didn't save": every other field on this same day
+ * (Mood, Study Issue, Resources Used) autosaves instantly, so it's an easy
+ * habit to assume typing a new Percentage here does too and navigate away
+ * before clicking "Save blocks".
  */
 export default function UWorldBlockTracker({
   targetUserId,
@@ -63,17 +80,38 @@ export default function UWorldBlockTracker({
 }) {
   const [blocks, setBlocks] = useState<DraftBlock[]>(() => initialBlocks.map(toDraft));
   const [nextNewId, setNextNewId] = useState(1);
+  // The real DB ids currently persisted for this user+date - seeded from
+  // initialBlocks, then kept in sync after every successful save so a
+  // second save (without a page reload in between) still cleans up the
+  // right rows instead of the stale ones from page load.
+  const [savedIds, setSavedIds] = useState<string[]>(() => initialBlocks.map((b) => b.id));
+  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Warn before leaving the tab (close/refresh) with an un-saved edit -
+  // doesn't catch in-app navigation (Next.js router links), but covers the
+  // exact "typed a new score, hit refresh" scenario that prompted this.
+  useEffect(() => {
+    if (!dirty) return;
+    function handler(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
   function updateBlock(key: string, patch: Partial<DraftBlock>) {
     setSaveMessage(null);
+    setDirty(true);
     setBlocks((prev) => prev.map((b) => (b.key === key ? { ...b, ...patch } : b)));
   }
 
   function addBlock() {
     setSaveMessage(null);
+    setDirty(true);
     const key = `new-${nextNewId}`;
     setNextNewId((n) => n + 1);
     setBlocks((prev) => [
@@ -84,6 +122,7 @@ export default function UWorldBlockTracker({
 
   function removeBlock(key: string) {
     setSaveMessage(null);
+    setDirty(true);
     setBlocks((prev) => prev.filter((b) => b.key !== key));
   }
 
@@ -91,17 +130,6 @@ export default function UWorldBlockTracker({
     setSaving(true);
     setSaveError(null);
     const supabase = createClient();
-
-    const { error: deleteError } = await supabase
-      .from("uworld_blocks")
-      .delete()
-      .eq("user_id", targetUserId)
-      .eq("log_date", date);
-    if (deleteError) {
-      setSaving(false);
-      setSaveError(deleteError.message);
-      return;
-    }
 
     const rows = blocks.map((b, i) => ({
       user_id: targetUserId,
@@ -115,16 +143,42 @@ export default function UWorldBlockTracker({
       system: b.system || null,
     }));
 
+    let newIds: string[] = [];
     if (rows.length > 0) {
-      const { error: insertError } = await supabase.from("uworld_blocks").insert(rows);
+      const { data: inserted, error: insertError } = await supabase
+        .from("uworld_blocks")
+        .insert(rows)
+        .select("id");
       if (insertError) {
         setSaving(false);
         setSaveError(insertError.message);
         return;
       }
+      newIds = (inserted ?? []).map((r: { id: string }) => r.id);
     }
 
+    if (savedIds.length > 0) {
+      const { error: deleteError } = await supabase.from("uworld_blocks").delete().in("id", savedIds);
+      if (deleteError) {
+        // The new rows above are already safely saved - this only failed to
+        // clean up the old ones, leaving a harmless duplicate rather than
+        // lost data. Surface it, but still record the new ids as current so
+        // the NEXT save doesn't try to delete them too.
+        setSaving(false);
+        setSavedIds(newIds);
+        setDirty(false);
+        setSaveError(
+          `Your new values are saved, but couldn't clear ${savedIds.length} old entr${
+            savedIds.length === 1 ? "y" : "ies"
+          }: ${deleteError.message}. Saving again will clean it up.`
+        );
+        return;
+      }
+    }
+
+    setSavedIds(newIds);
     setSaving(false);
+    setDirty(false);
     setSaveMessage("Blocks saved.");
   }
 
@@ -249,9 +303,19 @@ export default function UWorldBlockTracker({
           <button type="button" onClick={addBlock} className="btn-secondary text-xs">
             + Add Another Block
           </button>
-          <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
-            {saving ? "Saving..." : "Save blocks"}
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className={dirty && !saving ? "btn-primary text-xs animate-pulse" : "btn-primary text-xs"}
+          >
+            {saving ? "Saving..." : dirty ? "Save blocks (unsaved changes)" : "Save blocks"}
           </button>
+          {dirty && !saving && (
+            <p className="text-xs text-amber-400 font-semibold">
+              Unsaved - this section doesn&apos;t autosave. Click Save blocks before leaving this page.
+            </p>
+          )}
           {saveMessage && <p className="text-xs text-green-400">{saveMessage}</p>}
           {saveError && <p className="text-xs text-red-400">{saveError}</p>}
         </div>
