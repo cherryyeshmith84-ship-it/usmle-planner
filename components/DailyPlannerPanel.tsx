@@ -78,6 +78,7 @@ export default function DailyPlannerPanel({
   canEdit,
   locked,
   mentorId,
+  todayIso,
 }: {
   targetUserId: string;
   date: string;
@@ -98,6 +99,10 @@ export default function DailyPlannerPanel({
   // add/edit/remove editor instead of a read-only checkbox list, and Mentor
   // Notes becomes writable.
   mentorId: string | null;
+  // Today's date (Eastern Time) - passed through to MentorAssignmentsEditor
+  // so it can block adding NEW assignments to an already-passed day (a
+  // mentor can still edit/remove what's already there).
+  todayIso: string;
 }) {
   const notesColumn = columns.find((c) => c.key === "student_notes") ?? null;
   const moodColumn = columns.find((c) => c.key === "mood") ?? null;
@@ -161,7 +166,13 @@ export default function DailyPlannerPanel({
       <div>
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Assignments</p>
         {mentorId ? (
-          <MentorAssignmentsEditor studentId={targetUserId} mentorId={mentorId} date={date} initialTasks={dayTasks} />
+          <MentorAssignmentsEditor
+            studentId={targetUserId}
+            mentorId={mentorId}
+            date={date}
+            initialTasks={dayTasks}
+            todayIso={todayIso}
+          />
         ) : (
           <AssignmentsChecklist tasks={dayTasks} editable={canEdit && !locked} />
         )}
@@ -260,7 +271,12 @@ export default function DailyPlannerPanel({
         </div>
       )}
 
-      {(mentorId || mentorNote?.content || mentorNote?.status || mentorNote?.reviewed || mentorNote?.next_checkin_date) && (
+      {(mentorId ||
+        mentorNote?.content ||
+        mentorNote?.status ||
+        mentorNote?.reviewed ||
+        mentorNote?.next_checkin_date ||
+        mentorNote?.is_highlighted) && (
         <div className="pt-3 border-t border-slate-800">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Mentor Notes</p>
           {mentorId ? (
@@ -273,10 +289,17 @@ export default function DailyPlannerPanel({
               initialReviewed={mentorNote?.reviewed ?? false}
               initialReviewedAt={mentorNote?.reviewed_at ?? null}
               initialNextCheckinDate={mentorNote?.next_checkin_date ?? null}
+              initialHighlighted={mentorNote?.is_highlighted ?? false}
+              initialHighlightLabel={mentorNote?.highlight_label ?? null}
             />
           ) : (
             <>
               <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                {mentorNote?.is_highlighted && (
+                  <span className="inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-amber-900/40 text-amber-400">
+                    ⭐ {mentorNote.highlight_label?.trim() || "Important day"}
+                  </span>
+                )}
                 {mentorNote?.status && (
                   <span
                     className={`inline-block text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${MENTOR_STATUS_BADGE[mentorNote.status]}`}
