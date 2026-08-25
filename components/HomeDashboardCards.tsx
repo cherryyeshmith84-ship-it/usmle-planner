@@ -4,6 +4,7 @@ import { computeTaskProgress, formatEstimatedTime } from "@/lib/planTasks";
 import type { ImmediateExamReview, SystemStrength } from "@/lib/scoreReports";
 import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
 import type { RecentActivityItem, StatusTone } from "@/lib/homeInsights";
+import type { HighlightedDay } from "@/lib/mentorDailyNotes";
 import { formatSlotDate, formatSlotTime } from "@/lib/mentors";
 import AssignmentsChecklist from "./AssignmentsChecklist";
 
@@ -321,6 +322,32 @@ export function StudyStreakCard({ current, longest }: { current: number; longest
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Whole days from `todayIso` to `dateIso` (both YYYY-MM-DD) - pure UTC date-string arithmetic. */
+function daysUntilIso(todayIso: string, dateIso: string): number {
+  const [ty, tm, td] = todayIso.split("-").map(Number);
+  const [dy, dm, dd] = dateIso.split("-").map(Number);
+  return Math.round((Date.UTC(dy, dm - 1, dd) - Date.UTC(ty, tm - 1, td)) / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * "Important Day" card - the nearest upcoming date a mentor has starred
+ * (exam day, NBME day, etc. - see MentorDailyNoteCell's highlight toggle).
+ * Only rendered by the dashboard when there IS an upcoming one; no
+ * placeholder/empty state needed since most days nothing is starred.
+ */
+export function ImportantDayCard({ highlight, todayIso }: { highlight: HighlightedDay; todayIso: string }) {
+  const days = daysUntilIso(todayIso, highlight.date);
+  const daysLabel = days <= 0 ? "Today" : days === 1 ? "Tomorrow" : `${days} days`;
+  return (
+    <div className="card border-amber-700">
+      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-2">⭐ Important Day</p>
+      <p className="text-sm font-semibold mb-1">{highlight.label || "Marked by your mentor"}</p>
+      <p className="text-sm text-slate-300 mb-1">{highlight.date}</p>
+      <p className="text-xs text-slate-500">{daysLabel}</p>
     </div>
   );
 }
