@@ -5,6 +5,13 @@ import type { PlanTask } from "@/lib/planTasks";
 import { groupTasksByDate, todayIso } from "@/lib/planTasks";
 import MentorAssignmentsEditor from "./MentorAssignmentsEditor";
 
+/**
+ * Date-picker wrapper around MentorAssignmentsEditor (Study Planner v1 item
+ * 6) - defaults to today, lets a mentor jump to any other day to set or
+ * review that day's assignments. `key={date}` on the editor below forces it
+ * to remount (and re-read initialTasks for the new date) instead of
+ * carrying over stale drafted state from whatever day was open before.
+ */
 export default function MentorAssignmentsSection({
   studentId,
   mentorId,
@@ -34,6 +41,7 @@ export default function MentorAssignmentsSection({
         mentorId={mentorId}
         date={date}
         initialTasks={tasksByDate[date] ?? []}
+        todayIso={todayIso()}
       />
     </div>
   );
