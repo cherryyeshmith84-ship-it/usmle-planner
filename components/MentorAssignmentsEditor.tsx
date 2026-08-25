@@ -113,13 +113,22 @@ export default function MentorAssignmentsEditor({
   mentorId,
   date,
   initialTasks,
+  todayIso,
 }: {
   studentId: string;
   mentorId: string;
   date: string;
   initialTasks: PlanTask[];
+  // Today's date (Eastern Time, same as everywhere else in the planner) -
+  // once `date` is before this, the day has already happened, so new
+  // assignments can no longer be added to it (see isPastDay below). Editing
+  // or removing whatever's already there is still allowed - only adding NEW
+  // ones is blocked, so a mentor can still fix a typo on a day that's
+  // already passed.
+  todayIso: string;
 }) {
   const router = useRouter();
+  const isPastDay = date < todayIso;
   const [drafts, setDrafts] = useState<DraftTask[]>(() => initialTasks.map(toDraft));
   const [nextNewId, setNextNewId] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -149,6 +158,7 @@ export default function MentorAssignmentsEditor({
   // Unchanged - adds a blank free-text row, for one-off assignments that
   // don't fit the Resource/System pattern (e.g. "40 Cardiology Questions").
   function addAssignment() {
+    if (isPastDay) return;
     setSaveMessage(null);
     const key = `new-${nextNewId}`;
     setNextNewId((n) => n + 1);
@@ -156,6 +166,7 @@ export default function MentorAssignmentsEditor({
   }
 
   function openAddDialog() {
+    if (isPastDay) return;
     setSaveMessage(null);
     setDialogResource(RESOURCE_OPTIONS[0]);
     setDialogResourceCustom("");
@@ -267,6 +278,12 @@ export default function MentorAssignmentsEditor({
       const repeatDays = Math.max(1, Math.min(90, Math.round(d.repeatDays) || 1));
       for (let offset = 1; offset < repeatDays; offset++) {
         const taskDate = addDaysIso(date, offset);
+        // Same rule as adding a brand-new assignment: never create a row on
+        // an already-passed day, even as a side effect of repeating an
+        // assignment that started on a past day (only reachable by editing
+        // "Repeat for" on an existing row - the Add buttons are already
+        // hidden for past days above).
+        if (taskDate < todayIso) continue;
         repeatedRows.push({
           student_id: studentId,
           mentor_id: mentorId,
@@ -370,22 +387,33 @@ export default function MentorAssignmentsEditor({
         </div>
       )}
       <div className="flex items-center gap-3 flex-wrap pt-1">
-        <button type="button" onClick={openAddDialog} className="btn-secondary text-xs">
-          + Add From Resource List
-        </button>
-        <button type="button" onClick={addAssignment} className="btn-secondary text-xs">
-          + Add Custom Assignment
-        </button>
+        {!isPastDay && (
+          <>
+            <button type="button" onClick={openAddDialog} className="btn-secondary text-xs">
+              + Add From Resource List
+            </button>
+            <button type="button" onClick={addAssignment} className="btn-secondary text-xs">
+              + Add Custom Assignment
+            </button>
+          </>
+        )}
         <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
           {saving ? "Saving..." : "Save"}
         </button>
         {saveMessage && <p className="text-xs text-green-400">{saveMessage}</p>}
         {saveError && <p className="text-xs text-red-400">{saveError}</p>}
       </div>
-      <p className="text-[11px] text-slate-500 pt-0.5">
-        Tip: set "Repeat for" on an assignment (e.g. 10) to apply it to today plus the next 9 days in one
-        save, instead of adding it separately on every day.
-      </p>
+      {isPastDay ? (
+        <p className="text-[11px] text-amber-400 pt-0.5">
+          This day has already passed - new assignments can only be added to today or upcoming days. You
+          can still edit or remove what's already listed above.
+        </p>
+      ) : (
+        <p className="text-[11px] text-slate-500 pt-0.5">
+          Tip: set "Repeat for" on an assignment (e.g. 10) to apply it to today plus the next 9 days in one
+          save, instead of adding it separately on every day.
+        </p>
+      )}
 
       {showAddDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
