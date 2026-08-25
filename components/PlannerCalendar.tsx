@@ -171,19 +171,29 @@ export default function PlannerCalendar({
           const colors = DAY_STATUS_COLOR[day.status];
           const isSelected = day.date === selectedDate;
           const dayNum = Number(day.date.slice(8, 10));
+          const highlight = mentorNotesByDate[day.date]?.is_highlighted
+            ? mentorNotesByDate[day.date]?.highlight_label?.trim() || "Important day"
+            : null;
           return (
             <button
               key={day.date}
               type="button"
               onClick={() => setSelectedDate(day.date)}
-              className={`aspect-square rounded-lg text-xs font-semibold flex items-center justify-center transition ${colors.bg} ${colors.text} ${
+              className={`relative aspect-square rounded-lg text-xs font-semibold flex items-center justify-center transition ${colors.bg} ${colors.text} ${
                 inMonth ? "" : "opacity-30"
               } ${isSelected ? "ring-2 ring-brand-400" : ""} ${
                 day.status === "today" ? "ring-2 ring-brand-500" : ""
+              } ${highlight ? "ring-2 ring-amber-400" : ""}`}
+              title={`${day.date} - ${colors.label}${day.totalCount > 0 ? ` (${day.completedCount}/${day.totalCount})` : ""}${
+                highlight ? ` · ⭐ ${highlight}` : ""
               }`}
-              title={`${day.date} - ${colors.label}${day.totalCount > 0 ? ` (${day.completedCount}/${day.totalCount})` : ""}`}
             >
               {dayNum}
+              {highlight && (
+                <span className="absolute -top-1 -right-1 text-[10px] leading-none" aria-hidden="true">
+                  ⭐
+                </span>
+              )}
             </button>
           );
         })}
@@ -196,6 +206,7 @@ export default function PlannerCalendar({
             {DAY_STATUS_COLOR[status].label}
           </span>
         ))}
+        <span className="flex items-center gap-1.5">⭐ Important day (set by your mentor)</span>
       </div>
 
       <div className="border-t border-slate-800 pt-4">
@@ -231,6 +242,7 @@ export default function PlannerCalendar({
           canEdit={canEdit}
           locked={selectedLocked}
           mentorId={mentorId}
+          todayIso={todayIso}
         />
       </div>
     </div>
