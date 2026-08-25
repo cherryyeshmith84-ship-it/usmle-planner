@@ -27,6 +27,7 @@ import {
   latestNoteWithContent,
   nextUpcomingCheckin,
 } from "@/lib/homeInsights";
+import { nextUpcomingHighlight } from "@/lib/mentorDailyNotes";
 import AppShell from "@/components/AppShell";
 import StatusUpdateCard from "@/components/StatusUpdateCard";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
@@ -44,6 +45,7 @@ import {
   StudyStreakCard,
   NextMilestoneCard,
   RecentActivityCard,
+  ImportantDayCard,
 } from "@/components/HomeDashboardCards";
 
 export const dynamic = "force-dynamic";
@@ -218,6 +220,7 @@ export default async function DashboardPage() {
     ? mentors.find((m) => m.id === latestNote.mentor_id)?.name ?? currentMentorName
     : null;
   const nextCheckin = nextUpcomingCheckin(dailyNotes, today);
+  const nextHighlight = nextUpcomingHighlight(dailyNotes, today);
 
   const reminderMessage = computeAiReminder({ todayStatus, weekly: weeklySummary, yesterdayEntry, yesterdayBlocks });
 
@@ -314,6 +317,8 @@ export default async function DashboardPage() {
           pace={pace}
           motivationMessage={motivationMessage}
         />
+
+        {nextHighlight && <ImportantDayCard highlight={nextHighlight} todayIso={today} />}
 
         {showMissedDayPrompt && (
           <MissedDayPrompt
