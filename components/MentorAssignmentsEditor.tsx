@@ -120,11 +120,9 @@ export default function MentorAssignmentsEditor({
   date: string;
   initialTasks: PlanTask[];
   // Today's date (Eastern Time, same as everywhere else in the planner) -
-  // once `date` is before this, the day has already happened, so new
-  // assignments can no longer be added to it (see isPastDay below). Editing
-  // or removing whatever's already there is still allowed - only adding NEW
-  // ones is blocked, so a mentor can still fix a typo on a day that's
-  // already passed.
+  // once `date` is before this, the day has already happened and the whole
+  // list below becomes read-only: no adding, no editing text, no removing.
+  // Only today or an upcoming day can be changed.
   todayIso: string;
 }) {
   const router = useRouter();
@@ -151,6 +149,7 @@ export default function MentorAssignmentsEditor({
   const [dialogError, setDialogError] = useState<string | null>(null);
 
   function updateDraft(key: string, patch: Partial<DraftTask>) {
+    if (isPastDay) return;
     setSaveMessage(null);
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   }
@@ -206,11 +205,13 @@ export default function MentorAssignmentsEditor({
   }
 
   function removeAssignment(key: string) {
+    if (isPastDay) return;
     setSaveMessage(null);
     setDrafts((prev) => prev.filter((d) => d.key !== key));
   }
 
   async function save() {
+    if (isPastDay) return;
     setSaving(true);
     setSaveError(null);
     const supabase = createClient();
@@ -348,40 +349,50 @@ export default function MentorAssignmentsEditor({
                 type="text"
                 value={d.title}
                 onChange={(e) => updateDraft(d.key, { title: e.target.value })}
+                readOnly={isPastDay}
                 placeholder="Assignment (e.g. 40 Cardiology Questions)"
-                className="input text-xs py-1 px-2 flex-1 min-w-[160px]"
+                className={`input text-xs py-1 px-2 flex-1 min-w-[160px] ${
+                  isPastDay ? "opacity-60 cursor-not-allowed" : ""
+                }`}
               />
-              <label className="flex items-center gap-1 text-xs text-slate-500 shrink-0">
-                <input
-                  type="checkbox"
-                  checked={d.isOptional}
-                  onChange={(e) => updateDraft(d.key, { isOptional: e.target.checked })}
-                  className="w-3.5 h-3.5"
-                />
-                Optional
-              </label>
-              <label
-                className="flex items-center gap-1 text-xs text-slate-500 shrink-0"
-                title="Copies this exact assignment onto the next days too, so you don't have to reopen the calendar and retype it for each one."
-              >
-                Repeat for
-                <input
-                  type="number"
-                  min={1}
-                  max={90}
-                  value={d.repeatDays}
-                  onChange={(e) => updateDraft(d.key, { repeatDays: Number(e.target.value) || 1 })}
-                  className="input text-xs py-1 px-1.5 w-12 text-center"
-                />
-                day{d.repeatDays === 1 ? "" : "s"}
-              </label>
-              <button
-                type="button"
-                onClick={() => removeAssignment(d.key)}
-                className="text-xs text-red-400 hover:text-red-300 shrink-0"
-              >
-                Remove
-              </button>
+              {!isPastDay && (
+                <>
+                  <label className="flex items-center gap-1 text-xs text-slate-500 shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={d.isOptional}
+                      onChange={(e) => updateDraft(d.key, { isOptional: e.target.checked })}
+                      className="w-3.5 h-3.5"
+                    />
+                    Optional
+                  </label>
+                  <label
+                    className="flex items-center gap-1 text-xs text-slate-500 shrink-0"
+                    title="Copies this exact assignment onto the next days too, so you don't have to reopen the calendar and retype it for each one."
+                  >
+                    Repeat for
+                    <input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={d.repeatDays}
+                      onChange={(e) => updateDraft(d.key, { repeatDays: Number(e.target.value) || 1 })}
+                      className="input text-xs py-1 px-1.5 w-12 text-center"
+                    />
+                    day{d.repeatDays === 1 ? "" : "s"}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeAssignment(d.key)}
+                    className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+              {isPastDay && d.isOptional && (
+                <span className="text-[10px] font-semibold text-slate-500 shrink-0">Optional</span>
+              )}
             </div>
           ))}
         </div>
@@ -397,16 +408,18 @@ export default function MentorAssignmentsEditor({
             </button>
           </>
         )}
-        <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
-          {saving ? "Saving..." : "Save"}
-        </button>
+        {!isPastDay && (
+          <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        )}
         {saveMessage && <p className="text-xs text-green-400">{saveMessage}</p>}
         {saveError && <p className="text-xs text-red-400">{saveError}</p>}
       </div>
       {isPastDay ? (
         <p className="text-[11px] text-amber-400 pt-0.5">
-          This day has already passed - new assignments can only be added to today or upcoming days. You
-          can still edit or remove what's already listed above.
+          This day has already passed - it's now read-only. Assignments can only be added, edited, or
+          removed on today or upcoming days.
         </p>
       ) : (
         <p className="text-[11px] text-slate-500 pt-0.5">
