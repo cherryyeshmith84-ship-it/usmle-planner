@@ -1,197 +1,310 @@
-import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/lib/types";
-import type { Mentor, MentorSlot, SessionNote, SessionFeedback } from "@/lib/mentors";
-import {
-  averageRating,
-  findMentorByEmail,
-  isExistingStudentOf,
-  mentorActsAs,
-  mentorPhotoUrl,
-  slotVisibleToStudent,
-} from "@/lib/mentors";
-import { getContentPublished } from "@/lib/platformSettings";
-import AppShell from "@/components/AppShell";
-import MentorBrowseClient from "@/components/MentorBrowseClient";
-import SessionsListClient, { type SessionRow } from "@/components/SessionsListClient";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const RECEIVES = [
+  "A personalized study plan built around your exam date and current performance",
+  "A weekly one-on-one review session with your dedicated mentor",
+  "Daily accountability check-ins to help you maintain consistency",
+  "Detailed weak-topic analysis down to the individual concept level",
+  "A study plan that adapts as your schedule and performance change",
+  "A single dashboard showing your progress toward exam day",
+  "A clear explanation for every question answered incorrectly",
+  "Continuous mentor support from enrollment through exam day",
+];
 
-type MyBooking = MentorSlot & {
-  mentors?: { id: string; name: string; photo_path: string | null; role?: string | null } | null;
-};
+const WHY_FAIL = [
+  "Review all material equally instead of focusing on the concepts causing the most missed questions",
+  "Repeat the same type of mistake without recognizing the underlying pattern",
+  "Study for weeks without a clear measure of whether their performance is improving",
+  "Lose consistency after a strong initial start",
+  "Receive no structured feedback until a low practice exam score forces a reassessment",
+];
 
-/**
- * Student-facing Tutoring home - same booking engine as Mentorship
- * (mentor_slots, notes, feedback, join tracking, all of it shared), just
- * scoped to mentors rows tagged role tutor/both instead of mentor/both
- * (see lib/mentors.ts's mentorActsAs). Shows the student's upcoming
- * tutoring sessions right on this page - not tucked behind a separate
- * link the way Mentorship's Upcoming Sessions is - plus a directory of
- * tutors to book below.
- *
- * A signed-in mentor/tutor never sees a page here - they manage everything
- * (including their tutoring students) through their one existing dashboard
- * at /mentorship, so this redirects them there instead of duplicating it.
- */
-export default async function TutoringPage() {
+const MENTOR_HELPS = [
+  "Develop a structured plan aligned with your exam date",
+  "Identify weak concepts before they affect your NBME performance",
+  "Review your Error Notes and understand the reasoning behind each mistake",
+  "Adjust your study plan promptly when something isn't working",
+  "Maintain accountability and consistency throughout your preparation",
+  "Approach exam day with confidence and a plan you can trust",
+];
+
+const NUMBERS = [
+  { value: "100", label: "Spots in Founding Cohort" },
+  { value: "6-Month", label: "Mentorship" },
+  { value: "Weekly", label: "1-on-1 Reviews" },
+  { value: "Daily", label: "Progress Tracking" },
+  { value: "$0", label: "Cost to Join" },
+];
+
+const HOW_IT_WORKS = [
+  { title: "Build Your Plan", desc: "Receive a personalized study schedule based on your timeline and current performance level." },
+  { title: "Study With Purpose", desc: "Complete practice questions targeted at your specific knowledge gaps rather than reviewing all material equally." },
+  { title: "Review With Your Mentor", desc: "Meet weekly with your mentor to discuss your progress, adjust your plan, and prioritize the concepts that matter most." },
+  { title: "Track Continuous Improvement", desc: "Monitor your progress through detailed analytics, error-pattern tracking, and targeted revision." },
+];
+
+const NAV_LINKS = [
+  { href: "#how-it-works", label: "How It Works" },
+  { href: "#what-you-get", label: "What You Get" },
+  { href: "#apply", label: "Apply" },
+];
+
+export default async function Home() {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("is_admin, full_name, mentor_email")
-    .eq("id", user.id)
-    .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
-  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
-
-  const { data: mentorsData } = await supabase
-    .from("mentors")
-    .select("*")
-    .eq("active", true)
-    .order("name", { ascending: true });
-  const mentors = (mentorsData ?? []) as Mentor[];
-
-  const myMentorRecord = findMentorByEmail(mentors, user.email);
-  if (myMentorRecord) redirect("/mentorship");
-
-  const tutorsForDirectory = mentors.filter((m) => mentorActsAs(m, "tutor"));
-
-  // My upcoming (and past) tutoring sessions - same shape/query as
-  // Mentorship's Upcoming Sessions page, just filtered to tutor/both rows
-  // instead of mentor/both, so a booking never shows up on both pages.
-  const { data: myBookingsData } = await supabase
-    .from("mentor_slots")
-    .select("*, mentors(id, name, photo_path, role)")
-    .eq("booked_by", user.id)
-    .order("start_time", { ascending: true });
-  const myBookings = ((myBookingsData ?? []) as MyBooking[]).filter((b) =>
-    mentorActsAs({ role: (b.mentors?.role as any) ?? "mentor" }, "tutor")
-  );
-
-  const { data: myMeetingLinkData } = await supabase
-    .from("mentor_meeting_links")
-    .select("mentor_id, meeting_link")
-    .eq("student_id", user.id)
-    .maybeSingle();
-  const myMeetingLinkRow = myMeetingLinkData as { mentor_id: string; meeting_link: string } | null;
-
-  const { data: myNotesData } = await supabase
-    .from("mentor_session_notes")
-    .select("*")
-    .eq("student_id", user.id);
-  const myNotesBySlotId = new Map<string, SessionNote>((myNotesData ?? []).map((n: any) => [n.slot_id, n]));
-
-  const { data: myFeedbackData } = await supabase
-    .from("mentor_session_feedback")
-    .select("*")
-    .eq("student_id", user.id);
-  const myFeedbackBySlotId = new Map<string, SessionFeedback>(
-    (myFeedbackData ?? []).map((f: any) => [f.slot_id, f])
-  );
-
-  const sessionRows: SessionRow[] = myBookings.map((b) => ({
-    slot: b,
-    title: b.mentors?.name ?? "Tutor",
-    photoUrl: mentorPhotoUrl(b.mentors?.photo_path ?? null, SUPABASE_URL),
-    meetingLink:
-      myMeetingLinkRow && b.mentors?.id === myMeetingLinkRow.mentor_id ? myMeetingLinkRow.meeting_link : null,
-    rescheduleMentorId: b.mentors?.id ?? null,
-    sessionNote: myNotesBySlotId.get(b.id) ?? null,
-    feedback: myFeedbackBySlotId.get(b.id) ?? null,
-  }));
-
-  // Same per-tutor summary stats as Mentorship's own directory (helped
-  // count, available this week, ratings) - scoped to tutorsForDirectory
-  // instead. See app/mentorship/page.tsx for the mentor-side version this
-  // mirrors.
-  const now = new Date().toISOString();
-  const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const tutorIds = tutorsForDirectory.map((m) => m.id);
-
-  const helpedCountByTutor = new Map<string, Set<string>>();
-  if (tutorIds.length > 0) {
-    const { data: pastBookedRows } = await supabase
-      .from("mentor_slots")
-      .select("mentor_id, booked_by")
-      .in("mentor_id", tutorIds)
-      .eq("is_booked", true)
-      .lt("end_time", now);
-    for (const row of (pastBookedRows ?? []) as any[]) {
-      if (!row.booked_by) continue;
-      const set = helpedCountByTutor.get(row.mentor_id) ?? new Set<string>();
-      set.add(row.booked_by);
-      helpedCountByTutor.set(row.mentor_id, set);
-    }
+  if (user) {
+    redirect("/dashboard");
   }
-
-  const availableThisWeekTutorIds = new Set<string>();
-  if (tutorIds.length > 0) {
-    const { data: upcomingOpenRows } = await supabase
-      .from("mentor_slots")
-      .select("mentor_id, audience")
-      .in("mentor_id", tutorIds)
-      .eq("is_booked", false)
-      .gte("end_time", now)
-      .lt("start_time", weekFromNow);
-    for (const row of (upcomingOpenRows ?? []) as any[]) {
-      const rowTutor = tutorsForDirectory.find((m) => m.id === row.mentor_id);
-      if (!rowTutor) continue;
-      const viewerIsExisting = isExistingStudentOf(profile?.mentor_email, rowTutor.email);
-      if (slotVisibleToStudent(row, viewerIsExisting)) {
-        availableThisWeekTutorIds.add(row.mentor_id);
-      }
-    }
-  }
-
-  const ratingsByTutor = new Map<string, number[]>();
-  if (tutorIds.length > 0) {
-    const { data: feedbackRows } = await supabase
-      .from("mentor_session_feedback")
-      .select("mentor_id, rating")
-      .in("mentor_id", tutorIds);
-    for (const row of (feedbackRows ?? []) as any[]) {
-      const arr = ratingsByTutor.get(row.mentor_id) ?? [];
-      arr.push(row.rating);
-      ratingsByTutor.set(row.mentor_id, arr);
-    }
-  }
-
-  const tutorCards = tutorsForDirectory.map((m) => {
-    const ratings = ratingsByTutor.get(m.id) ?? [];
-    return {
-      ...m,
-      helpedCount: helpedCountByTutor.get(m.id)?.size ?? 0,
-      availableThisWeek: availableThisWeekTutorIds.has(m.id),
-      avgRating: averageRating(ratings.map((rating) => ({ rating }))),
-      ratingCount: ratings.length,
-    };
-  });
 
   return (
-    <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-1">Tutoring</h1>
-        <p className="text-sm text-slate-400 mb-6">
-          Your upcoming tutoring sessions, plus a directory of tutors you can book.
+    <main className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="max-w-6xl mx-auto w-full px-6 py-5 flex items-center justify-between sticky top-0 z-20 bg-white/80 backdrop-blur">
+        <span className="font-extrabold text-xl tracking-tight text-slate-100">
+          Master<span className="text-brand-400">Grid</span>
+        </span>
+        <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-300">
+          {NAV_LINKS.map((l) => (
+            <a key={l.href} href={l.href} className="hover:text-slate-100 transition">
+              {l.label}
+            </a>
+          ))}
+        </nav>
+        <div className="flex items-center gap-3">
+          <Link href="/mentor/login" className="text-xs text-slate-500 hover:text-slate-300 hidden sm:inline">
+            Mentor Login
+          </Link>
+          <Link href="/login" className="btn-secondary">Log In</Link>
+          <Link href="/signup" className="btn-primary">Apply for Mentorship</Link>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-10 text-center">
+        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-4">
+          For Caribbean and International Medical Students
         </p>
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-slate-100 leading-[1.05] mb-6">
+          A Personalized Path to Mastering USMLE Step 1
+        </h1>
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-4">
+          Most students who struggle on Step 1 are not lacking effort.
+          <br />
+          They are lacking a clear, individualized plan for what to study next.
+        </p>
+        <p className="text-base text-slate-500 max-w-2xl mx-auto mb-10">
+          Master Grid combines dedicated mentorship, adaptive study planning, and detailed
+          performance analytics into a single system, built to help you study with precision and
+          arrive at exam day fully prepared.
+        </p>
+        <div className="flex gap-4 justify-center flex-wrap">
+          <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
+            Apply for Mentorship
+          </Link>
+          <a href="#how-it-works" className="btn-secondary text-base px-7 py-3.5">
+            See How It Works
+          </a>
+        </div>
+      </section>
 
-        {sessionRows.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold mb-3">Your tutoring sessions</h2>
-            <SessionsListClient rows={sessionRows} role="student" />
+      {/* Founding cohort banner */}
+      <section id="apply" className="max-w-3xl mx-auto w-full px-6 pb-20 scroll-mt-20">
+        <div className="card text-center border-brand-500/50">
+          <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
+            Founding Cohort &middot; Limited to 100 Students
+          </p>
+          <h2 className="text-2xl md:text-3xl font-extrabold mb-3">
+            Comprehensive Mentorship, Offered at No Cost
+          </h2>
+          <p className="text-sm text-slate-400 max-w-xl mx-auto mb-6">
+            Join Master Grid during its founding phase and receive full access to mentorship,
+            structured planning, and performance tracking at no charge, while helping shape the
+            platform as it grows.
+          </p>
+          <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
+            Apply for Mentorship
+          </Link>
+        </div>
+      </section>
+
+      {/* Every student receives */}
+      <section id="what-you-get" className="max-w-4xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
+          A Complete System for Every Student
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {RECEIVES.map((item) => (
+            <div key={item} className="flex items-center gap-3 card py-3">
+              <span className="text-green-500 shrink-0">&#10003;</span>
+              <p className="text-sm text-slate-200">{item}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* The journey */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <div className="grid sm:grid-cols-2 gap-6">
+          <div className="card">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">
+              A typical approach to studying
+            </p>
+            <div className="flex flex-col items-center gap-2 text-sm text-slate-400">
+              <span>Study</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Forget</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Guess</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Repeat</span>
+            </div>
           </div>
-        )}
+          <div className="card border-brand-500/50">
+            <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-4">
+              The Master Grid approach
+            </p>
+            <div className="flex flex-col items-center gap-2 text-sm text-slate-200">
+              <span>Questions</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Analytics</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Weakness Detection</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Mentor Review</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span>Targeted Revision</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span className="font-semibold text-brand-300">Higher NBME Scores</span>
+              <span className="text-slate-600">&#8595;</span>
+              <span className="font-semibold text-slate-100">Step 1</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-        <h2 className="text-lg font-bold mb-3">Find a tutor</h2>
-        <MentorBrowseClient mentors={tutorCards} emptyLabel="No tutors are listed yet." showSessionsLink={false} />
-      </main>
-    </AppShell>
+      {/* Why students fail */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-4">
+          Why Many Students Fall Short
+        </h2>
+        <p className="text-slate-400 text-center text-lg mb-8">
+          Students who struggle on Step 1 are rarely lacking in effort. In most cases, that
+          effort is simply misdirected. Common patterns include the tendency to:
+        </p>
+        <div className="space-y-2 mb-8">
+          {WHY_FAIL.map((item) => (
+            <div key={item} className="flex items-center gap-3 card py-3">
+              <span className="text-red-400 shrink-0">&#8226;</span>
+              <p className="text-sm text-slate-300">{item}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-center text-slate-200 font-semibold">
+          Master Grid is designed specifically to address each of these challenges.
+        </p>
+      </section>
+
+      {/* Meet your mentor */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
+          Structured, One-on-One Mentorship
+        </h2>
+        <p className="text-slate-400 text-center text-lg mb-10">
+          Each student is paired with a dedicated mentor who reviews their performance data in
+          advance of every session. Your mentor will help you:
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {MENTOR_HELPS.map((item) => (
+            <div key={item} className="flex items-center gap-3 card py-3">
+              <span className="text-brand-400 shrink-0">&#10003;</span>
+              <p className="text-sm text-slate-200">{item}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Numbers */}
+      <section className="max-w-4xl mx-auto w-full px-6 py-20">
+        <div className="grid sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {NUMBERS.map((n) => (
+            <div key={n.label} className="card text-center">
+              <p className="text-xl font-extrabold text-brand-400 mb-1">{n.value}</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide">{n.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how-it-works" className="max-w-3xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
+          How Master Grid Works
+        </h2>
+        <div className="space-y-6">
+          {HOW_IT_WORKS.map((step, i) => (
+            <div key={step.title} className="flex gap-4 items-start">
+              <span className="shrink-0 w-10 h-10 rounded-full bg-brand-900/50 text-brand-300 font-extrabold flex items-center justify-center text-base">
+                {i + 1}
+              </span>
+              <div>
+                <h3 className="font-bold text-lg">{step.title}</h3>
+                <p className="text-slate-400">{step.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <section className="max-w-3xl mx-auto w-full px-6 py-20 text-center">
+        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
+          Applications Open &middot; Founding Cohort
+        </p>
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
+          A Limited Number of Places Are Available
+        </h2>
+        <p className="text-slate-400 max-w-xl mx-auto mb-2">
+          There is no cost and no obligation to apply.
+        </p>
+        <p className="text-slate-400 max-w-xl mx-auto mb-8">
+          Apply today to be matched with a mentor and begin studying with a plan built around
+          your individual strengths and weaknesses.
+        </p>
+        <div className="flex gap-4 justify-center flex-wrap">
+          <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
+            Apply Now
+          </Link>
+          <Link href="/login" className="btn-secondary text-base px-7 py-3.5">
+            I Already Have an Account
+          </Link>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-800 mt-auto">
+        <div className="max-w-5xl mx-auto w-full px-6 py-8">
+          <p className="text-xs text-slate-500 mb-4 max-w-2xl">
+            Master Grid is an independent educational platform and is not affiliated with,
+            endorsed by, or sponsored by the NBME, USMLE, UWorld, or any other third party.
+            Content is provided for educational purposes only and does not constitute medical
+            advice.
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs text-slate-400">
+            <Link href="/about" className="hover:text-slate-200">About</Link>
+            <Link href="/privacy" className="hover:text-slate-200">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-slate-200">Terms of Service</Link>
+            <Link href="/refund" className="hover:text-slate-200">Refund Policy</Link>
+            <Link href="/contact" className="hover:text-slate-200">Contact</Link>
+          </div>
+        </div>
+      </footer>
+    </main>
   );
 }
