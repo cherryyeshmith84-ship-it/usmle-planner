@@ -30,14 +30,23 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // getSession() reads/verifies the JWT locally from the cookie (only
+  // hitting the network if the token actually needs refreshing), instead
+  // of getUser()'s behavior of always making a live round trip to
+  // Supabase's Auth server. Middleware runs on every single navigation
+  // across the whole app, so that round trip was adding real, universal
+  // latency everywhere. This is just the routing gate (should this
+  // request even reach the page) - every page component still calls
+  // getUser() itself afterward for the real, fully-verified check before
+  // reading or writing any data, so nothing here becomes less secure.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
   const path = request.nextUrl.pathname;
   const isProtected = PROTECTED_PREFIXES.some((p) => path.startsWith(p));
 
-  if (isProtected && !user) {
+  if (isProtected && !session) {
     const redirectUrl = new URL("/login", request.url);
     redirectUrl.searchParams.set("next", path);
     const redirectResponse = NextResponse.redirect(redirectUrl);
