@@ -36,7 +36,6 @@ const MENTOR_HELPS = [
 ];
 
 const NUMBERS = [
-  { value: "100", label: "Spots in Founding Cohort" },
   { value: "6-Month", label: "Mentorship" },
   { value: "Weekly", label: "1-on-1 Reviews" },
   { value: "Daily", label: "Progress Tracking" },
@@ -232,7 +231,7 @@ export default async function Home() {
 
       {/* Numbers */}
       <section className="max-w-4xl mx-auto w-full px-6 py-20">
-        <div className="grid sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {NUMBERS.map((n) => (
             <div key={n.label} className="card text-center">
               <p className="text-xl font-extrabold text-brand-400 mb-1">{n.value}</p>
@@ -264,9 +263,6 @@ export default async function Home() {
 
       {/* Final CTA */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20 text-center">
-        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
-          Applications Open &middot; Founding Cohort
-        </p>
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
           A Limited Number of Places Are Available
         </h2>
