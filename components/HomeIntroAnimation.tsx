@@ -66,8 +66,10 @@ const DASHBOARD_STATS = [
 
 const NBME_SCORES = [62, 66, 70, 74];
 
-// Roughly matches the ~20-25s target from the brief, scene by scene.
-const SCENE_DURATIONS_MS = [4500, 2800, 2400, 3000, 3000, 3000, 2000, 1600, 1500, 2200];
+// Slower than the ~20-25s target from the brief - each scene now leaves
+// real dwell time after its content finishes animating in, so a first-time
+// visitor actually has a moment to read it before the next scene arrives.
+const SCENE_DURATIONS_MS = [6000, 4000, 3600, 4200, 5000, 5000, 3200, 2800, 1800, 3600];
 const TOTAL_SCENES = SCENE_DURATIONS_MS.length;
 
 function MentorCard({ name, tag, selected }: { name: string; tag: string; selected?: boolean }) {
@@ -166,11 +168,11 @@ export default function HomeIntroAnimation() {
   useEffect(() => {
     if (phase !== "playing") return;
     if (scene === 8) {
-      const t = setTimeout(() => setSubPhase(1), 750);
+      const t = setTimeout(() => setSubPhase(1), 900);
       timeouts.current.push(t);
     }
     if (scene === 9) {
-      const t = setTimeout(() => setSubPhase(1), 1100);
+      const t = setTimeout(() => setSubPhase(1), 1800);
       timeouts.current.push(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
