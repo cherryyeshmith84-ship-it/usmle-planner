@@ -66,10 +66,9 @@ const DASHBOARD_STATS = [
 
 const NBME_SCORES = [62, 66, 70, 74];
 
-// Slower than the ~20-25s target from the brief - each scene now leaves
-// real dwell time after its content finishes animating in, so a first-time
-// visitor actually has a moment to read it before the next scene arrives.
-const SCENE_DURATIONS_MS = [6000, 4000, 3600, 4200, 5000, 5000, 3200, 2800, 1800, 3600];
+// Deliberately slow - a first-time visitor should be able to fully read
+// every line before the scene moves on, not just glimpse it.
+const SCENE_DURATIONS_MS = [9000, 6000, 5400, 6500, 8000, 8000, 5000, 4500, 2200, 5500];
 const TOTAL_SCENES = SCENE_DURATIONS_MS.length;
 
 function MentorCard({ name, tag, selected }: { name: string; tag: string; selected?: boolean }) {
@@ -168,11 +167,11 @@ export default function HomeIntroAnimation() {
   useEffect(() => {
     if (phase !== "playing") return;
     if (scene === 8) {
-      const t = setTimeout(() => setSubPhase(1), 900);
+      const t = setTimeout(() => setSubPhase(1), 1100);
       timeouts.current.push(t);
     }
     if (scene === 9) {
-      const t = setTimeout(() => setSubPhase(1), 1800);
+      const t = setTimeout(() => setSubPhase(1), 2750);
       timeouts.current.push(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,7 +225,7 @@ export default function HomeIntroAnimation() {
                   <span
                     key={r}
                     className="mg-anim-pop text-xs font-semibold text-slate-300 bg-brand-900/10 border border-cyan-100 rounded-full px-3 py-1"
-                    style={{ animationDelay: `${i * 220}ms` }}
+                    style={{ animationDelay: `${i * 350}ms` }}
                   >
                     {r}
                   </span>
@@ -236,7 +235,7 @@ export default function HomeIntroAnimation() {
                 <p
                   key={w}
                   className="mg-anim-fadeup mg-anim-float text-[11px] sm:text-xs text-slate-500 italic mt-3"
-                  style={{ animationDelay: `${1600 + i * 480}ms` }}
+                  style={{ animationDelay: `${2200 + i * 900}ms` }}
                 >
                   &ldquo;{w}&rdquo;
                 </p>
@@ -253,7 +252,7 @@ export default function HomeIntroAnimation() {
             <p className="text-lg sm:text-xl font-semibold text-slate-100 mb-6">No clear plan.</p>
             <p
               className="mg-anim-fadeup text-base sm:text-lg text-brand-400 font-semibold"
-              style={{ animationDelay: "1400ms" }}
+              style={{ animationDelay: "2200ms" }}
             >
               What if you didn&apos;t have to figure it out alone?
             </p>
@@ -269,7 +268,7 @@ export default function HomeIntroAnimation() {
             <p className="text-sm sm:text-base text-slate-500 mb-6">Your USMLE journey, organized.</p>
             <div
               className="mg-anim-fadeup flex flex-wrap items-center justify-center gap-x-2 gap-y-2 text-xs sm:text-sm font-semibold text-slate-300"
-              style={{ animationDelay: "500ms" }}
+              style={{ animationDelay: "800ms" }}
             >
               {PATHWAY_LONG.map((step, i) => (
                 <span key={step} className="flex items-center gap-2">
@@ -288,19 +287,19 @@ export default function HomeIntroAnimation() {
               Find a Mentor
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-              <div className="mg-anim-pop" style={{ animationDelay: "150ms" }}>
+              <div className="mg-anim-pop" style={{ animationDelay: "250ms" }}>
                 <MentorCard name="Dr. A. Rao" tag="Cardiology &amp; Renal" />
               </div>
-              <div className="mg-anim-pop" style={{ animationDelay: "350ms" }}>
+              <div className="mg-anim-pop" style={{ animationDelay: "600ms" }}>
                 <MentorCard name="Dr. S. Kim" tag="Neuro &amp; Behavioral Science" selected />
               </div>
-              <div className="mg-anim-pop" style={{ animationDelay: "550ms" }}>
+              <div className="mg-anim-pop" style={{ animationDelay: "950ms" }}>
                 <MentorCard name="Dr. J. Patel" tag="Pharm &amp; Micro" />
               </div>
             </div>
             <p
               className="mg-anim-fadeup text-center text-sm text-slate-500"
-              style={{ animationDelay: "900ms" }}
+              style={{ animationDelay: "1700ms" }}
             >
               Find someone who understands where you are - and where you need to go.
             </p>
@@ -325,7 +324,7 @@ export default function HomeIntroAnimation() {
                   <p
                     key={q}
                     className="mg-anim-fadeup text-xs sm:text-sm text-slate-300"
-                    style={{ animationDelay: `${i * 420}ms` }}
+                    style={{ animationDelay: `${i * 700}ms` }}
                   >
                     <span className="text-brand-400 font-semibold">Mentor:</span> {q}
                   </p>
@@ -334,7 +333,7 @@ export default function HomeIntroAnimation() {
             </div>
             <p
               className="mg-anim-fadeup text-center text-sm text-slate-500"
-              style={{ animationDelay: "2200ms" }}
+              style={{ animationDelay: "3700ms" }}
             >
               Your preparation shouldn&apos;t look like everyone else&apos;s.
             </p>
@@ -353,7 +352,7 @@ export default function HomeIntroAnimation() {
                   <li
                     key={t}
                     className="mg-anim-fadeup text-xs sm:text-sm text-slate-300 flex items-center gap-2"
-                    style={{ animationDelay: `${i * 260}ms` }}
+                    style={{ animationDelay: `${i * 450}ms` }}
                   >
                     <span className="text-green-500 shrink-0">&#10003;</span>
                     {t}
@@ -362,7 +361,7 @@ export default function HomeIntroAnimation() {
               </ul>
               <div
                 className="mg-anim-fadeup grid sm:grid-cols-2 gap-3 pt-3 border-t border-cyan-100"
-                style={{ animationDelay: "1400ms" }}
+                style={{ animationDelay: "2600ms" }}
               >
                 <div>
                   <p className="text-xs font-bold text-brand-400 uppercase tracking-wide mb-1">
@@ -380,7 +379,7 @@ export default function HomeIntroAnimation() {
             </div>
             <p
               className="mg-anim-fadeup text-center text-sm text-slate-500"
-              style={{ animationDelay: "1800ms" }}
+              style={{ animationDelay: "3400ms" }}
             >
               Know exactly what to do today.
             </p>
@@ -398,7 +397,7 @@ export default function HomeIntroAnimation() {
                 <div
                   key={s.label}
                   className="mg-anim-pop card py-3 px-3 text-center"
-                  style={{ animationDelay: `${i * 180}ms` }}
+                  style={{ animationDelay: `${i * 320}ms` }}
                 >
                   <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{s.label}</p>
                   <p className="text-sm font-bold text-slate-100">{s.value}</p>
@@ -407,7 +406,7 @@ export default function HomeIntroAnimation() {
             </div>
             <p
               className="mg-anim-fadeup text-center text-sm text-slate-500"
-              style={{ animationDelay: "1100ms" }}
+              style={{ animationDelay: "2100ms" }}
             >
               A plan is powerful when you actually follow it.
             </p>
@@ -428,7 +427,7 @@ export default function HomeIntroAnimation() {
                     className="mg-anim-pop w-8 bg-brand-400 rounded-t-md"
                     style={{
                       height: `${(score - 55) * 4}px`,
-                      animationDelay: `${i * 350}ms`,
+                      animationDelay: `${i * 600}ms`,
                     }}
                   />
                 </div>
@@ -472,13 +471,13 @@ export default function HomeIntroAnimation() {
                 className={`mg-anim-fadeup text-sm sm:text-base font-medium mb-1 transition-colors duration-700 ${
                   subPhase === 1 ? "text-slate-500" : "text-white"
                 }`}
-                style={{ animationDelay: "500ms" }}
+                style={{ animationDelay: "900ms" }}
               >
                 Stop guessing. Start following a plan.
               </p>
               <p
                 className="mg-anim-fadeup text-xs sm:text-sm text-brand-400 font-semibold"
-                style={{ animationDelay: "1300ms" }}
+                style={{ animationDelay: "3000ms" }}
               >
                 MASTER GRID - Your USMLE journey, organized.
               </p>
