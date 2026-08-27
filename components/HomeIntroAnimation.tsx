@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
  *
  * Deliberately built with plain CSS (a scoped <style> block below, no
  * animation library) and zero image/video assets - just text, borders, and
- * the same `.card`/`.btn-primary`/text-slate-*/text-brand-* tokens already
+ * the same .card/.btn-primary/text-slate/text-brand tokens already
  * used throughout app/page.tsx, so it matches the site's actual light
  * cyan theme (see the color-reversal comment in tailwind.config.ts) rather
  * than introducing an unrelated dark theme that would clash with the real
