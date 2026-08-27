@@ -93,9 +93,6 @@ export default async function Home() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto w-full px-6 pt-14 pb-10 text-center">
-        <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-4">
-          For Caribbean and International Medical Students
-        </p>
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-slate-100 leading-[1.05] mb-6">
           You don&apos;t have to figure out USMLE Step 1 alone.
         </h1>
@@ -123,9 +120,6 @@ export default async function Home() {
       {/* Founding cohort banner */}
       <section id="apply" className="max-w-3xl mx-auto w-full px-6 pb-20 scroll-mt-20">
         <div className="card text-center border-brand-500/50">
-          <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">
-            Founding Cohort &middot; Limited to 100 Students
-          </p>
           <h2 className="text-2xl md:text-3xl font-extrabold mb-3">
             Comprehensive Mentorship, Offered at No Cost
           </h2>
