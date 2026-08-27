@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import HomeIntroAnimation from "@/components/HomeIntroAnimation";
+
+const HERO_PATHWAY = ["Assess", "Plan", "Execute", "Analyze", "Improve"];
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +67,9 @@ export default async function Home() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <>
+      <HomeIntroAnimation />
+      <main className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="max-w-6xl mx-auto w-full px-6 py-5 flex items-center justify-between sticky top-0 z-20 bg-white/80 backdrop-blur">
         <span className="font-extrabold text-xl tracking-tight text-slate-100">
@@ -92,25 +97,26 @@ export default async function Home() {
           For Caribbean and International Medical Students
         </p>
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-slate-100 leading-[1.05] mb-6">
-          A Personalized Path to Mastering USMLE Step 1
+          You don&apos;t have to figure out USMLE Step 1 alone.
         </h1>
-        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-4">
-          Most students who struggle on Step 1 are not lacking effort.
-          <br />
-          They are lacking a clear, individualized plan for what to study next.
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
+          Get the right mentor. Build the right plan. Stay accountable. Keep improving.
         </p>
-        <p className="text-base text-slate-500 max-w-2xl mx-auto mb-10">
-          Master Grid combines dedicated mentorship, adaptive study planning, and detailed
-          performance analytics into a single system, built to help you study with precision and
-          arrive at exam day fully prepared.
-        </p>
-        <div className="flex gap-4 justify-center flex-wrap">
+        <div className="flex gap-4 justify-center flex-wrap mb-8">
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
-            Apply for Mentorship
+            Find Your Mentor
           </Link>
           <a href="#how-it-works" className="btn-secondary text-base px-7 py-3.5">
-            See How It Works
+            Explore Master Grid
           </a>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-2 text-xs sm:text-sm font-semibold text-slate-400">
+          {HERO_PATHWAY.map((step, i) => (
+            <span key={step} className="flex items-center gap-2">
+              <span className="bg-brand-900/10 text-brand-400 rounded-full px-3 py-1">{step}</span>
+              {i < HERO_PATHWAY.length - 1 && <span className="text-slate-600">&rarr;</span>}
+            </span>
+          ))}
         </div>
       </section>
 
@@ -305,6 +311,7 @@ export default async function Home() {
           </div>
         </div>
       </footer>
-    </main>
+      </main>
+    </>
   );
 }
