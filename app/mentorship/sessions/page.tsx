@@ -33,61 +33,60 @@ export default async function UpcomingSessionsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("is_admin, full_name")
-    .eq("id", user.id)
-    .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
-  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
-
-  const { data: mentorsData } = await supabase.from("mentors").select("*").eq("active", true);
-  const mentors = (mentorsData ?? []) as Mentor[];
+  // profile and mentors don't depend on each other - firing them together
+  // instead of one after another roughly halves the time this page spends
+  // just waiting on round trips before it can even figure out which branch
+  // (mentor vs student) to take below. This page had been timing out
+  // (FUNCTION_INVOCATION_TIMEOUT) even though every individual query here
+  // runs in well under a second on its own - with up to 7 queries chained
+  // one-after-another, a single slow/flaky round trip anywhere in that
+  // chain delayed every query after it too. Running the independent ones
+  // concurrently (here and in both branches below) means one slow request
+  // no longer has a cascading effect on the rest of the page.
+  const [profileRes, mentorsRes] = await Promise.all([
+    supabase.from("profiles").select("is_admin, full_name").eq("id", user.id).single(),
+    supabase.from("mentors").select("*").eq("active", true),
+  ]);
+  const profile = profileRes.data as Pick<Profile, "is_admin" | "full_name"> | null;
+  const mentors = (mentorsRes.data ?? []) as Mentor[];
   const myMentorRecord = findMentorByEmail(mentors, user.email);
+  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
 
   if (myMentorRecord) {
     // No end_time/is_booked-only cutoff here anymore (that used to hide
     // completed and cancelled sessions entirely) - every booked slot is
     // fetched and SessionsListClient buckets it into Upcoming vs Past based
-    // on getSlotStatus().
-    const { data } = await supabase
-      .from("mentor_slots")
-      .select("*, booked_by_profile:booked_by(full_name, email)")
-      .eq("mentor_id", myMentorRecord.id)
-      .eq("is_booked", true)
-      .order("start_time", { ascending: true });
-    const sessions = (data ?? []) as BookedByMe[];
-
-    // Pull every note this mentor has ever written, keyed by slot, so each
-    // completed row can show "Add notes" vs "Edit notes" / the saved text
-    // without a separate round trip per row.
-    const { data: notesData } = await supabase
-      .from("mentor_session_notes")
-      .select("*")
-      .eq("mentor_id", myMentorRecord.id);
-    const notesBySlotId = new Map<string, SessionNote>((notesData ?? []).map((n: any) => [n.slot_id, n]));
-
-    // Every rating this mentor has ever received, keyed by slot, so a
-    // completed row can show "View student feedback" without a per-row
-    // round trip. Mentors can only ever read these (RLS: "Mentor views own
-    // session feedback") - never write them.
-    const { data: feedbackData } = await supabase
-      .from("mentor_session_feedback")
-      .select("*")
-      .eq("mentor_id", myMentorRecord.id);
+    // on getSlotStatus(). These four queries are all independent of each
+    // other (see comment above), so they run concurrently instead of
+    // sequentially.
+    const [sessionsRes, notesRes, feedbackRes, linksRes] = await Promise.all([
+      supabase
+        .from("mentor_slots")
+        .select("*, booked_by_profile:booked_by(full_name, email)")
+        .eq("mentor_id", myMentorRecord.id)
+        .eq("is_booked", true)
+        .order("start_time", { ascending: true }),
+      // Every note this mentor has ever written, keyed by slot, so each
+      // completed row can show "Add notes" vs "Edit notes" / the saved text
+      // without a separate round trip per row.
+      supabase.from("mentor_session_notes").select("*").eq("mentor_id", myMentorRecord.id),
+      // Every rating this mentor has ever received, keyed by slot, so a
+      // completed row can show "View student feedback" without a per-row
+      // round trip. Mentors can only ever read these (RLS: "Mentor views
+      // own session feedback") - never write them.
+      supabase.from("mentor_session_feedback").select("*").eq("mentor_id", myMentorRecord.id),
+      // Every meeting link this mentor has set, keyed by student - different
+      // students can have different permanent links (mentor_meeting_links),
+      // so this is never a single value shared across every row below.
+      supabase.from("mentor_meeting_links").select("student_id, meeting_link").eq("mentor_id", myMentorRecord.id),
+    ]);
+    const sessions = (sessionsRes.data ?? []) as BookedByMe[];
+    const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
     const feedbackBySlotId = new Map<string, SessionFeedback>(
-      (feedbackData ?? []).map((f: any) => [f.slot_id, f])
+      (feedbackRes.data ?? []).map((f: any) => [f.slot_id, f])
     );
-
-    // Every meeting link this mentor has set, keyed by student - different
-    // students can have different permanent links (mentor_meeting_links),
-    // so this is never a single value shared across every row below.
-    const { data: linksData } = await supabase
-      .from("mentor_meeting_links")
-      .select("student_id, meeting_link")
-      .eq("mentor_id", myMentorRecord.id);
     const meetingLinkByStudent = new Map<string, string>(
-      (linksData ?? []).map((l: any) => [l.student_id, l.meeting_link])
+      (linksRes.data ?? []).map((l: any) => [l.student_id, l.meeting_link])
     );
 
     const rows: SessionRow[] = sessions.map((s) => ({
@@ -115,45 +114,38 @@ export default async function UpcomingSessionsPage() {
     );
   }
 
-  const { data: myBookingsData } = await supabase
-    .from("mentor_slots")
-    .select("*, mentors(id, name, photo_path, role)")
-    .eq("booked_by", user.id)
-    .order("start_time", { ascending: true });
+  // Same fix as the mentor branch above - these four queries are all
+  // independent (each scoped to this student's own id), so they run
+  // concurrently instead of one after another.
+  const [myBookingsRes, myMeetingLinkRes, myNotesRes, myFeedbackRes] = await Promise.all([
+    supabase
+      .from("mentor_slots")
+      .select("*, mentors(id, name, photo_path, role)")
+      .eq("booked_by", user.id)
+      .order("start_time", { ascending: true }),
+    // This student's own permanent meeting link (mentor_meeting_links) - the
+    // table only ever holds one row total per student, so if this student
+    // switched mentors, this row may still carry the OLD mentor's mentor_id
+    // until their new mentor sets a fresh one. Selecting mentor_id too (not
+    // just meeting_link) so each row below only shows it when it actually
+    // matches that row's own mentor - never applied blindly to every row.
+    supabase.from("mentor_meeting_links").select("mentor_id, meeting_link").eq("student_id", user.id).maybeSingle(),
+    supabase.from("mentor_session_notes").select("*").eq("student_id", user.id),
+    supabase.from("mentor_session_feedback").select("*").eq("student_id", user.id),
+  ]);
+
   // Mentorship's own Upcoming Sessions only ever shows Mentor/Both bookings
   // - a booking with a pure Tutor (role === "tutor") shows up on the
   // separate /tutoring page instead, even though it's the exact same
   // mentor_slots row under the hood. A booking made before this role field
   // existed has role undefined, which mentorActsAs treats as "mentor".
-  const myBookings = ((myBookingsData ?? []) as MyBooking[]).filter((b) =>
+  const myBookings = ((myBookingsRes.data ?? []) as MyBooking[]).filter((b) =>
     mentorActsAs({ role: (b.mentors?.role as any) ?? "mentor" }, "mentor")
   );
-
-  // This student's own permanent meeting link (mentor_meeting_links) - the
-  // table only ever holds one row total per student, so if this student
-  // switched mentors, this row may still carry the OLD mentor's mentor_id
-  // until their new mentor sets a fresh one. Selecting mentor_id too (not
-  // just meeting_link) so each row below only shows it when it actually
-  // matches that row's own mentor - never applied blindly to every row.
-  const { data: myMeetingLinkData } = await supabase
-    .from("mentor_meeting_links")
-    .select("mentor_id, meeting_link")
-    .eq("student_id", user.id)
-    .maybeSingle();
-  const myMeetingLinkRow = myMeetingLinkData as { mentor_id: string; meeting_link: string } | null;
-
-  const { data: myNotesData } = await supabase
-    .from("mentor_session_notes")
-    .select("*")
-    .eq("student_id", user.id);
-  const myNotesBySlotId = new Map<string, SessionNote>((myNotesData ?? []).map((n: any) => [n.slot_id, n]));
-
-  const { data: myFeedbackData } = await supabase
-    .from("mentor_session_feedback")
-    .select("*")
-    .eq("student_id", user.id);
+  const myMeetingLinkRow = myMeetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
+  const myNotesBySlotId = new Map<string, SessionNote>((myNotesRes.data ?? []).map((n: any) => [n.slot_id, n]));
   const myFeedbackBySlotId = new Map<string, SessionFeedback>(
-    (myFeedbackData ?? []).map((f: any) => [f.slot_id, f])
+    (myFeedbackRes.data ?? []).map((f: any) => [f.slot_id, f])
   );
 
   const rows: SessionRow[] = myBookings.map((b) => ({
