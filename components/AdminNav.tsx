@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import NotificationsBell from "./NotificationsBell";
 
 interface NavItem {
   href: string;
@@ -91,7 +92,7 @@ export default function AdminNav() {
       )}
 
       <aside
-        className={`w-60 shrink-0 border-r border-slate-800 bg-white min-h-screen flex flex-col fixed md:sticky md:top-0 inset-y-0 left-0 z-40 transition-transform duration-200 ${
+        className={`w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col fixed top-0 left-0 z-40 transition-transform duration-200 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
@@ -106,9 +107,16 @@ export default function AdminNav() {
           />
           <span className="font-bold text-brand-300 block">Master Grid</span>
         </div>
-        <span className="text-xs font-semibold bg-brand-900/40 text-brand-300 rounded-full px-2 py-1">
-          Admin
-        </span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold bg-brand-900/40 text-brand-300 rounded-full px-2 py-1">
+            Admin
+          </span>
+          {/* New-student-signup notifications land here (see
+              app/auth/callback/route.ts) - admin pages have their own
+              sidebar (AdminNav) instead of the shared AppShell/TopHeader
+              every other page uses, so the bell needs to live here too. */}
+          <NotificationsBell />
+        </div>
       </div>
 
       <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
@@ -166,6 +174,20 @@ export default function AdminNav() {
         </form>
       </div>
       </aside>
+
+      {/* Reserves the sidebar's width in each admin page's "min-h-screen
+          flex" row so the always-fixed <aside> above doesn't overlap
+          <main>. Previously the aside used md:sticky and relied on
+          stretching to match main's height to stay "pinned" - that broke
+          the moment main's content got taller than one screen (a long
+          student list, for example): the stretched aside just scrolled
+          along with the page instead of staying put. Fixed positioning
+          takes the aside out of flow entirely so it's always pinned to the
+          viewport regardless of how tall main gets; this spacer (same w-60
+          shrink-0 the aside used to contribute) keeps main shifted over by
+          the right amount on desktop. Hidden on mobile since the aside
+          overlays there instead of sitting beside main. */}
+      <div className="hidden md:block w-60 shrink-0" aria-hidden="true" />
     </>
   );
 }
