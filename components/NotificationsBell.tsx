@@ -38,8 +38,20 @@ function timeAgo(iso: string): string {
  * Resolves its own current user client-side (like MentorChatPanel does)
  * rather than taking a userId prop, so wiring this in didn't require
  * touching every page that renders AppShell/TopHeader.
+ *
+ * `align` controls which side the dropdown panel opens toward. Defaults to
+ * "right" (panel's right edge lines up with the bell) which is correct in
+ * TopHeader.tsx, where the bell sits near the far right of a wide page with
+ * plenty of room to its left. AdminNav.tsx's sidebar is only 240px wide with
+ * the bell near ITS right edge too, so a right-aligned 320px panel there
+ * would need to extend further left than the sidebar itself is wide - since
+ * the sidebar starts at the very left edge of the screen, that pushed the
+ * panel off the left edge of the browser window entirely, clipping every
+ * notification's text. AdminNav passes align="left" so the panel instead
+ * opens from the bell's left edge going right, over the page content next
+ * to the sidebar, where there's actually room for it.
  */
-export default function NotificationsBell() {
+export default function NotificationsBell({ align = "right" }: { align?: "left" | "right" }) {
   const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
@@ -122,7 +134,11 @@ export default function NotificationsBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-lg border border-slate-800 bg-white shadow-lg py-1 z-30">
+        <div
+          className={`absolute ${
+            align === "left" ? "left-0" : "right-0"
+          } mt-2 w-80 max-h-96 overflow-y-auto rounded-lg border border-slate-800 bg-white shadow-lg py-1 z-30`}
+        >
           <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
             <p className="text-xs font-semibold text-slate-300">Notifications</p>
             {unreadCount > 0 && (
