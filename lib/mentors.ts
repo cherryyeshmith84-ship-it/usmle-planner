@@ -164,11 +164,22 @@ export function averageRating(feedback: { rating: number }[]): number | null {
 
 export type SlotStatus = "upcoming" | "completed" | "cancelled";
 
+// A session that's still genuinely in progress shouldn't vanish from
+// "Upcoming" (taking its Join Meeting button with it) the instant the
+// clock ticks past the scheduled end time - real sessions often run a
+// little long, and someone joining a couple minutes late should still see
+// a way in. This buffer keeps a slot classified as "upcoming" for a bit
+// past its scheduled end before it flips to "completed".
+const COMPLETION_GRACE_MS = 15 * 60 * 1000;
+
 /** A session's lifecycle status, derived rather than stored: cancelled
- *  always wins, otherwise it's completed once the end time has passed. */
+ *  always wins, otherwise it stays "upcoming" until a bit past the
+ *  scheduled end time (see COMPLETION_GRACE_MS), then flips to
+ *  "completed". */
 export function getSlotStatus(slot: Pick<MentorSlot, "end_time" | "cancelled_at">): SlotStatus {
   if (slot.cancelled_at) return "cancelled";
-  return slot.end_time < new Date().toISOString() ? "completed" : "upcoming";
+  const completedAt = new Date(slot.end_time).getTime() + COMPLETION_GRACE_MS;
+  return Date.now() < completedAt ? "upcoming" : "completed";
 }
 
 export type MeetingLiveStatus = "not_yet" | "waiting" | "live" | "ended";
@@ -180,11 +191,14 @@ const MEETING_GRACE_MS = 10 * 60 * 1000;
 /** Whether a booked session's meeting room counts as "Live" right now.
  *  "live" only once BOTH the mentor and the student have clicked Join
  *  Meeting - one side alone shows "waiting". Only meaningful within the
- *  slot's own scheduled window (plus a short grace period beforehand);
- *  well before or after the actual time, no badge is shown at all so
- *  nothing implies a meeting is supposed to be happening yet. Each
- *  mentor_slots row is one specific one-off session, so a join timestamp
- *  from a past meeting is never mistaken for this one. */
+ *  slot's own scheduled window (plus a short grace period beforehand and
+ *  after - same COMPLETION_GRACE_MS window getSlotStatus uses, so the
+ *  Live/Waiting badge doesn't disappear out from under a still-visible
+ *  Join Meeting button); well before or long after the actual time, no
+ *  badge is shown at all so nothing implies a meeting is supposed to be
+ *  happening yet. Each mentor_slots row is one specific one-off session,
+ *  so a join timestamp from a past meeting is never mistaken for this
+ *  one. */
 export function meetingLiveStatus(
   slot: Pick<MentorSlot, "start_time" | "end_time" | "mentor_joined_at" | "student_joined_at">
 ): MeetingLiveStatus {
@@ -192,7 +206,7 @@ export function meetingLiveStatus(
   const start = new Date(slot.start_time).getTime();
   const end = new Date(slot.end_time).getTime();
   if (now < start - MEETING_GRACE_MS) return "not_yet";
-  if (now > end) return "ended";
+  if (now > end + COMPLETION_GRACE_MS) return "ended";
   return slot.mentor_joined_at && slot.student_joined_at ? "live" : "waiting";
 }
 
