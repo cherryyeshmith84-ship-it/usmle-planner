@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Trigger evening planner reminder
         run: |
-          curl -fsS -X GET "https://master-grid.vercel.app/api/cron/planner-evening-reminder" \
+          curl -fsS -X GET "https://mastergrid.online/api/cron/planner-evening-reminder" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
 
   morning-reminder:
@@ -32,5 +32,5 @@ jobs:
     steps:
       - name: Trigger morning planner reminder
         run: |
-          curl -fsS -X GET "https://master-grid.vercel.app/api/cron/planner-morning-reminder" \
+          curl -fsS -X GET "https://mastergrid.online/api/cron/planner-morning-reminder" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
