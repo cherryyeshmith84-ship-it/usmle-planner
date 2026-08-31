@@ -40,62 +40,61 @@ export default async function MentorshipPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("is_admin, full_name, mentor_email")
-    .eq("id", user.id)
-    .single();
-  const profile = profileData as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
+  // profile and mentors don't depend on each other - fetching them together
+  // (and, in the mentor branch below, the four per-mentor queries together
+  // too) is what fixed the identical FUNCTION_INVOCATION_TIMEOUT that
+  // /mentorship/sessions used to hit: chaining independent Supabase queries
+  // one after another with await multiplies total latency, so one slow
+  // round trip anywhere in the chain delays everything after it. See that
+  // page's comment for the full explanation.
+  const [profileRes, mentorsRes] = await Promise.all([
+    supabase.from("profiles").select("is_admin, full_name, mentor_email").eq("id", user.id).single(),
+    supabase.from("mentors").select("*").eq("active", true).order("name", { ascending: true }),
+  ]);
+  const profile = profileRes.data as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
+  const mentors = (mentorsRes.data ?? []) as Mentor[];
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
-
-  const { data: mentorsData } = await supabase
-    .from("mentors")
-    .select("*")
-    .eq("active", true)
-    .order("name", { ascending: true });
-  const mentors = (mentorsData ?? []) as Mentor[];
 
   const myMentorRecord = findMentorByEmail(mentors, user.email);
 
   if (myMentorRecord) {
-    const { data: slotsData } = await supabase
-      .from("mentor_slots")
-      .select("*, booked_by_profile:booked_by(full_name, email)")
-      .eq("mentor_id", myMentorRecord.id)
-      .order("start_time", { ascending: true });
-    const allSlots = (slotsData ?? []) as (MentorSlot & {
+    // These four queries are all independent of each other (each scoped to
+    // this mentor's own id, or - linkedStudentsData - not scoped to a slot
+    // at all), so they run concurrently instead of one after another.
+    const [slotsRes, notesRes, feedbackRes, linkedStudentsRes] = await Promise.all([
+      supabase
+        .from("mentor_slots")
+        .select("*, booked_by_profile:booked_by(full_name, email)")
+        .eq("mentor_id", myMentorRecord.id)
+        .order("start_time", { ascending: true }),
+      supabase.from("mentor_session_notes").select("slot_id").eq("mentor_id", myMentorRecord.id),
+      supabase
+        .from("mentor_session_feedback")
+        .select("*")
+        .eq("mentor_id", myMentorRecord.id)
+        .order("created_at", { ascending: false }),
+      // Students who linked this mentor's email directly (Settings/onboarding
+      // "Your mentor's email" field) - RLS ("Mentors can view profiles of
+      // students who linked their email") already restricts this to exactly
+      // this mentor's matches, so no client-side filtering needed. This is a
+      // separate roster from bookedSlots below: a student can appear here
+      // with zero sessions booked yet and the mentor can still open their
+      // planner immediately.
+      supabase
+        .from("profiles")
+        .select("id, full_name, email, status_update, status_updated_at")
+        .not("mentor_email", "is", null)
+        .order("full_name", { ascending: true }),
+    ]);
+    const allSlots = (slotsRes.data ?? []) as (MentorSlot & {
       booked_by_profile?: { full_name: string | null; email: string | null } | null;
     })[];
     const bookedSlots = allSlots.filter((s) => s.is_booked);
-
-    const { data: notesData } = await supabase
-      .from("mentor_session_notes")
-      .select("slot_id")
-      .eq("mentor_id", myMentorRecord.id);
-    const slotIdsWithNotes = new Set((notesData ?? []).map((n: any) => n.slot_id as string));
-
-    const { data: feedbackData } = await supabase
-      .from("mentor_session_feedback")
-      .select("*")
-      .eq("mentor_id", myMentorRecord.id)
-      .order("created_at", { ascending: false });
-    const feedback = (feedbackData ?? []) as SessionFeedback[];
+    const slotIdsWithNotes = new Set((notesRes.data ?? []).map((n: any) => n.slot_id as string));
+    const feedback = (feedbackRes.data ?? []) as SessionFeedback[];
     const avgRating = averageRating(feedback);
-
-    // Students who linked this mentor's email directly (Settings/onboarding
-    // "Your mentor's email" field) - RLS ("Mentors can view profiles of
-    // students who linked their email") already restricts this to exactly
-    // this mentor's matches, so no client-side filtering needed. This is a
-    // separate roster from bookedSlots above: a student can appear here
-    // with zero sessions booked yet and the mentor can still open their
-    // planner immediately.
-    const { data: linkedStudentsData } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, status_update, status_updated_at")
-      .not("mentor_email", "is", null)
-      .order("full_name", { ascending: true });
-    const linkedStudents = (linkedStudentsData ?? []) as Pick<
+    const linkedStudents = (linkedStudentsRes.data ?? []) as Pick
       Profile,
       "id" | "full_name" | "email" | "status_update" | "status_updated_at"
     >[];
@@ -188,7 +187,7 @@ export default async function MentorshipPage() {
                         </p>
                       )}
                     </div>
-                    <a
+                    
                       href={`/mentorship/student/${s.id}`}
                       className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
                     >
@@ -320,66 +319,66 @@ export default async function MentorshipPage() {
   const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const mentorIds = mentorsForDirectory.map((m) => m.id);
 
+  // These three summary queries are all independent of each other (each is
+  // its own batch lookup keyed off mentorIds), so - same fix as the mentor
+  // branch above - they run concurrently instead of one after another.
+  const [pastBookedRes, upcomingOpenRes, feedbackRes] =
+    mentorIds.length > 0
+      ? await Promise.all([
+          supabase
+            .from("mentor_slots")
+            .select("mentor_id, booked_by")
+            .in("mentor_id", mentorIds)
+            .eq("is_booked", true)
+            .lt("end_time", now),
+          // audience is included (and checked below via slotVisibleToStudent) so
+          // this badge agrees with the per-mentor profile page - a slot reserved
+          // for a mentor's existing students shouldn't make that mentor show
+          // "Available this week" to a student who isn't linked to them yet (and
+          // vice versa for "new students only" slots), since they'd land on the
+          // profile page and find nothing bookable. isExistingStudentOf is
+          // per-mentor (the same viewer can be an existing student of one mentor
+          // and a stranger to another), so this has to be checked per-row, not
+          // once for the whole batch.
+          supabase
+            .from("mentor_slots")
+            .select("mentor_id, audience")
+            .in("mentor_id", mentorIds)
+            .eq("is_booked", false)
+            .gte("end_time", now)
+            .lt("start_time", weekFromNow),
+          // One batch query for every mentor's ratings, rather than N+1. Needs
+          // the "Authenticated can view mentor feedback" RLS policy (see
+          // migration mentor_feedback_public_read_for_profiles) since feedback
+          // used to be readable only by the mentor themselves or the student
+          // who wrote it.
+          supabase.from("mentor_session_feedback").select("mentor_id, rating").in("mentor_id", mentorIds),
+        ])
+      : [{ data: null }, { data: null }, { data: null }];
+
   const helpedCountByMentor = new Map<string, Set<string>>();
-  if (mentorIds.length > 0) {
-    const { data: pastBookedRows } = await supabase
-      .from("mentor_slots")
-      .select("mentor_id, booked_by")
-      .in("mentor_id", mentorIds)
-      .eq("is_booked", true)
-      .lt("end_time", now);
-    for (const row of (pastBookedRows ?? []) as any[]) {
-      if (!row.booked_by) continue;
-      const set = helpedCountByMentor.get(row.mentor_id) ?? new Set<string>();
-      set.add(row.booked_by);
-      helpedCountByMentor.set(row.mentor_id, set);
-    }
+  for (const row of (pastBookedRes.data ?? []) as any[]) {
+    if (!row.booked_by) continue;
+    const set = helpedCountByMentor.get(row.mentor_id) ?? new Set<string>();
+    set.add(row.booked_by);
+    helpedCountByMentor.set(row.mentor_id, set);
   }
 
   const availableThisWeekMentorIds = new Set<string>();
-  if (mentorIds.length > 0) {
-    // audience is included (and checked below via slotVisibleToStudent) so
-    // this badge agrees with the per-mentor profile page - a slot reserved
-    // for a mentor's existing students shouldn't make that mentor show
-    // "Available this week" to a student who isn't linked to them yet (and
-    // vice versa for "new students only" slots), since they'd land on the
-    // profile page and find nothing bookable. isExistingStudentOf is
-    // per-mentor (the same viewer can be an existing student of one mentor
-    // and a stranger to another), so this has to be checked per-row, not
-    // once for the whole batch.
-    const { data: upcomingOpenRows } = await supabase
-      .from("mentor_slots")
-      .select("mentor_id, audience")
-      .in("mentor_id", mentorIds)
-      .eq("is_booked", false)
-      .gte("end_time", now)
-      .lt("start_time", weekFromNow);
-    for (const row of (upcomingOpenRows ?? []) as any[]) {
-      const rowMentor = mentorsForDirectory.find((m) => m.id === row.mentor_id);
-      if (!rowMentor) continue;
-      const viewerIsExisting = isExistingStudentOf(profile?.mentor_email, rowMentor.email);
-      if (slotVisibleToStudent(row, viewerIsExisting)) {
-        availableThisWeekMentorIds.add(row.mentor_id);
-      }
+  for (const row of (upcomingOpenRes.data ?? []) as any[]) {
+    const rowMentor = mentorsForDirectory.find((m) => m.id === row.mentor_id);
+    if (!rowMentor) continue;
+    const viewerIsExisting = isExistingStudentOf(profile?.mentor_email, rowMentor.email);
+    if (slotVisibleToStudent(row, viewerIsExisting)) {
+      availableThisWeekMentorIds.add(row.mentor_id);
     }
   }
 
-  // One batch query for every mentor's ratings, rather than N+1 - same
-  // pattern as helpedCountByMentor/availableThisWeekMentorIds above. Needs
-  // the "Authenticated can view mentor feedback" RLS policy (see migration
-  // mentor_feedback_public_read_for_profiles) since feedback used to be
-  // readable only by the mentor themselves or the student who wrote it.
   const ratingsByMentor = new Map<string, number[]>();
-  if (mentorIds.length > 0) {
-    const { data: feedbackRows } = await supabase
-      .from("mentor_session_feedback")
-      .select("mentor_id, rating")
-      .in("mentor_id", mentorIds);
-    for (const row of (feedbackRows ?? []) as any[]) {
-      const arr = ratingsByMentor.get(row.mentor_id) ?? [];
-      arr.push(row.rating);
-      ratingsByMentor.set(row.mentor_id, arr);
-    }
+  for (const row of (feedbackRes.data ?? []) as any[]) {
+    const arr = ratingsByMentor.get(row.mentor_id) ?? [];
+    arr.push(row.rating);
+    ratingsByMentor.set(row.mentor_id, arr);
   }
 
   const mentorCards = mentorsForDirectory.map((m) => {
