@@ -94,10 +94,8 @@ export default async function MentorshipPage() {
     const slotIdsWithNotes = new Set((notesRes.data ?? []).map((n: any) => n.slot_id as string));
     const feedback = (feedbackRes.data ?? []) as SessionFeedback[];
     const avgRating = averageRating(feedback);
-    const linkedStudents = (linkedStudentsRes.data ?? []) as Pick
-      Profile,
-      "id" | "full_name" | "email" | "status_update" | "status_updated_at"
-    >[];
+    type LinkedStudentRow = Pick<Profile, "id" | "full_name" | "email" | "status_update" | "status_updated_at">;
+    const linkedStudents = (linkedStudentsRes.data ?? []) as LinkedStudentRow[];
 
     const todayLabel = formatSlotDate(new Date().toISOString());
     const nonCancelled = bookedSlots.filter((s) => !s.cancelled_at);
@@ -187,10 +185,7 @@ export default async function MentorshipPage() {
                         </p>
                       )}
                     </div>
-                    
-                      href={`/mentorship/student/${s.id}`}
-                      className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
-                    >
+                    <a href={`/mentorship/student/${s.id}`} className="text-xs text-brand-400 hover:text-brand-300 shrink-0">
                       Open planner →
                     </a>
                   </div>
