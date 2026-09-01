@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import webpush from "web-push";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +14,23 @@ export const dynamic = "force-dynamic";
  * "I'm the mentor" or "I'm the student" in the payload can't be trusted,
  * since that would let anyone insert a notification for anyone else.
  *
- * Inserting the notification row itself needs the service-role client
- * (see lib below) because the recipient is a DIFFERENT user than whoever's
- * making this request - notifications' RLS only allows a user to read/mark
- * their own rows (see add_notifications_table migration), same as every
- * other cross-user write in this app (booking emails, etc.).
+ * Beyond the in-app notification row, this now also emails the recipient
+ * (same Resend setup as notify-booking) and pushes a browser notification
+ * to every device they've enabled via EnablePushNotifications.tsx - so a
+ * mentor gets pinged on their phone without needing the site open.
  */
+async function sendEmail(to: string, subject: string, html: string, apiKey: string, from: string) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to, subject, html }),
+  });
+  return res.ok;
+}
+
 export async function POST(req: NextRequest) {
   const supabase = createServerClient();
   const {
@@ -63,20 +75,18 @@ export async function POST(req: NextRequest) {
   const serviceClient = createServiceClient(serviceUrl, serviceKey);
 
   let recipientId: string | null = null;
+  let recipientEmail: string | null = null;
   let senderName = "Someone";
 
   if (isStudentCaller) {
-    // Recipient is the mentor's own login account. Mentors don't have a
-    // direct user_id column on the mentors table - every other place in
-    // this app that needs "is the logged-in user this mentor" resolves it
-    // by matching auth email to mentors.email (see findMentorByEmail in
-    // lib/mentors.ts), so this does the reverse of that same match.
     const { data: mentorProfile } = await serviceClient
       .from("profiles")
-      .select("id")
+      .select("id, email")
       .ilike("email", mentor.email)
       .maybeSingle();
-    recipientId = (mentorProfile as { id: string } | null)?.id ?? null;
+    const mp = mentorProfile as { id: string; email: string | null } | null;
+    recipientId = mp?.id ?? null;
+    recipientEmail = mp?.email ?? mentor.email;
 
     const { data: studentProfile } = await serviceClient
       .from("profiles")
@@ -87,6 +97,13 @@ export async function POST(req: NextRequest) {
   } else {
     recipientId = studentId;
     senderName = mentor.name;
+
+    const { data: studentProfile } = await serviceClient
+      .from("profiles")
+      .select("email")
+      .eq("id", studentId)
+      .maybeSingle();
+    recipientEmail = (studentProfile as { email: string | null } | null)?.email ?? null;
   }
 
   if (!recipientId || recipientId === user.id) {
@@ -107,5 +124,55 @@ export async function POST(req: NextRequest) {
   if (insertError) {
     return NextResponse.json({ notified: false, reason: insertError.message });
   }
-  return NextResponse.json({ notified: true });
+
+  let emailSent = false;
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.REMINDER_FROM_EMAIL || "Master Grid <onboarding@resend.dev>";
+  if (apiKey && recipientEmail) {
+    const firstName = senderName.trim().split(/\s+/)[0] || "there";
+    try {
+      emailSent = await sendEmail(
+        recipientEmail,
+        `New message from ${senderName}`,
+        `<div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;"><p>Hi,</p><p><strong>${senderName}</strong> just sent you a message on Master Grid:</p><p style="padding: 12px 16px; background: #f4f4f5; border-radius: 8px; font-style: italic;">${trimmedPreview || "(open Master Grid to read it)"}</p><p>Reply any time from the Mentorship page on Master Grid.</p><p>- Master Grid</p></div>`,
+        apiKey,
+        from
+      );
+    } catch {
+      emailSent = false;
+    }
+  }
+
+  let pushSent = 0;
+  const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+  const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+  const vapidSubject = process.env.VAPID_SUBJECT || "mailto:mastergridsupport@gmail.com";
+  if (vapidPublic && vapidPrivate) {
+    webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
+    const { data: subs } = await serviceClient
+      .from("push_subscriptions")
+      .select("id, endpoint, p256dh, auth")
+      .eq("user_id", recipientId);
+    const subscriptions = (subs || []) as { id: string; endpoint: string; p256dh: string; auth: string }[];
+    const payload = JSON.stringify({
+      title: `New message from ${senderName}`,
+      body: trimmedPreview || "Open Master Grid to read it.",
+      link,
+    });
+    for (const sub of subscriptions) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          payload
+        );
+        pushSent++;
+      } catch (err: any) {
+        if (err?.statusCode === 404 || err?.statusCode === 410) {
+          await serviceClient.from("push_subscriptions").delete().eq("id", sub.id);
+        }
+      }
+    }
+  }
+
+  return NextResponse.json({ notified: true, emailSent, pushSent });
 }
