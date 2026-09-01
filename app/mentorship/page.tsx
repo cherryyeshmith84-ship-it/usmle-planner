@@ -16,6 +16,7 @@ import {
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import MentorBrowseClient from "@/components/MentorBrowseClient";
+import EnablePushNotifications from "@/components/EnablePushNotifications";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +130,8 @@ export default async function MentorshipPage() {
               Manage availability &amp; profile
             </a>
           </div>
+
+          <EnablePushNotifications />
 
           {/* Quick stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
