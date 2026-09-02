@@ -48,10 +48,6 @@ const GROUPS: NavGroup[] = [
     items: [{ href: "/admin/mentors", label: "Mentors" }],
   },
   {
-    title: "Tutoring",
-    items: [{ href: "/admin/tutors", label: "Tutors" }],
-  },
-  {
     title: "Settings",
     items: [{ href: "/admin/planner-config", label: "Planner Settings" }],
   },
