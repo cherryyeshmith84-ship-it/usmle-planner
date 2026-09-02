@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { easternDateStringNow } from "@/lib/timezone";
+import { computeTodayStatus } from "@/lib/plannerStatus";
+import { resolvePlannerColumns } from "@/lib/plannerColumns";
+import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import type { PlanTask } from "@/lib/planTasks";
 
 export const dynamic = "force-dynamic";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://master-grid.vercel.app";
@@ -14,9 +19,19 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://master-grid.vercel
 // triggered from outside Vercel so it doesn't count against that limit.
 //
 // Only students a mentor has actually assigned a planner to (a row in
-// student_planner_settings) get reminded, and only if they haven't
-// logged anything for today yet - so a student who already updated their
-// planner or logged a UWorld block today doesn't get nagged.
+// student_planner_settings) get considered, and only if today isn't
+// already fully "Completed" (green) - the exact same computeTodayStatus
+// check the planner page itself uses: every Assignment for today checked
+// off, plus (wherever a mentor has that journal section turned on for this
+// student) Mood/Today's Biggest Issue/Resources Used/Student Notes filled
+// in, and any UWorld block that was started fully filled in.
+//
+// This used to only check whether planner_entries had ANY field filled in,
+// or a UWorld block existed, for today - which meant a student who fully
+// checked off every Assignment but never touched the old flat grid or
+// logged a block that day (a real, legitimately green day on their
+// calendar) still got told their planner was empty. Reusing the exact same
+// completion check the calendar uses is what closes that gap for good.
 
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
@@ -25,11 +40,6 @@ function isAuthorized(req: NextRequest): boolean {
   if (authHeader === `Bearer ${expected}`) return true;
   const querySecret = req.nextUrl.searchParams.get("secret");
   return querySecret === expected;
-}
-
-function hasContent(fieldValues: Record<string, unknown> | null | undefined): boolean {
-  if (!fieldValues) return false;
-  return Object.values(fieldValues).some((v) => v !== null && v !== undefined && v !== "");
 }
 
 async function sendReminderEmail(to: string, firstName: string): Promise<boolean> {
@@ -48,9 +58,9 @@ async function sendReminderEmail(to: string, firstName: string): Promise<boolean
       html: `
         <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
           <p>Hi ${firstName},</p>
-          <p>Looks like today's row on your Master Grid planner is still empty. Take a minute
-            before you wrap up to log what you got through today - even a quick note helps.</p>
-          <p><a href="${plannerUrl}">Open your planner →</a></p>
+          <p>Looks like today's row on your Master Grid planner is still incomplete. Take a minute
+            before you wrap up to check off your Assignments and fill in anything else that's needed.</p>
+          <p><a href="${plannerUrl}">Open your planner &#8594;</a></p>
           <p>- Master Grid</p>
         </div>
       `,
@@ -72,6 +82,9 @@ async function runReminders() {
     return { error: settingsError.message, checked: 0, remindersSent: 0, details: [] as any[] };
   }
 
+  const { data: allColumns } = await supabase.from("planner_columns").select("*");
+  const columns = (allColumns ?? []) as PlannerColumn[];
+
   const assigned = settingsRows ?? [];
   const details: { email: string; sent: boolean; reason: string }[] = [];
 
@@ -83,21 +96,36 @@ async function runReminders() {
       .maybeSingle();
     if (!profile?.email) continue;
 
-    const { data: entry } = await supabase
+    const { data: entryRow } = await supabase
       .from("planner_entries")
-      .select("field_values")
+      .select("*")
       .eq("user_id", row.student_id)
       .eq("log_date", today)
       .maybeSingle();
+    const entries = entryRow ? [entryRow as PlannerEntry] : [];
 
-    const { count: blockCount } = await supabase
+    const { data: blockRows } = await supabase
       .from("uworld_blocks")
-      .select("id", { count: "exact", head: true })
+      .select("*")
       .eq("user_id", row.student_id)
       .eq("log_date", today);
+    const blocks = (blockRows ?? []) as UWorldBlock[];
 
-    if (hasContent(entry?.field_values as Record<string, unknown> | undefined) || (blockCount ?? 0) > 0) {
-      continue; // already logged something today - no need to nag
+    const { data: taskRows } = await supabase
+      .from("mentor_plan_tasks")
+      .select("*")
+      .eq("student_id", row.student_id)
+      .eq("task_date", today);
+    const planTasks = (taskRows ?? []) as PlanTask[];
+
+    const journalColumns = resolvePlannerColumns(columns, row.student_id);
+    const status = computeTodayStatus(entries, blocks, planTasks, today, journalColumns);
+
+    if (status.assignmentsTotal === 0) {
+      continue; // no Assignments set for today - nothing to nag about
+    }
+    if (status.studyCompleted) {
+      continue; // already fully green for today - no need to nag
     }
 
     const firstName = (profile.full_name || "").trim().split(/\s+/)[0] || "there";
