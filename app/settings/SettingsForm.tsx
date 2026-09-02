@@ -15,7 +15,6 @@ export default function SettingsForm({
 }) {
   const [fullName, setFullName] = useState(profile.full_name ?? "");
   const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
-  const [tutorEmail, setTutorEmail] = useState(profile.tutor_email ?? "");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -29,7 +28,6 @@ export default function SettingsForm({
       .update({
         full_name: fullName || null,
         mentor_email: mentorEmail.trim() || null,
-        tutor_email: tutorEmail.trim() || null,
       })
       .eq("id", userId);
 
@@ -56,19 +54,6 @@ export default function SettingsForm({
         />
         <p className="text-xs text-slate-500 mt-1">
           Gives that mentor access to your planner, notes, and analysis. Leave blank to remove access.
-        </p>
-
-        <label className="label mt-4">Your tutor&apos;s email</label>
-        <input
-          type="email"
-          className="input"
-          placeholder="e.g. tutor@example.com - leave blank if you don't have one"
-          value={tutorEmail}
-          onChange={(e) => setTutorEmail(e.target.value)}
-        />
-        <p className="text-xs text-slate-500 mt-1">
-          Separate from your mentor above - gives your tutor access to your planner, notes, and
-          analysis, and adds you to their list of tutoring students. Leave blank to remove access.
         </p>
       </div>
 
