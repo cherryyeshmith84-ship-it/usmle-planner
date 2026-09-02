@@ -13,7 +13,6 @@ import MentorAssignmentsEditor from "./MentorAssignmentsEditor";
 import MoodPicker from "./MoodPicker";
 import StudyIssueSelector from "./StudyIssueSelector";
 import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
-import DailyReflection from "./DailyReflection";
 import MentorDailyNoteCell from "./MentorDailyNoteCell";
 
 type CellValue = string | boolean;
@@ -59,12 +58,22 @@ function toFieldValues(row: RowValues, columns: PlannerColumn[]): Record<string,
  * one-time migration marked `detail = 'migrated-from-grid'` on those rows).
  *
  * Everything else the old grid's expanded panel could do - UWorld blocks,
- * Mood, Study Issues, Resources Used, Tomorrow's Goal, Daily Reflection,
- * Student Notes, Mentor Notes - still lives here, just reached through the
- * calendar instead of a table row's ▸ arrow. Journal-style fields
- * (notes/mood/reflection/etc.) still live in planner_entries.field_values -
- * only the "Planned System"-style freeform plan columns were retired in
- * favor of Assignments tasks.
+ * Mood, Study Issues, Resources Used, Student Notes, Mentor Notes - still
+ * lives here, just reached through the calendar instead of a table row's
+ * arrow. Journal-style fields (notes/mood/etc.) still live in
+ * planner_entries.field_values - only the "Planned System"-style freeform
+ * plan columns were retired in favor of Assignments tasks.
+ *
+ * Daily Reflection (What went well / What slowed you down / What will you
+ * improve tomorrow) and Tomorrow's Goal used to be their own separate
+ * structured fields here, each with its own three-box or single-box input.
+ * Folded into the Student Notes placeholder instead - one free-form journal
+ * box that prompts for the same things, rather than four boxes competing
+ * for a student's attention every day. The reflection_went_well/
+ * reflection_slowed_down/reflection_improve/tomorrow_goal keys still exist
+ * in planner_entries.field_values for any day that already has them filled
+ * in from before this change; they're just no longer written to or read
+ * from here.
  */
 export default function DailyPlannerPanel({
   targetUserId,
@@ -83,8 +92,8 @@ export default function DailyPlannerPanel({
   targetUserId: string;
   date: string;
   // All of this student's ACTIVE planner_columns (unfiltered) - only used
-  // here to check which journal sections (Mood, Notes, Reflection, ...) a
-  // mentor has turned on for this student via Planner Layout.
+  // here to check which journal sections (Mood, Notes, ...) a mentor has
+  // turned on for this student via Planner Layout.
   columns: PlannerColumn[];
   initialEntry: PlannerEntry | undefined;
   dayTasks: PlanTask[];
@@ -108,8 +117,6 @@ export default function DailyPlannerPanel({
   const moodColumn = columns.find((c) => c.key === "mood") ?? null;
   const issueColumn = columns.find((c) => c.key === "study_issue") ?? null;
   const resourcesColumn = columns.find((c) => c.key === "resources_used") ?? null;
-  const tomorrowGoalColumn = columns.find((c) => c.key === "tomorrow_goal") ?? null;
-  const reflectionColumn = columns.find((c) => c.key === "reflection_went_well") ?? null;
 
   const [rowValues, setRowValues] = useState<RowValues>(() => {
     const row: RowValues = {};
@@ -230,8 +237,8 @@ export default function DailyPlannerPanel({
             // journal, kept one-directional on purpose, same as before.
             disabled={!canEdit || !!mentorId || locked}
             onChange={(e) => setValue("student_notes", e.target.value)}
-            rows={4}
-            placeholder="Today's goals, what you struggled with, what to review tomorrow..."
+            rows={6}
+            placeholder="Today's goals, what you struggled with, what to review tomorrow, what went well, what slowed you down, what you'll improve tomorrow, and what's the plan for tomorrow..."
             className="input text-sm py-2 px-2.5 w-full resize-y text-slate-100"
           />
           <p className="text-[11px] text-slate-500 mt-1">
@@ -239,35 +246,6 @@ export default function DailyPlannerPanel({
               ? "The student's own journal - you can read it but can't edit it."
               : "Your study journal - your mentor can read this but can't edit it."}
           </p>
-        </div>
-      )}
-
-      {reflectionColumn && (
-        <div className="pt-3 border-t border-slate-800">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Daily Reflection</p>
-          <DailyReflection
-            wentWell={(rowValues["reflection_went_well"] as string) ?? ""}
-            slowedDown={(rowValues["reflection_slowed_down"] as string) ?? ""}
-            improve={(rowValues["reflection_improve"] as string) ?? ""}
-            disabled={!canEdit || locked}
-            onChangeWentWell={(v) => setValue("reflection_went_well", v)}
-            onChangeSlowedDown={(v) => setValue("reflection_slowed_down", v)}
-            onChangeImprove={(v) => setValue("reflection_improve", v)}
-          />
-        </div>
-      )}
-
-      {tomorrowGoalColumn && (
-        <div className="pt-3 border-t border-slate-800">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Tomorrow&apos;s Goal</p>
-          <textarea
-            value={(rowValues["tomorrow_goal"] as string) ?? ""}
-            disabled={!canEdit || locked}
-            onChange={(e) => setValue("tomorrow_goal", e.target.value)}
-            rows={2}
-            placeholder="What's the plan for tomorrow?"
-            className="input text-sm py-2 px-2.5 w-full resize-y text-slate-100"
-          />
         </div>
       )}
 
@@ -332,12 +310,12 @@ export default function DailyPlannerPanel({
         </p>
       )}
 
-      {canEdit && !locked && (notesColumn || reflectionColumn || tomorrowGoalColumn) && (
+      {canEdit && !locked && notesColumn && (
         <div className="flex items-center gap-3 pt-3 border-t border-slate-800">
           <button type="button" onClick={saveJournal} disabled={saving || !dirty} className="btn-primary text-xs">
             {saving ? "Saving..." : "Save journal"}
           </button>
-          <p className="text-xs text-slate-500">Saves Student Notes, Reflection, and Tomorrow's Goal for this day.</p>
+          <p className="text-xs text-slate-500">Saves Student Notes for this day.</p>
           {saveMessage && <p className="text-xs text-green-400">{saveMessage}</p>}
           {saveError && <p className="text-xs text-red-400">{saveError}</p>}
         </div>
