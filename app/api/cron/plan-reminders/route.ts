@@ -1,20 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getTemplateDays, dayNumberFor, tasksForDay } from "@/lib/templateDays";
-import type { Profile, DailyLog, ScheduleTemplate, PersonalTemplate } from "@/lib/types";
+import { easternDateStringNow } from "@/lib/timezone";
+import { computeTodayStatus } from "@/lib/plannerStatus";
+import { resolvePlannerColumns } from "@/lib/plannerColumns";
+import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import type { PlanTask } from "@/lib/planTasks";
 
 export const dynamic = "force-dynamic";
 
-// Runs once a day (see vercel.json). For every student, checks YESTERDAY's
-// daily_logs row: if they had tasks assigned that day and never marked
-// anything (no task status change, no hours/notes, not marked_complete),
-// sends them a reminder email via Resend. Students who had no plan that
-// day (rest day, or no template assigned yet) are skipped, not reminded.
+// Runs once a day at 9am ET (see vercel.json). Catches students who still
+// hadn't finished yesterday's Assignments by the time the 9:30 PM ET
+// evening reminder (planner-evening-reminder/route.ts) went out the night
+// before, or who ignored it - one more nudge the next morning.
+//
+// Uses the exact same "Completed" (green) check the planner calendar
+// itself uses - see computeTodayStatus in lib/plannerStatus.ts and its twin
+// computeDayStatus in lib/plannerCalendar.ts: every Assignment for that day
+// checked off, plus (wherever a mentor has that journal section turned on
+// for this student) Mood/Today's Biggest Issue/Resources Used/Student
+// Notes filled in, and any UWorld block that was started fully filled in.
+//
+// This used to run against a completely different, older system - a
+// mentor-assigned schedule_templates/personal_templates row plus a
+// daily_logs entry - from before Assignments (mentor_plan_tasks) and the
+// calendar existed. That old system is no longer how a day's plan actually
+// gets marked "green" anywhere else in the app (see the comment at the top
+// of app/planner/page.tsx about the flat grid's retirement), so a student
+// who fully completed yesterday's Assignments but had never touched
+// daily_logs still got a "yesterday's plan is still unmarked" email. This
+// brings the check in line with what the calendar (and the evening
+// reminder) actually consider "done".
+//
+// Only students a mentor has assigned a planner to (a row in
+// student_planner_settings, same as the evening reminder) are considered,
+// and only if yesterday actually had Assignments - a rest day with nothing
+// assigned is never "unmarked", it just has no plan.
 
-function yesterdayStr(): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
+function yesterdayEasternStr(): string {
+  const today = easternDateStringNow();
+  const [y, m, d] = today.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
 }
 
 function isAuthorized(req: NextRequest): boolean {
@@ -26,17 +52,6 @@ function isAuthorized(req: NextRequest): boolean {
   // test run straight from a browser address bar.
   const querySecret = req.nextUrl.searchParams.get("secret");
   return querySecret === expected;
-}
-
-function hasProgress(log: DailyLog | null): boolean {
-  if (!log) return false;
-  return (
-    (log.tasks ?? []).some((t) => t.status !== "pending") ||
-    !!log.hours_studied ||
-    !!log.notes ||
-    !!log.ai_feedback ||
-    !!log.marked_complete
-  );
 }
 
 async function sendReminderEmail(to: string, fullName: string | null): Promise<boolean> {
@@ -57,12 +72,13 @@ async function sendReminderEmail(to: string, fullName: string | null): Promise<b
         <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
           <p>Hi ${firstName},</p>
           <p>
-            Looks like yesterday's plan on Master Grid wasn't marked yet - no tasks were
-            checked off or skipped, and no notes or hours were logged.
+            Looks like yesterday's plan on Master Grid wasn't fully marked - not every Assignment
+            was checked off, or something else needed for the day (like your mood, notes, or a
+            UWorld block) is still missing.
           </p>
           <p>
-            Take a minute today to open your dashboard and update it, even if that just
-            means marking a task as skipped. Keeping it current is what makes your
+            Take a minute today to open your planner and update it, even if that just
+            means marking a task as done late. Keeping it current is what makes your
             progress tracking (and your coach's view of it) actually useful.
           </p>
           <p>
@@ -84,81 +100,70 @@ async function runReminders() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  const yesterday = yesterdayStr();
+  const yesterday = yesterdayEasternStr();
 
-  const { data: profilesData, error: profilesError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("is_admin", false)
-    .eq("onboarding_completed", true);
+  const { data: settingsRows, error: settingsError } = await supabase
+    .from("student_planner_settings")
+    .select("student_id, start_date")
+    .lte("start_date", yesterday);
 
-  if (profilesError) {
-    return { error: profilesError.message, checked: 0, remindersSent: 0, details: [] as any[] };
+  if (settingsError) {
+    return { error: settingsError.message, checked: 0, remindersSent: 0, details: [] as any[] };
   }
 
-  const students = (profilesData ?? []) as Profile[];
+  const { data: allColumns } = await supabase.from("planner_columns").select("*");
+  const columns = (allColumns ?? []) as PlannerColumn[];
+
+  const assigned = settingsRows ?? [];
   const details: { email: string; sent: boolean; reason: string }[] = [];
 
-  for (const student of students) {
-    if (!student.email) {
-      continue;
-    }
+  for (const row of assigned as { student_id: string; start_date: string }[]) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("email, full_name")
+      .eq("id", row.student_id)
+      .maybeSingle();
+    if (!profile?.email) continue;
 
-    const activeSource = student.active_plan_source || "coach";
-    let activeTemplate: ScheduleTemplate | PersonalTemplate | null = null;
-    let activeStartDate: string | null = null;
-
-    if (activeSource === "own") {
-      const { data } = await supabase
-        .from("personal_templates")
-        .select("*")
-        .eq("user_id", student.id)
-        .maybeSingle();
-      activeTemplate = (data as PersonalTemplate) ?? null;
-      activeStartDate = activeTemplate?.start_date ?? null;
-    } else if (student.assigned_template_id) {
-      const { data } = await supabase
-        .from("schedule_templates")
-        .select("*")
-        .eq("id", student.assigned_template_id)
-        .single();
-      activeTemplate = (data as ScheduleTemplate) ?? null;
-      activeStartDate = student.assigned_template_start_date ?? null;
-    }
-
-    if (!activeTemplate || !activeStartDate) {
-      continue; // no plan assigned yet - nothing to have marked
-    }
-    if (yesterday < activeStartDate) {
-      continue; // plan hadn't started yet as of yesterday
-    }
-
-    const days = getTemplateDays(activeTemplate);
-    if (days.length === 0) continue;
-
-    const dayNumber = dayNumberFor(activeStartDate, yesterday);
-    const tasksYesterday = tasksForDay(days, dayNumber);
-    if (tasksYesterday.length === 0) {
-      continue; // rest day - nothing assigned, nothing to mark
-    }
-
-    const { data: logData } = await supabase
-      .from("daily_logs")
+    const { data: entryRow } = await supabase
+      .from("planner_entries")
       .select("*")
-      .eq("user_id", student.id)
+      .eq("user_id", row.student_id)
       .eq("log_date", yesterday)
       .maybeSingle();
+    const entries = entryRow ? [entryRow as PlannerEntry] : [];
 
-    if (hasProgress(logData as DailyLog | null)) {
-      continue; // already marked - no reminder needed
+    const { data: blockRows } = await supabase
+      .from("uworld_blocks")
+      .select("*")
+      .eq("user_id", row.student_id)
+      .eq("log_date", yesterday);
+    const blocks = (blockRows ?? []) as UWorldBlock[];
+
+    const { data: taskRows } = await supabase
+      .from("mentor_plan_tasks")
+      .select("*")
+      .eq("student_id", row.student_id)
+      .eq("task_date", yesterday);
+    const planTasks = (taskRows ?? []) as PlanTask[];
+
+    const journalColumns = resolvePlannerColumns(columns, row.student_id);
+    const status = computeTodayStatus(entries, blocks, planTasks, yesterday, journalColumns);
+
+    if (status.assignmentsTotal === 0) {
+      continue; // rest day - nothing assigned, nothing to mark
+    }
+    if (status.studyCompleted) {
+      continue; // already fully green - no reminder needed
     }
 
-    const sent = await sendReminderEmail(student.email, student.full_name);
-    details.push({ email: student.email, sent, reason: sent ? "reminded" : "send failed" });
+    const sent = await sendReminderEmail(profile.email, profile.full_name);
+    details.push({ email: profile.email, sent, reason: sent ? "reminded" : "send failed" });
   }
 
   return {
-    checked: students.length,
+    yesterday,
+    checked: assigned.length,
     remindersSent: details.filter((d) => d.sent).length,
     details,
   };
