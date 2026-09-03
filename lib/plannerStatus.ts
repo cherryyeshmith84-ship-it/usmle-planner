@@ -27,7 +27,7 @@ export function computeTodayStatus(
   blocks: UWorldBlock[],
   planTasks: PlanTask[],
   todayIso: string,
-  // This student's active journal columns (Mood, Today's Biggest Issue,
+  // This student's active journal columns (Today's Biggest Issue,
   // Resources Used, Student Notes, ...) - same list PlannerCalendar.tsx
   // passes as `columns`. Optional/defaults to [] so callers that don't pass
   // it still work, just with those checks skipped. See computeDayStatus in
@@ -47,13 +47,14 @@ export function computeTodayStatus(
   const assignmentsTotal = dayTasks.length;
 
   // Same rule as computeDayStatus: every Assignment checked off is
-  // necessary but no longer sufficient on its own. Mood/Issue/Resources/
+  // necessary but no longer sufficient on its own. Study Issue/Resources/
   // Notes (when that section is turned on for this student) must also be
   // filled in, and any Question Bank Block that was started must be fully
   // filled in - a half-filled block (added, no question count entered)
-  // blocks "Completed" until it's finished. Daily Reflection is NOT
-  // required.
-  const moodOk = !hasActiveColumn(journalColumns, "mood") || !!v["mood"];
+  // blocks "Completed" until it's finished. Daily Reflection and Daily
+  // Mood are NOT required - Mood in particular no longer has any UI to set
+  // it (the picker was removed from DailyPlannerPanel.tsx), so it must
+  // never be able to block a day from completing.
   const issueOk = !hasActiveColumn(journalColumns, "study_issue") || !!v["study_issue"];
   const resourcesOk =
     !hasActiveColumn(journalColumns, "resources_used") ||
@@ -74,7 +75,6 @@ export function computeTodayStatus(
     studyCompleted:
       assignmentsTotal > 0 &&
       assignmentsCompleted === assignmentsTotal &&
-      moodOk &&
       issueOk &&
       resourcesOk &&
       notesOk &&
