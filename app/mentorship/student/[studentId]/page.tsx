@@ -15,6 +15,7 @@ import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MeetingLinkEditor from "@/components/MeetingLinkEditor";
+import StudentNotesEditor from "@/components/StudentNotesEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
@@ -140,6 +141,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
     notesRes,
     studyPlanRes,
     meetingLinkRes,
+    studentNoteRes,
     dailyNotesRes,
     planTasksRes,
     plannerSettingsRes,
@@ -198,6 +200,17 @@ export default async function StudentProgressPage({ params }: { params: { studen
           .eq("mentor_id", myMentorRecord.id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    // Same per-(mentor, student) scoping as the meeting link above - see
+    // StudentNotesEditor.tsx's doc comment for why the mentor_id filter
+    // matters here too.
+    myMentorRecord
+      ? supabase
+          .from("mentor_student_notes")
+          .select("*")
+          .eq("student_id", params.studentId)
+          .eq("mentor_id", myMentorRecord.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
     supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
@@ -214,6 +227,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
   const studyPlan = studyPlanRes.data as { content: string; updated_at: string } | null;
   const meetingLink = meetingLinkRes.data as { meeting_link: string; updated_at: string } | null;
+  const studentNote = studentNoteRes.data as { note: string; updated_at: string } | null;
   const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
   const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
@@ -326,6 +340,20 @@ export default async function StudentProgressPage({ params }: { params: { studen
           studentId={params.studentId}
           mentorId={myMentorRecord.id}
           initialRows={topicChecklistRows}
+        />
+      )}
+
+      {/* Notes - a standing, mentor-only note about this student, shown
+          above the Meeting link card below. See StudentNotesEditor.tsx for
+          how this differs from the per-day Mentor Notes on the Study
+          Planner calendar and from per-session notes. */}
+      {myMentorRecord && (
+        <StudentNotesEditor
+          studentId={params.studentId}
+          mentorId={myMentorRecord.id}
+          currentUserId={user.id}
+          initialNote={studentNote?.note ?? null}
+          initialUpdatedAt={studentNote?.updated_at ?? null}
         />
       )}
 
