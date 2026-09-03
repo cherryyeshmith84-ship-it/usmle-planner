@@ -53,18 +53,21 @@ export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; lab
  * history here: counting that grid as "the plan" used to trap days on
  * "partial" (yellow) forever even after every Assignment was done.
  *
- * `journalColumns`/`dayBlocks` ARE factored in, though, and are new: once
- * every Assignment for a day is checked off, the day only counts as fully
+ * `journalColumns`/`dayBlocks` ARE factored in, though: once every
+ * Assignment for a day is checked off, the day only counts as fully
  * "completed" (green) if the journal sections this student's mentor has
- * actually turned on - Daily Mood, Today's Biggest Issue, Resources Used,
- * Student Notes - are also filled in, and any Question Bank Block the
- * student started logging is fully filled in (a block card added and left
- * blank doesn't count). Daily Reflection is deliberately NOT required. A
- * journal section the mentor has switched off for this student is skipped
- * entirely - it can never block green. This closes the "student left
- * everything blank but the day still shows green" gap: a day now needs
- * BOTH all Assignments done AND its journal actually filled in before it's
- * green; missing either one leaves it "partial" (yellow).
+ * actually turned on - Today's Biggest Issue, Resources Used, Student
+ * Notes - are also filled in, and any Question Bank Block the student
+ * started logging is fully filled in (a block card added and left blank
+ * doesn't count). Daily Reflection and Daily Mood are deliberately NOT
+ * required - Mood in particular has no UI to set it anymore (the picker
+ * was removed from DailyPlannerPanel.tsx), so even a student whose mentor
+ * still has the Mood column switched on must never be blocked from
+ * "completed" by it. A journal section the mentor has switched off for
+ * this student is skipped entirely - it can never block green. This closes
+ * the "student left everything blank but the day still shows green" gap: a
+ * day now needs BOTH all Assignments done AND its journal actually filled
+ * in before it's green; missing either one leaves it "partial" (yellow).
  *
  * "today" always wins regardless of completion state. Future days with
  * Assignments get a distinct "upcoming-planned" tint instead of plain gray
@@ -91,7 +94,6 @@ export function computeDayStatus(
   if (!dayTasks.every((t) => t.completed)) return "partial";
 
   const v = entry?.field_values ?? {};
-  const moodOk = !hasActiveColumn(journalColumns, "mood") || !!v["mood"];
   const issueOk = !hasActiveColumn(journalColumns, "study_issue") || !!v["study_issue"];
   const resourcesOk =
     !hasActiveColumn(journalColumns, "resources_used") ||
@@ -101,7 +103,7 @@ export function computeDayStatus(
     (typeof v["student_notes"] === "string" && v["student_notes"].trim() !== "");
   const blocksOk = dayBlocks.every((b) => b.questions !== null && b.questions !== undefined);
 
-  return moodOk && issueOk && resourcesOk && notesOk && blocksOk ? "completed" : "partial";
+  return issueOk && resourcesOk && notesOk && blocksOk ? "completed" : "partial";
 }
 
 export interface CalendarDay {
