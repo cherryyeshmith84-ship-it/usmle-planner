@@ -10,7 +10,6 @@ import type { PlanTask } from "@/lib/planTasks";
 import UWorldBlockTracker from "./UWorldBlockTracker";
 import AssignmentsChecklist from "./AssignmentsChecklist";
 import MentorAssignmentsEditor from "./MentorAssignmentsEditor";
-import MoodPicker from "./MoodPicker";
 import StudyIssueSelector from "./StudyIssueSelector";
 import ResourcesUsedChecklist from "./ResourcesUsedChecklist";
 import MentorDailyNoteCell from "./MentorDailyNoteCell";
@@ -58,9 +57,9 @@ function toFieldValues(row: RowValues, columns: PlannerColumn[]): Record<string,
  * one-time migration marked `detail = 'migrated-from-grid'` on those rows).
  *
  * Everything else the old grid's expanded panel could do - UWorld blocks,
- * Mood, Study Issues, Resources Used, Student Notes, Mentor Notes - still
- * lives here, just reached through the calendar instead of a table row's
- * arrow. Journal-style fields (notes/mood/etc.) still live in
+ * Study Issues, Resources Used, Student Notes, Mentor Notes - still lives
+ * here, just reached through the calendar instead of a table row's arrow.
+ * Journal-style fields (notes/mood/etc.) still live in
  * planner_entries.field_values - only the "Planned System"-style freeform
  * plan columns were retired in favor of Assignments tasks.
  *
@@ -74,6 +73,11 @@ function toFieldValues(row: RowValues, columns: PlannerColumn[]): Record<string,
  * in planner_entries.field_values for any day that already has them filled
  * in from before this change; they're just no longer written to or read
  * from here.
+ *
+ * Daily Mood (the emoji picker) was removed the same way - it's no longer
+ * rendered or written to here. The `mood` key still exists in
+ * planner_entries.field_values for historical days, just unused going
+ * forward.
  */
 export default function DailyPlannerPanel({
   targetUserId,
@@ -92,8 +96,8 @@ export default function DailyPlannerPanel({
   targetUserId: string;
   date: string;
   // All of this student's ACTIVE planner_columns (unfiltered) - only used
-  // here to check which journal sections (Mood, Notes, ...) a mentor has
-  // turned on for this student via Planner Layout.
+  // here to check which journal sections (Study Issue, Notes, ...) a
+  // mentor has turned on for this student via Planner Layout.
   columns: PlannerColumn[];
   initialEntry: PlannerEntry | undefined;
   dayTasks: PlanTask[];
@@ -114,7 +118,6 @@ export default function DailyPlannerPanel({
   todayIso: string;
 }) {
   const notesColumn = columns.find((c) => c.key === "student_notes") ?? null;
-  const moodColumn = columns.find((c) => c.key === "mood") ?? null;
   const issueColumn = columns.find((c) => c.key === "study_issue") ?? null;
   const resourcesColumn = columns.find((c) => c.key === "resources_used") ?? null;
 
@@ -136,9 +139,9 @@ export default function DailyPlannerPanel({
     setDirty(true);
   }
 
-  /** Mood / Study Issue / Resources Used save immediately on click - same as
-   *  the old grid, so a choice never silently vanishes if the student
-   *  forgets to hit the journal's Save button below. */
+  /** Study Issue / Resources Used save immediately on click - same as the
+   *  old grid, so a choice never silently vanishes if the student forgets
+   *  to hit the journal's Save button below. */
   async function setValueAndSave(key: string, value: CellValue) {
     setSaveMessage(null);
     const nextRow = { ...rowValues, [key]: value };
@@ -184,17 +187,6 @@ export default function DailyPlannerPanel({
           <AssignmentsChecklist tasks={dayTasks} editable={canEdit && !locked} />
         )}
       </div>
-
-      {moodColumn && (
-        <div className="pt-3 border-t border-slate-800">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Daily Mood</p>
-          <MoodPicker
-            value={(rowValues["mood"] as string) ?? ""}
-            disabled={!canEdit || !!mentorId || locked}
-            onChange={(mood) => setValueAndSave("mood", mood)}
-          />
-        </div>
-      )}
 
       {issueColumn && (
         <div className="pt-3 border-t border-slate-800">
