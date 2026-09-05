@@ -106,9 +106,9 @@ export default function NavBar({
   // renders AppShell/NavBar, which would mean touching dozens of files) since
   // NavBar is already "use client" and a browser-side read of the `mentors`
   // table (the same one MentorBrowseClient reads for the public directory)
-  // is cheap and RLS-safe. Only used to decide whether to show "Students"
-  // below - everything else a mentor can already reach is unaffected if this
-  // hasn't resolved yet on first paint.
+  // is cheap and RLS-safe. Only used to decide whether to show "Students"/
+  // "Waiting" below - everything else a mentor can already reach is
+  // unaffected if this hasn't resolved yet on first paint.
   useEffect(() => {
     let cancelled = false;
     async function checkMentor() {
@@ -129,12 +129,25 @@ export default function NavBar({
     };
   }, []);
 
-  const groupsWithStudentsLink = GROUPS.map((group) => {
+  const groupsWithMentorLinks = GROUPS.map((group) => {
     if (group.title !== "Mentorship" || !isMentor) return group;
     const [mentorshipHome, ...rest] = group.items;
-    return { ...group, items: [mentorshipHome, { href: "/mentorship/students", label: "Students" }, ...rest] };
+    return {
+      ...group,
+      items: [
+        mentorshipHome,
+        { href: "/mentorship/students", label: "Students" },
+        ...rest,
+        // Own self-service "waiting for a mentor" pool
+        // (app/mentorship/waiting/page.tsx) - deliberately last in the
+        // group, after Analysis, since it's a once-in-a-while lookup
+        // ("is anyone new waiting on me") rather than a day-to-day link
+        // like Students/Study Planner/Analysis above it.
+        { href: "/mentorship/waiting", label: "Waiting" },
+      ],
+    };
   });
-  const visibleGroups = groupsWithStudentsLink.filter(
+  const visibleGroups = groupsWithMentorLinks.filter(
     (group) => isAdmin || contentPublished || !GATED_GROUP_TITLES.has(group.title)
   );
 
