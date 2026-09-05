@@ -60,6 +60,16 @@ export interface Profile {
   // Whether this student has finished or skipped the in-app tutorial
   // (components/OnboardingTour.tsx) - once true, it never shows again.
   tutorial_completed?: boolean;
+  // Admin-only flag that pulls this student out of every mentor's
+  // self-service Waiting list (app/mentorship/waiting/page.tsx) without
+  // assigning them a mentor - e.g. a spam/test signup, or someone the
+  // admin wants to route by hand instead of leaving open for any mentor to
+  // self-claim. Toggled from the admin dashboard's "Waiting for a mentor"
+  // list (see components/WaitingVisibilityToggle.tsx). Never affects
+  // anything else - a hidden student still shows up normally everywhere
+  // else in the admin UI, and still gets a mentor exactly the same way
+  // (manual assignment or, once un-hidden, mentor self-claim).
+  waiting_hidden?: boolean;
 }
 
 export interface TemplateTask {
