@@ -5,6 +5,7 @@ import { getContentPublished } from "@/lib/platformSettings";
 import AdminNav from "@/components/AdminNav";
 import PublishToggle from "@/components/PublishToggle";
 import MentorAssignSelect from "@/components/MentorAssignSelect";
+import WaitingVisibilityToggle from "@/components/WaitingVisibilityToggle";
 import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,10 @@ export default async function AdminHome() {
   const [profilesRes, templatesRes, mentorsRes, contentPublished] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
     supabase.from("schedule_templates").select("id, name"),
+    // Every mentor row, active or not - active-only filtering happens below
+    // for the assignment dropdown specifically, but exclusion from the
+    // Students list applies to any registered mentor account regardless of
+    // active status.
     supabase.from("mentors").select("id, name, email, active").order("name"),
     getContentPublished(supabase),
   ]);
@@ -28,9 +33,15 @@ export default async function AdminHome() {
   const allMentorRows = (mentorsRes.data ?? []) as { id: string; name: string; email: string; active: boolean }[];
   const excludeMentorEmails = mentorEmailSet(allMentorRows);
 
+  // Mentors sign up through the same public form as students, so their
+  // profiles row would otherwise show up mixed into this list - filter them
+  // out here, before anything downstream (needsPlan/rest/waitingForMentor)
+  // derives from it.
   const allStudents = ((profilesRes.data ?? []) as Profile[]).filter(
     (s) => !isMentorProfile(s.email, excludeMentorEmails)
   );
+  // Students who need attention first: no plan yet, or just switched tracks
+  // and their existing plan may no longer fit - surface these at the top.
   const needsAttentionCheck = (s: Profile) =>
     (s.onboarding_completed && !s.assigned_template_id) || !!s.track_changed_pending;
   const needsPlan = allStudents.filter(needsAttentionCheck);
@@ -44,6 +55,13 @@ export default async function AdminHome() {
   const mentorNameFor = (s: Profile) =>
     s.mentor_email ? mentorNameByEmail.get(s.mentor_email.toLowerCase()) ?? s.mentor_email : null;
 
+  // Founding-cohort applicants who haven't been paired with a mentor yet -
+  // oldest signup first, since that's the fair order to work through them.
+  // Includes students an admin has hidden from the mentor-facing self-serve
+  // Waiting list (waiting_hidden) - hiding only affects what mentors can
+  // see at /mentorship/waiting, never this admin view, so a hidden student
+  // never gets lost - the admin can still find and un-hide or manually
+  // assign them here.
   const waitingForMentor = [...allStudents]
     .filter((s) => !s.mentor_email)
     .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
@@ -56,12 +74,19 @@ export default async function AdminHome() {
           <PublishToggle initialPublished={contentPublished} />
         </div>
 
+        {/* Founding-cohort applicants with no mentor yet - the whole point is
+            to answer "who's still waiting, and who do I put them with" at a
+            glance, oldest application first. Deliberately NOT wrapped in a
+            <Link> like the cards below, since each row has its own
+            interactive assign control. */}
         <div className="mb-8">
           <h2 className="text-lg font-bold mb-1">
             Waiting for a mentor ({waitingForMentor.length})
           </h2>
           <p className="text-sm text-slate-400 mb-4">
-            No mentor assigned yet - oldest application first.
+            No mentor assigned yet - oldest application first. "Hide from mentors" pulls someone out of
+            every mentor's own self-service Waiting list without assigning them - use it for spam/test
+            signups or anyone you'd rather route by hand.
           </p>
           {waitingForMentor.length === 0 ? (
             <p className="text-sm text-slate-500">
@@ -72,7 +97,14 @@ export default async function AdminHome() {
               {waitingForMentor.map((s) => (
                 <div key={s.id} className="card">
                   <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
-                    <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
+                      {s.waiting_hidden && (
+                        <span className="text-xs font-semibold bg-slate-800 text-slate-400 rounded-full px-2 py-1">
+                          Hidden from mentors
+                        </span>
+                      )}
+                    </div>
                     <Link href={`/admin/students/${s.id}`} className="text-xs text-brand-400 hover:text-brand-300">
                       View profile &rarr;
                     </Link>
@@ -81,13 +113,16 @@ export default async function AdminHome() {
                     {s.email}
                     {s.created_at ? ` · applied ${s.created_at.slice(0, 10)}` : ""}
                   </p>
-                  {activeMentors.length === 0 ? (
-                    <p className="text-xs text-slate-500">
-                      No active mentors to assign yet - add one under Mentors first.
-                    </p>
-                  ) : (
-                    <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
-                  )}
+                  <div className="flex items-center gap-4 flex-wrap">
+                    {activeMentors.length === 0 ? (
+                      <p className="text-xs text-slate-500">
+                        No active mentors to assign yet - add one under Mentors first.
+                      </p>
+                    ) : (
+                      <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
+                    )}
+                    <WaitingVisibilityToggle studentId={s.id} hidden={!!s.waiting_hidden} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -115,6 +150,14 @@ export default async function AdminHome() {
             const needsPlanFlag = s.onboarding_completed && !s.assigned_template_id;
             const needsAttention = needsPlanFlag || !!s.track_changed_pending;
             return (
+              // A plain <div> now, not a <Link> - a Link wrapping the whole
+              // card meant a click on the MentorAssignSelect below (even
+              // with its own stopPropagation) could still trigger the
+              // card's navigation before the mentor update finished, so
+              // "Assign" looked like it just refreshed the page and did
+              // nothing. Same fix already used one section up for "Waiting
+              // for a mentor" - a plain card with its own explicit "View
+              // profile" link, so only that link navigates.
               <div
                 key={s.id}
                 className={`card transition ${
@@ -162,6 +205,10 @@ export default async function AdminHome() {
                       <span className="text-amber-400">No mentor yet</span>
                     )}
                   </p>
+                  {/* Same assign/remove control as the "Waiting for a mentor"
+                      section above, now on every student - picking "No
+                      mentor" and clicking Assign clears mentor_email, which
+                      is how an admin un-assigns someone. */}
                   {activeMentors.length > 0 && (
                     <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
                   )}
