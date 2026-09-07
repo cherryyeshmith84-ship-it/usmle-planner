@@ -107,6 +107,19 @@ function addDaysIso(date: string, n: number): string {
  * a single linked "recurring" record, so editing/removing it later still
  * only ever affects whichever single day is currently open (same as any
  * other assignment).
+ *
+ * After a successful save, `drafts` is reset from a fresh read of this
+ * day's rows (not just left as-is) - a plain `router.refresh()` re-fetches
+ * the SERVER-rendered `initialTasks` prop, but since this component reads
+ * that prop into state via `useState(() => ...)` (which only runs once, on
+ * mount), the local `drafts` array previously stayed stale after a save:
+ * every newly-inserted draft kept `id: null` in memory even though it now
+ * had a real row in the database. Clicking Save again on the same day
+ * (without navigating away first) then re-inserted every one of those as a
+ * brand-new duplicate row - and for any assignment with "Repeat for N
+ * days" set, re-copied it onto all those future days again too. Explicitly
+ * re-syncing `drafts` from the database here closes that gap: a second
+ * Save with no further edits now has nothing left to (re)insert.
  */
 export default function MentorAssignmentsEditor({
   studentId,
@@ -307,7 +320,27 @@ export default function MentorAssignmentsEditor({
       }
     }
 
+    // Re-sync local state from the database instead of trusting the old
+    // in-memory `drafts` to still be accurate - see the doc comment above
+    // the component for why leaving it as-is caused duplicate rows on a
+    // second Save click.
+    const { data: freshTasks, error: refetchError } = await supabase
+      .from("mentor_plan_tasks")
+      .select("*")
+      .eq("student_id", studentId)
+      .eq("task_date", date)
+      .order("sort_order", { ascending: true });
     setSaving(false);
+    if (refetchError) {
+      // The save itself already succeeded above - only the local refresh
+      // failed, so this isn't fatal. router.refresh() below still fixes the
+      // display on this load; a mentor just shouldn't click Save again
+      // without reloading first until the next successful sync.
+      setSaveError(refetchError.message);
+    } else {
+      setDrafts(((freshTasks ?? []) as PlanTask[]).map(toDraft));
+    }
+
     setSaveMessage(
       furthestRepeatedDate ? `Assignments saved - repeated through ${furthestRepeatedDate}.` : "Assignments saved."
     );
