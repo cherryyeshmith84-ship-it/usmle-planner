@@ -39,14 +39,27 @@ export default async function MentorStudentsPage() {
   // has their own /admin/students list) hitting this URL just gets sent back.
   if (!myMentorRecord) redirect("/mentorship");
 
-  // Same query/RLS pattern as the "My students" section on the mentor
-  // dashboard (app/mentorship/page.tsx) - "Mentors can view profiles of
-  // students who linked their email" already restricts the returned rows to
-  // exactly this mentor's matches, no client-side filtering needed.
+  // Filtered explicitly by THIS mentor's own email, not left to RLS alone -
+  // "Mentors can view profiles of students who linked their email" does
+  // scope a plain mentor account correctly, but an admin account (or any
+  // account that also matches one of the OTHER "mentor can view" policies,
+  // e.g. having once booked/messaged a student who has since been
+  // reassigned) additionally satisfies broader policies like "Admins can
+  // view all profiles" - Postgres RLS OR's every matching policy together,
+  // so without this explicit filter an admin-mentor would see every
+  // student assigned to every mentor here, not just their own. Bit us in
+  // practice: a student reassigned away from this mentor kept showing up
+  // in "Your students" because the viewer was also an admin.
   const { data: linkedStudentsData } = await supabase
     .from("profiles")
     .select("id, full_name, email, status_update, status_updated_at, exam_date")
-    .not("mentor_email", "is", null)
+    // Case-insensitive match (ilike with no wildcards = exact match
+    // ignoring case) - a student can type their mentor's email by hand
+    // under Settings, so it isn't guaranteed to be cased identically to
+    // this mentor's own mentors.email row. Matches how the RLS policy
+    // backing this same relationship (lower(mentor_email) = lower(email))
+    // already treats it.
+    .ilike("mentor_email", myMentorRecord.email)
     .order("full_name", { ascending: true });
   const linkedStudents = (linkedStudentsData ?? []) as Pick<Profile, "id" | "full_name" | "email" | "status_update" | "status_updated_at" | "exam_date">[];
 
