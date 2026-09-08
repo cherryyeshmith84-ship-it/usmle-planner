@@ -12,11 +12,24 @@ export function computeQBankSystemBreakdown(blocks: UWorldBlock[]): QBankSystemC
   const groups = new Map<string, { qbank: string; system: string; percentages: number[]; questions: number }>();
 
   for (const b of blocks) {
-    if (!b.qbank || !b.system || typeof b.percentage !== "number") continue;
+    // `percentage` is a Postgres `numeric` column - Supabase/PostgREST
+    // always returns those as JSON strings (e.g. "65"), never native JSON
+    // numbers, to avoid floating-point precision loss. The UWorldBlock
+    // type claims `percentage: number | null` for convenience everywhere
+    // else it's used, but the actual runtime value coming back from a
+    // fetch is a string - a strict `typeof b.percentage === "number"`
+    // check was silently true-for-nobody and dropped every single block
+    // from this breakdown, for every student, always. Number(...) handles
+    // both an actual number (already-parsed test data, etc.) and the
+    // typical numeric-string case uniformly; Number(null) and Number("")
+    // both fail the isNaN check below, so missing values are still
+    // correctly excluded rather than counted as 0%.
+    const pct = Number(b.percentage);
+    if (!b.qbank || !b.system || Number.isNaN(pct)) continue;
     const key = `${b.qbank} ${b.system}`;
     const g = groups.get(key) ?? { qbank: b.qbank, system: b.system, percentages: [], questions: 0 };
-    g.percentages.push(b.percentage);
-    g.questions += b.questions ?? 0;
+    g.percentages.push(pct);
+    g.questions += Number(b.questions) || 0;
     groups.set(key, g);
   }
 
