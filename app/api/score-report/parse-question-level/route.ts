@@ -90,20 +90,27 @@ feedback report, return { "exam_name": null, "taken_date": null,
 "overall_score": null, "items": [] }.
 `.trim();
 
-  const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  // Tried once, after the primary model has exhausted its own retries and
+  // is STILL reporting 503 - Gemini's "model overloaded" errors come from a
+  // per-model shared capacity pool being saturated (this is a known,
+  // recurring issue specifically on the lighter/cheaper "flash-lite" tier,
+  // since it's the default a lot of apps reach for), not from anything
+  // wrong with the request itself, so a different model in the same family
+  // is very likely to have spare capacity even while flash-lite's pool is
+  // full. Only used as a last resort, so a real one-off blip still just
+  // succeeds on the primary model's own retries below without ever paying
+  // for the pricier fallback.
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.1-flash";
 
   function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  try {
-    // Same 503 ("model overloaded") retry as the regular score-report parse
-    // route - Google's own message says these are usually transient, and a
-    // 150+ row document is exactly the kind of upload where making someone
-    // redo the whole thing over one blip would be most annoying.
+  async function callGemini(model: string, retries: number): Promise<{ res: Response | null; lastErrText: string }> {
     let res: Response | null = null;
     let lastErrText = "";
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < retries; attempt++) {
       res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
@@ -132,7 +139,28 @@ feedback report, return { "exam_name": null, "taken_date": null,
       );
       if (res.ok || res.status !== 503) break;
       lastErrText = await res.text();
-      if (attempt < 2) await sleep(1500 * (attempt + 1));
+      if (attempt < retries - 1) await sleep(1500 * (attempt + 1));
+    }
+    return { res, lastErrText };
+  }
+
+  try {
+    // Same 503 ("model overloaded") retry as the regular score-report parse
+    // route - Google's own message says these are usually transient, and a
+    // 150+ row document is exactly the kind of upload where making someone
+    // redo the whole thing over one blip would be most annoying.
+    let { res, lastErrText } = await callGemini(primaryModel, 3);
+
+    // Primary model's own retries are exhausted and it's STILL 503 - one
+    // more attempt on a different model instead of giving up immediately,
+    // since that's usually enough to get past a saturated single-model
+    // capacity pool (see comment on fallbackModel above).
+    if (res && res.status === 503 && fallbackModel !== primaryModel) {
+      const fallback = await callGemini(fallbackModel, 1);
+      if (fallback.res) {
+        res = fallback.res;
+        lastErrText = fallback.lastErrText || lastErrText;
+      }
     }
 
     if (!res) {
@@ -143,7 +171,7 @@ feedback report, return { "exam_name": null, "taken_date": null,
       const errText = res.status === 503 ? lastErrText : await res.text();
       const hint =
         res.status === 503
-          ? " The AI model is overloaded right now even after retrying - this usually clears up within a few minutes, so try again shortly."
+          ? " The AI model is overloaded right now even after retrying on a backup model - this usually clears up within a few minutes, so try again shortly. If it keeps happening for more than 10-15 minutes, it's likely a wider Gemini outage rather than anything wrong with your file."
           : "";
       return NextResponse.json(
         { error: `AI request failed: ${errText.slice(0, 300)}${hint}` },
