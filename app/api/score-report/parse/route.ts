@@ -230,7 +230,16 @@ field as null (system_breakdown and discipline_breakdown as {}).
   // "AI request failed" errors here (not just occasional high demand).
   // Defaulting to the current GA model instead, matching
   // generate-practice-question's route, which already had this right.
-  const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  // Tried once, only after the primary model's own retries below are
+  // exhausted and it's STILL 503 - "model overloaded" comes from a
+  // per-model shared capacity pool being saturated (a known, recurring
+  // issue specifically on the lighter/cheaper "flash-lite" tier, since it's
+  // the default so many apps reach for), not from anything wrong with the
+  // request itself, so a different model in the same family is very likely
+  // to have spare capacity even while flash-lite's pool is full. Same
+  // fallback used in the sibling question-level report route.
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.1-flash";
 
   function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -306,16 +315,10 @@ field as null (system_breakdown and discipline_breakdown as {}).
     return out;
   }
 
-  try {
-    // Gemini occasionally returns 503 "model is currently experiencing high
-    // demand" - Google's own message says this is usually temporary, so
-    // retry a couple of times with a short, increasing delay before giving
-    // up. This matters more now that a report can be one of several files
-    // processed back-to-back in the same upload batch, where hitting one
-    // transient overload used to force a manual re-upload of that file.
+  async function callGemini(model: string, retries: number): Promise<{ res: Response | null; lastErrText: string }> {
     let res: Response | null = null;
     let lastErrText = "";
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < retries; attempt++) {
       res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
@@ -341,7 +344,30 @@ field as null (system_breakdown and discipline_breakdown as {}).
       );
       if (res.ok || res.status !== 503) break;
       lastErrText = await res.text();
-      if (attempt < 2) await sleep(1500 * (attempt + 1)); // 1.5s, then 3s
+      if (attempt < retries - 1) await sleep(1500 * (attempt + 1)); // 1.5s, then 3s
+    }
+    return { res, lastErrText };
+  }
+
+  try {
+    // Gemini occasionally returns 503 "model is currently experiencing high
+    // demand" - Google's own message says this is usually temporary, so
+    // retry a couple of times with a short, increasing delay before giving
+    // up. This matters more now that a report can be one of several files
+    // processed back-to-back in the same upload batch, where hitting one
+    // transient overload used to force a manual re-upload of that file.
+    let { res, lastErrText } = await callGemini(primaryModel, 3);
+
+    // Primary model's own retries are exhausted and it's STILL 503 - one
+    // more attempt on a different model instead of giving up immediately,
+    // since that's usually enough to get past a saturated single-model
+    // capacity pool (see comment on fallbackModel above).
+    if (res && res.status === 503 && fallbackModel !== primaryModel) {
+      const fallback = await callGemini(fallbackModel, 1);
+      if (fallback.res) {
+        res = fallback.res;
+        lastErrText = fallback.lastErrText || lastErrText;
+      }
     }
 
     if (!res) {
@@ -352,7 +378,7 @@ field as null (system_breakdown and discipline_breakdown as {}).
       const errText = res.status === 503 ? lastErrText : await res.text();
       const hint =
         res.status === 503
-          ? " The AI model is overloaded right now even after retrying - this is on Google's end and usually clears up within a few minutes, so try this file again shortly."
+          ? " The AI model is overloaded right now even after retrying on a backup model - this is on Google's end and usually clears up within a few minutes, so try this file again shortly. If it keeps happening for more than 10-15 minutes, it's likely a wider Gemini outage rather than anything wrong with your file."
           : "";
       return NextResponse.json(
         { error: `AI request failed: ${errText.slice(0, 300)}${hint}` },
