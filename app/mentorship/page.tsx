@@ -75,17 +75,24 @@ export default async function MentorshipPage() {
         .select("*")
         .eq("mentor_id", myMentorRecord.id)
         .order("created_at", { ascending: false }),
-      // Students who linked this mentor's email directly (Settings/onboarding
-      // "Your mentor's email" field) - RLS ("Mentors can view profiles of
-      // students who linked their email") already restricts this to exactly
-      // this mentor's matches, so no client-side filtering needed. This is a
-      // separate roster from bookedSlots below: a student can appear here
-      // with zero sessions booked yet and the mentor can still open their
-      // planner immediately.
+      // Students who linked THIS mentor's email directly (Settings/onboarding
+      // "Your mentor's email" field) - filtered explicitly by
+      // myMentorRecord.email (case-insensitive exact match via ilike with no
+      // wildcards), not left to RLS alone. "Mentors can view profiles of
+      // students who linked their email" scopes a plain mentor account
+      // correctly on its own, but RLS OR's every matching permissive policy
+      // together, so an account that ALSO satisfies a broader policy (e.g.
+      // "Admins can view all profiles", or having once booked/messaged a
+      // student who has since been reassigned to a different mentor) would
+      // still see that student here without this explicit filter. This is
+      // the same bug/fix as /mentorship/students/page.tsx - this dashboard
+      // page has its own separate copy of the same query, which still had
+      // the old unfiltered version, so a reassigned student (e.g. Elmi Abdi)
+      // kept showing up here even after the other page was fixed.
       supabase
         .from("profiles")
         .select("id, full_name, email, status_update, status_updated_at")
-        .not("mentor_email", "is", null)
+        .ilike("mentor_email", myMentorRecord.email)
         .order("full_name", { ascending: true }),
     ]);
     const allSlots = (slotsRes.data ?? []) as (MentorSlot & {
