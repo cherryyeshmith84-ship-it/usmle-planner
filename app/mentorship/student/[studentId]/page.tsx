@@ -71,13 +71,16 @@ function scoreBadgeClass(pct: number | null) {
  * switching between sections for the SAME student rather than navigating
  * their own account. Sessions and Messages only make sense for this
  * student's actual mentor, so those two tabs are omitted entirely for an
- * admin browsing without a mentor relationship.
+ * admin browsing without a mentor relationship, and for a read-only
+ * "viewer" mentor (see canEdit below).
  *
  * RLS (is_mentor_of_student - see migrations mentor_read_student_progress
- * and mentor_write_student_planner_entries) is what actually enforces that
- * a mentor can only load/write a student they have a real relationship
- * with - this page's own not-a-mentor / no-relationship checks below are
- * just a friendlier 404 on top of that.
+ * and mentor_write_student_planner_entries - OR is_viewer_mentor_of_student,
+ * see migration create_mentor_student_viewers) is what actually enforces
+ * that a mentor can only load a student they have a real relationship OR
+ * an admin-granted viewer relationship with, and that only a REAL mentor
+ * relationship can write anything - this page's own checks below are just
+ * a friendlier 404/read-only UI on top of that.
  */
 export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
   const supabase = createClient();
@@ -102,6 +105,20 @@ export default async function StudentProgressPage({ params }: { params: { studen
   // to land here - a student hitting this URL just gets sent back.
   if (!myMentorRecord && !profile?.is_admin) redirect("/mentorship");
 
+  // Whether this mentor is the student's REAL mentor (current mentor_email,
+  // or a historical relationship via a past booking/message - see
+  // is_mentor_of_student's own doc comment) as opposed to only having
+  // read-only "viewer" access an admin granted via mentor_student_viewers.
+  // Both cases let the profile query below succeed (two separate RLS
+  // SELECT policies on profiles), so this RPC call is the only way to tell
+  // them apart - without it, a viewer-only mentor would see every edit
+  // control below (notes, meeting link, planner, study plan) and only find
+  // out writes silently fail once they actually tried to save.
+  const { data: isRealMentorData } = myMentorRecord
+    ? await supabase.rpc("is_mentor_of_student", { target_student_id: params.studentId })
+    : { data: false };
+  const canEdit = !!myMentorRecord && !!isRealMentorData;
+
   const { data: studentData } = await supabase
     .from("profiles")
     .select(
@@ -110,9 +127,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
     .eq("id", params.studentId)
     .maybeSingle();
   // RLS on profiles only returns a row here if this mentor actually has a
-  // relationship with this student (or the viewer is an admin) - no row
-  // means either the student doesn't exist or there's no real relationship,
-  // and either way a 404 is the right, non-leaky response.
+  // relationship (real or viewer) with this student, or the viewer is an
+  // admin - no row means either the student doesn't exist or there's no
+  // relationship at all, and either way a 404 is the right, non-leaky
+  // response.
   if (!studentData) notFound();
   const student = studentData as Pick<
     Profile,
@@ -164,23 +182,30 @@ export default async function StudentProgressPage({ params }: { params: { studen
     // editable grid below computes its own visible date range and needs
     // the full history to know what's actually been logged.
     supabase.from("planner_entries").select("*").eq("user_id", params.studentId),
-    myMentorRecord
+    // The next five queries are all scoped to THIS signed-in mentor's own
+    // relationship with this student (sessions they personally booked,
+    // their own session notes/study plan/meeting link/private note) - a
+    // read-only viewer mentor has none of these with a student they're not
+    // actually assigned to, so there's nothing to fetch for them. Gated on
+    // canEdit (not just myMentorRecord) so a viewer's page load doesn't
+    // even attempt these mentor-private lookups.
+    canEdit
       ? supabase
           .from("mentor_slots")
           .select("*")
-          .eq("mentor_id", myMentorRecord.id)
+          .eq("mentor_id", myMentorRecord!.id)
           .eq("booked_by", params.studentId)
           .eq("is_booked", true)
           .order("start_time", { ascending: false })
       : Promise.resolve({ data: [] as MentorSlot[] }),
-    myMentorRecord
+    canEdit
       ? supabase
           .from("mentor_session_notes")
           .select("*")
-          .eq("mentor_id", myMentorRecord.id)
+          .eq("mentor_id", myMentorRecord!.id)
           .eq("student_id", params.studentId)
       : Promise.resolve({ data: [] as SessionNote[] }),
-    myMentorRecord
+    canEdit
       ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
       : Promise.resolve({ data: null }),
     // Scoped to THIS mentor specifically, not just the student - the table
@@ -192,23 +217,23 @@ export default async function StudentProgressPage({ params }: { params: { studen
     // own. Filtering it out entirely (rather than showing it) means the new
     // mentor sees no link yet and adds their own, which then correctly
     // overwrites the row via MeetingLinkEditor's upsert.
-    myMentorRecord
+    canEdit
       ? supabase
           .from("mentor_meeting_links")
           .select("*")
           .eq("student_id", params.studentId)
-          .eq("mentor_id", myMentorRecord.id)
+          .eq("mentor_id", myMentorRecord!.id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
     // Same per-(mentor, student) scoping as the meeting link above - see
     // StudentNotesEditor.tsx's doc comment for why the mentor_id filter
     // matters here too.
-    myMentorRecord
+    canEdit
       ? supabase
           .from("mentor_student_notes")
           .select("*")
           .eq("student_id", params.studentId)
-          .eq("mentor_id", myMentorRecord.id)
+          .eq("mentor_id", myMentorRecord!.id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
@@ -332,13 +357,14 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </div>
       )}
 
-      {/* Systems & Disciplines coverage checklist - mentor-only, so it only
-          renders when the viewer actually has a mentor relationship with
-          this student (same gating MeetingLinkEditor below uses). */}
-      {myMentorRecord && (
+      {/* Systems & Disciplines coverage checklist - edit-only, so it only
+          renders when the viewer actually has REAL (not viewer-only) mentor
+          access to this student (same gating MeetingLinkEditor below
+          uses). */}
+      {canEdit && (
         <StudentTopicChecklist
           studentId={params.studentId}
-          mentorId={myMentorRecord.id}
+          mentorId={myMentorRecord!.id}
           initialRows={topicChecklistRows}
         />
       )}
@@ -346,11 +372,14 @@ export default async function StudentProgressPage({ params }: { params: { studen
       {/* Notes - a standing, mentor-only note about this student, shown
           above the Meeting link card below. See StudentNotesEditor.tsx for
           how this differs from the per-day Mentor Notes on the Study
-          Planner calendar and from per-session notes. */}
-      {myMentorRecord && (
+          Planner calendar and from per-session notes. Edit-only - a
+          read-only viewer mentor never sees this, same as they never see
+          mentor_daily_notes (see the RLS policies in migration
+          create_mentor_student_viewers). */}
+      {canEdit && (
         <StudentNotesEditor
           studentId={params.studentId}
-          mentorId={myMentorRecord.id}
+          mentorId={myMentorRecord!.id}
           currentUserId={user.id}
           initialNote={studentNote?.note ?? null}
           initialUpdatedAt={studentNote?.updated_at ?? null}
@@ -358,11 +387,11 @@ export default async function StudentProgressPage({ params }: { params: { studen
       )}
 
       {/* Meeting link - permanent per-(mentor, student) room, different
-          students of the same mentor can have different links. */}
-      {myMentorRecord && (
+          students of the same mentor can have different links. Edit-only. */}
+      {canEdit && (
         <MeetingLinkEditor
           studentId={params.studentId}
-          mentorId={myMentorRecord.id}
+          mentorId={myMentorRecord!.id}
           currentUserId={user.id}
           initialLink={meetingLink?.meeting_link ?? null}
           initialUpdatedAt={meetingLink?.updated_at ?? null}
@@ -408,8 +437,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const studyPlannerContent = (
     <div className="space-y-8">
-      {/* Planner schedule - where this student's plan starts. */}
-      {myMentorRecord && (
+      {/* Planner schedule - where this student's plan starts. Edit-only. */}
+      {canEdit && (
         <div>
           <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
           <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
@@ -418,8 +447,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
       {/* Study planner - the same calendar the student sees on their own
           /planner. Click a day to add/edit Assignments, log UWorld blocks,
-          and read/write Mentor Notes - editable when the viewer is this
-          student's mentor. */}
+          and read/write Mentor Notes - editable only when the viewer has
+          REAL (not viewer-only) mentor access to this student. */}
       <div>
         <PlannerCalendar
           targetUserId={params.studentId}
@@ -430,7 +459,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
           studyResources={studyResources}
           mainColumns={mainPlannerColumns(plannerColumns)}
           columns={plannerColumns}
-          canEdit={!!myMentorRecord}
+          canEdit={canEdit}
           mentorId={myMentorRecord?.id ?? null}
           startDate={plannerStartDate}
           todayIso={easternDateStringNow()}
@@ -456,10 +485,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
                       <span className="text-slate-400">
                         {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
                       </span>
-                      {myMentorRecord && (
+                      {canEdit && (
                         <AssignToPlanButton
                           studentId={params.studentId}
-                          mentorId={myMentorRecord.id}
+                          mentorId={myMentorRecord!.id}
                           title={`Review ${s.system}`}
                           detail={`Weak system - ${s.averagePercent}% average${
                             s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
@@ -486,10 +515,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
                         <span className="text-slate-400">
                           {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
                         </span>
-                        {myMentorRecord && (
+                        {canEdit && (
                           <AssignToPlanButton
                             studentId={params.studentId}
-                            mentorId={myMentorRecord.id}
+                            mentorId={myMentorRecord!.id}
                             title={`Review ${s.system}`}
                             detail={`Weak discipline - ${s.averagePercent}% average${
                               s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
@@ -589,15 +618,15 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <QBankSystemBreakdown cells={qbankBreakdown} />
       </div>
 
-      {/* Study plan - only the signed-in mentor's own relationship can write
-          here; overrides the default AI-generated study plan the student
-          otherwise sees on their own Analysis page. */}
-      {myMentorRecord && (
+      {/* Study plan - only when the viewer has REAL mentor access; overrides
+          the default AI-generated study plan the student otherwise sees on
+          their own Analysis page. */}
+      {canEdit && (
         <div>
           <h2 className="text-lg font-bold mb-3">Study plan</h2>
           <StudyPlanEditor
             studentId={params.studentId}
-            mentorId={myMentorRecord.id}
+            mentorId={myMentorRecord!.id}
             currentUserId={user.id}
             initialContent={studyPlan?.content ?? null}
             initialUpdatedAt={studyPlan?.updated_at ?? null}
@@ -611,7 +640,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
           <h2 className="text-lg font-bold mb-3">Score reports</h2>
           <div className="space-y-2">
             {scoreReports.map((r) => (
-              <MentorScoreReportRow key={r.id} report={r} canReview={!!myMentorRecord} />
+              <MentorScoreReportRow key={r.id} report={r} canReview={canEdit} />
             ))}
           </div>
         </div>
@@ -619,31 +648,40 @@ export default async function StudentProgressPage({ params }: { params: { studen
     </div>
   );
 
-  const messagesContent = myMentorRecord ? (
+  const messagesContent = canEdit ? (
     <MentorChatPanel
-      mentorId={myMentorRecord.id}
+      mentorId={myMentorRecord!.id}
       studentId={params.studentId}
       otherPartyLabel={student.full_name || "this student"}
     />
   ) : null;
 
+  // Sessions and Messages only make sense for this student's REAL mentor -
+  // a read-only viewer never booked sessions or messaged this student, so
+  // both tabs are left out entirely for them (same as they already were
+  // for admins browsing without any mentor relationship at all).
   const tabs: StudentTabDef[] = [
     { id: "overview", label: "Overview", content: overviewContent },
-    ...(myMentorRecord ? [{ id: "sessions", label: "Sessions", content: sessionsContent }] : []),
+    ...(canEdit ? [{ id: "sessions", label: "Sessions", content: sessionsContent }] : []),
     { id: "planner", label: "Study Planner", content: studyPlannerContent },
     { id: "analysis", label: "Analysis", content: analysisContent },
-    ...(myMentorRecord ? [{ id: "messages", label: "Messages", content: messagesContent }] : []),
+    ...(canEdit ? [{ id: "messages", label: "Messages", content: messagesContent }] : []),
   ];
+
+  // A viewer-only mentor came from "Students you can view", not "Your
+  // students" - sending "Back" to the list they don't have (or that just
+  // wouldn't include this student) would be a dead end.
+  const backHref = myMentorRecord && !canEdit ? "/mentorship/viewing" : "/mentorship/students";
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 w-full">
-        <Link href="/mentorship/students" className="text-xs text-brand-400 hover:text-brand-300">
+        <Link href={backHref} className="text-xs text-brand-400 hover:text-brand-300">
           ← Back to students
         </Link>
         <h1 className="text-xl font-bold mt-2 mb-1">{student.full_name || "Student"}</h1>
         <p className="text-sm text-slate-400 mb-6">
-          {myMentorRecord
+          {canEdit
             ? "Click a tab to switch sections, or click any day on the Study Planner calendar to add or edit Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
             : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
         </p>
