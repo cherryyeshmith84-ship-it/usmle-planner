@@ -144,6 +144,12 @@ export default function NavBar({
         // ("is anyone new waiting on me") rather than a day-to-day link
         // like Students/Study Planner/Analysis above it.
         { href: "/mentorship/waiting", label: "Waiting" },
+        // Students an ADMIN has granted this mentor read-only "viewer"
+        // access to, on top of their own assigned students above - kept as
+        // its own link (not merged into "Students") so it's always clear
+        // at a glance that anyone reached this way is someone else's
+        // student, not this mentor's own.
+        { href: "/mentorship/viewing", label: "Viewing" },
       ],
     };
   });
