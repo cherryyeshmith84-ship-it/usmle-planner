@@ -6,6 +6,7 @@ import AdminNav from "@/components/AdminNav";
 import PublishToggle from "@/components/PublishToggle";
 import MentorAssignSelect from "@/components/MentorAssignSelect";
 import WaitingVisibilityToggle from "@/components/WaitingVisibilityToggle";
+import ViewerMentorsEditor from "@/components/ViewerMentorsEditor";
 import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ const STAGE_LABEL: Record<string, string> = {
 export default async function AdminHome() {
   const { supabase, user } = await requireAdmin();
 
-  const [profilesRes, templatesRes, mentorsRes, contentPublished] = await Promise.all([
+  const [profilesRes, templatesRes, mentorsRes, viewersRes, contentPublished] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
     supabase.from("schedule_templates").select("id, name"),
     // Every mentor row, active or not - active-only filtering happens below
@@ -27,6 +28,9 @@ export default async function AdminHome() {
     // Students list applies to any registered mentor account regardless of
     // active status.
     supabase.from("mentors").select("id, name, email, active").order("name"),
+    // Every existing "extra viewer" grant, all students at once - grouped
+    // below into a per-student list rather than one query per student card.
+    supabase.from("mentor_student_viewers").select("student_id, mentor_id"),
     getContentPublished(supabase),
   ]);
 
@@ -54,6 +58,16 @@ export default async function AdminHome() {
   const mentorNameByEmail = new Map(activeMentors.map((m) => [m.email.toLowerCase(), m.name]));
   const mentorNameFor = (s: Profile) =>
     s.mentor_email ? mentorNameByEmail.get(s.mentor_email.toLowerCase()) ?? s.mentor_email : null;
+
+  // student_id -> [mentor_id, ...] map of who's been granted read-only
+  // viewer access to each student, so ViewerMentorsEditor below doesn't
+  // need its own query per card.
+  const viewerMentorIdsByStudent = new Map<string, string[]>();
+  for (const row of (viewersRes.data ?? []) as { student_id: string; mentor_id: string }[]) {
+    const arr = viewerMentorIdsByStudent.get(row.student_id) ?? [];
+    arr.push(row.mentor_id);
+    viewerMentorIdsByStudent.set(row.student_id, arr);
+  }
 
   // Founding-cohort applicants who haven't been paired with a mentor yet -
   // oldest signup first, since that's the fair order to work through them.
@@ -213,6 +227,21 @@ export default async function AdminHome() {
                     <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
                   )}
                 </div>
+                {/* Extra mentors who can VIEW (read-only) this student
+                    without being their primary mentor - e.g. a specialist
+                    mentor weighing in, or a backup while the primary is
+                    away. Separate from the assign control above, which
+                    controls the one primary/editing mentor_email. */}
+                {activeMentors.length > 0 && (
+                  <div className="mt-2">
+                    <ViewerMentorsEditor
+                      studentId={s.id}
+                      mentors={activeMentors}
+                      primaryMentorEmail={s.mentor_email ?? null}
+                      initialViewerMentorIds={viewerMentorIdsByStudent.get(s.id) ?? []}
+                    />
+                  </div>
+                )}
                 <p className="text-sm text-brand-300 mt-1">
                   {s.assigned_template_id
                     ? `Assigned: ${templateMap.get(s.assigned_template_id) ?? "template"}`
