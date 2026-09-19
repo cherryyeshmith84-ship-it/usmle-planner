@@ -111,7 +111,19 @@ export default async function MentorshipPage() {
     const upcoming = nonCancelled.filter((s) => getSlotStatus(s) === "upcoming" && formatSlotDate(s.start_time) !== todayLabel);
     const completed = nonCancelled.filter((s) => getSlotStatus(s) === "completed");
     const needsNotes = completed.filter((s) => !slotIdsWithNotes.has(s.id));
-    const helpedCount = new Set(bookedSlots.map((s) => s.booked_by).filter(Boolean)).size;
+    // "Students helped" should count real students, not a mentor testing
+    // their own booking flow - every mentor signs up through the same
+    // /signup form as a student, so a mentor who ever booked one of their
+    // own open slots (or another mentor account did, while testing) shows
+    // up in bookedSlots with a booked_by_profile.email matching a row in
+    // `mentors`. Filtering those out here is what took this from 13 down
+    // to the actual number of real students - without it, a mentor's own
+    // test bookings silently inflated their own stat forever.
+    const mentorEmailSet = new Set(mentors.map((m) => m.email.toLowerCase()));
+    const realStudentBookings = bookedSlots.filter(
+      (s) => !mentorEmailSet.has((s.booked_by_profile?.email ?? "").toLowerCase())
+    );
+    const helpedCount = new Set(realStudentBookings.map((s) => s.booked_by).filter(Boolean)).size;
     const openUpcomingCount = allSlots.filter((s) => !s.is_booked && getSlotStatus(s) === "upcoming").length;
 
     // "This week" (calendar-style, day by day) - the next 7 days of upcoming
@@ -330,9 +342,13 @@ export default async function MentorshipPage() {
   const [pastBookedRes, upcomingOpenRes, feedbackRes] =
     mentorIds.length > 0
       ? await Promise.all([
+          // booked_by_profile:booked_by(email) joined in so a mentor's own
+          // test booking (or another mentor account's) can be excluded
+          // below - same reasoning as the mentor-dashboard branch's own
+          // helpedCount above.
           supabase
             .from("mentor_slots")
-            .select("mentor_id, booked_by")
+            .select("mentor_id, booked_by, booked_by_profile:booked_by(email)")
             .in("mentor_id", mentorIds)
             .eq("is_booked", true)
             .lt("end_time", now),
@@ -361,9 +377,15 @@ export default async function MentorshipPage() {
         ])
       : [{ data: null }, { data: null }, { data: null }];
 
+  // Same self-booking exclusion as the mentor-dashboard branch above - a
+  // mentor (or another mentor account) testing their own booking flow
+  // shouldn't inflate the "helped X students" badge shown to students
+  // browsing the directory.
+  const mentorEmailSetForDirectory = new Set(mentors.map((m) => m.email.toLowerCase()));
   const helpedCountByMentor = new Map<string, Set<string>>();
   for (const row of (pastBookedRes.data ?? []) as any[]) {
     if (!row.booked_by) continue;
+    if (mentorEmailSetForDirectory.has((row.booked_by_profile?.email ?? "").toLowerCase())) continue;
     const set = helpedCountByMentor.get(row.mentor_id) ?? new Set<string>();
     set.add(row.booked_by);
     helpedCountByMentor.set(row.mentor_id, set);
