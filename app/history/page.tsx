@@ -8,6 +8,7 @@ import AppShell from "@/components/AppShell";
 import PerformanceClient from "@/components/PerformanceClient";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
+import StudentNotesEditor from "@/components/StudentNotesEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,19 @@ export default async function HistoryPage() {
     .select("category, topic, completed")
     .eq("student_id", user.id);
   const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
+
+  // Read-only view of the mentor's standing "Notes" on this student
+  // (components/StudentNotesEditor.tsx, mentor_student_notes table) - same
+  // read-only pattern as the topic checklist above. RLS's "Student reads
+  // own mentor notes" policy only grants SELECT by student_id, so a
+  // student can see what their mentor wrote here but never write to it
+  // themselves - only the mentor of record or an admin can.
+  const { data: mentorNoteData } = await supabase
+    .from("mentor_student_notes")
+    .select("note, updated_at")
+    .eq("student_id", user.id)
+    .maybeSingle();
+  const mentorNote = mentorNoteData as { note: string | null; updated_at: string | null } | null;
 
   // Resolve the student's own mentor (if any) for the "Mentor Recommendation"
   // card. Used to also fall back to "have they ever sent this mentor a
@@ -129,6 +143,15 @@ export default async function HistoryPage() {
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
           <QBankSystemBreakdown cells={qbankBreakdown} />
+        </div>
+
+        <div className="mt-8">
+          <StudentNotesEditor
+            studentId={user.id}
+            initialNote={mentorNote?.note ?? null}
+            initialUpdatedAt={mentorNote?.updated_at ?? null}
+            readOnly
+          />
         </div>
 
         <div className="mt-8">
