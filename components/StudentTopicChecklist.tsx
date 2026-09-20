@@ -5,11 +5,21 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 
+export type ChecklistResource = "uworld" | "boards_and_beyond" | "amboss" | "mehlman";
+
 export interface TopicChecklistRow {
+  resource: ChecklistResource;
   category: "system" | "subject";
   topic: string;
   completed: boolean;
 }
+
+const RESOURCES: { id: ChecklistResource; label: string }[] = [
+  { id: "uworld", label: "UWorld" },
+  { id: "boards_and_beyond", label: "Boards and Beyond" },
+  { id: "amboss", label: "Amboss" },
+  { id: "mehlman", label: "Mehlman" },
+];
 
 /**
  * "Systems & Disciplines" coverage checklist on a student's Overview tab -
@@ -22,11 +32,22 @@ export interface TopicChecklistRow {
  * breakdowns and qbank question tagging elsewhere in the app, so a system
  * name here always matches the same system name everywhere else.
  *
+ * One independent checklist PER RESOURCE (UWorld / Boards and Beyond /
+ * Amboss / Mehlman), switched via the tabs below - a student can be done
+ * with Cardiovascular in UWorld but not have touched it yet in Amboss, so
+ * "covered" only ever means "covered in the resource currently selected".
+ * This used to be a single shared checklist; when it was split into four
+ * (migration add_resource_to_student_topic_checklist), everything already
+ * checked off became this student's "Boards and Beyond" progress, and
+ * UWorld/Amboss/Mehlman all started blank - that's why an existing
+ * long-time student might show real progress on one tab and nothing yet
+ * on the other three, rather than it being a bug.
+ *
  * Each checkbox writes straight to the database on click (upsert on the
- * (student_id, category, topic) unique constraint) rather than batching
- * into a "Save" button - there's no draft state to lose here, so an
- * immediate save keeps it simple and matches how MentorAvailabilityClient's
- * slot Remove/edit actions work.
+ * (student_id, resource, category, topic) unique constraint) rather than
+ * batching into a "Save" button - there's no draft state to lose here, so
+ * an immediate save keeps it simple and matches how
+ * MentorAvailabilityClient's slot Remove/edit actions work.
  *
  * Also rendered read-only on the student's own Analysis page (app/history/
  * page.tsx) with readOnly=true, so a student can see what their mentor has
@@ -47,19 +68,24 @@ export default function StudentTopicChecklist({
   readOnly?: boolean;
 }) {
   const router = useRouter();
+  const [activeResource, setActiveResource] = useState<ChecklistResource>("uworld");
   const [completed, setCompleted] = useState<Set<string>>(
-    () => new Set(initialRows.filter((r) => r.completed).map((r) => `${r.category}:${r.topic}`))
+    () =>
+      new Set(
+        initialRows.filter((r) => r.completed).map((r) => `${r.resource}:${r.category}:${r.topic}`)
+      )
   );
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  function key(category: "system" | "subject", topic: string) {
-    return `${category}:${topic}`;
+  function key(resource: ChecklistResource, category: "system" | "subject", topic: string) {
+    return `${resource}:${category}:${topic}`;
   }
 
   async function toggle(category: "system" | "subject", topic: string) {
     if (readOnly || !mentorId) return;
-    const k = key(category, topic);
+    const resource = activeResource;
+    const k = key(resource, category, topic);
     const wasCompleted = completed.has(k);
     // Optimistic - flips instantly instead of waiting on the round trip,
     // then rolls back below if the save actually fails.
@@ -76,12 +102,13 @@ export default function StudentTopicChecklist({
       {
         student_id: studentId,
         mentor_id: mentorId,
+        resource,
         category,
         topic,
         completed: !wasCompleted,
         completed_at: !wasCompleted ? new Date().toISOString() : null,
       },
-      { onConflict: "student_id,category,topic" }
+      { onConflict: "student_id,resource,category,topic" }
     );
     setSavingKey(null);
     if (upsertError) {
@@ -105,7 +132,7 @@ export default function StudentTopicChecklist({
   }
 
   function renderGroup(label: string, category: "system" | "subject", topics: readonly string[]) {
-    const doneCount = topics.filter((t) => completed.has(key(category, t))).length;
+    const doneCount = topics.filter((t) => completed.has(key(activeResource, category, t))).length;
     return (
       <div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
@@ -113,7 +140,7 @@ export default function StudentTopicChecklist({
         </p>
         <div className="grid sm:grid-cols-2 gap-1.5">
           {topics.map((topic) => {
-            const k = key(category, topic);
+            const k = key(activeResource, category, topic);
             return (
               <label
                 key={topic}
@@ -141,10 +168,33 @@ export default function StudentTopicChecklist({
         <p className="text-sm font-semibold">Systems &amp; Disciplines Covered</p>
         <p className="text-xs text-slate-500 mt-1">
           {readOnly
-            ? "Your mentor checks these off as you cover them together - separate from how well you're scoring (see your performance charts above for that)."
-            : "Check off each system and discipline as you work through it with this student - separate from how well they're scoring (see the Analysis tab for that)."}
+            ? "Your mentor checks these off as you cover them together, one tab per resource - separate from how well you're scoring (see your performance charts above for that)."
+            : "Check off each system and discipline as you work through it with this student, one tab per resource - separate from how well they're scoring (see the Analysis tab for that)."}
         </p>
       </div>
+
+      {/* Resource tabs - each is its own independent checklist, not a
+          filter over one shared set of checkmarks. */}
+      <div className="flex flex-wrap gap-1.5 border-b border-slate-800 -mb-1 pb-3">
+        {RESOURCES.map((r) => {
+          const isActive = r.id === activeResource;
+          return (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setActiveResource(r.id)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${
+                isActive
+                  ? "bg-brand-900/40 text-brand-300"
+                  : "bg-slate-900 text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
+
       {error && <p className="text-xs text-red-400">{error}</p>}
       {renderGroup("Systems", "system", STEP1_SYSTEMS)}
       {renderGroup("Disciplines", "subject", STEP1_SUBJECTS)}
