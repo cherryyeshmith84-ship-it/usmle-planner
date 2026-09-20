@@ -81,12 +81,22 @@ export default async function Home() {
             </a>
           ))}
         </nav>
+        {/* whitespace-nowrap + shrink-0 on both buttons - on a narrow phone
+            (~375px and below) this row (logo + Log In + Apply for
+            Mentorship) is tighter than all three items' natural width, and
+            with every flex child free to shrink by default, the two
+            buttons were shrinking below their own text's width, wrapping
+            "Log In" into "Log"/"In" on two lines and "Apply for
+            Mentorship" into an oddly broken two-line pill. shrink-0 here
+            means the logo (still free to shrink/wrap) absorbs that
+            squeeze instead - a much less prominent place for it to show up
+            than the two primary buttons in the header. */}
         <div className="flex items-center gap-3">
-          <Link href="/mentor/login" className="text-xs text-slate-500 hover:text-slate-300 hidden sm:inline">
+          <Link href="/mentor/login" className="text-xs text-slate-500 hover:text-slate-300 hidden sm:inline whitespace-nowrap">
             Mentor Login
           </Link>
-          <Link href="/login" className="btn-secondary">Log In</Link>
-          <Link href="/signup" className="btn-primary">Apply for Mentorship</Link>
+          <Link href="/login" className="btn-secondary whitespace-nowrap shrink-0">Log In</Link>
+          <Link href="/signup" className="btn-primary whitespace-nowrap shrink-0">Apply for Mentorship</Link>
         </div>
       </header>
 
@@ -177,8 +187,6 @@ export default async function Home() {
               <span>Weakness Detection</span>
               <span className="text-slate-600">&#8595;</span>
               <span>Mentor Review</span>
-              <span className="text-slate-600">&#8595;</span>
-              <span>Targeted Revision</span>
               <span className="text-slate-600">&#8595;</span>
               <span className="font-semibold text-brand-300">Higher NBME Scores</span>
               <span className="text-slate-600">&#8595;</span>
