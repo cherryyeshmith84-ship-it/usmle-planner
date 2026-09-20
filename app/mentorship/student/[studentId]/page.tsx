@@ -241,7 +241,14 @@ export default async function StudentProgressPage({ params }: { params: { studen
     supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
     supabase.from("uworld_blocks").select("*").eq("user_id", params.studentId),
     supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
-    supabase.from("student_topic_checklist").select("category, topic, completed").eq("student_id", params.studentId),
+    // resource added alongside category/topic so the checklist can be
+    // split into 4 independent per-resource tabs (UWorld / Boards and
+    // Beyond / Amboss / Mehlman) in StudentTopicChecklist.tsx - see
+    // migration add_resource_to_student_topic_checklist.
+    supabase
+      .from("student_topic_checklist")
+      .select("resource, category, topic, completed")
+      .eq("student_id", params.studentId),
   ]);
 
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
