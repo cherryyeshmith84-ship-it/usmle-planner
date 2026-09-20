@@ -52,10 +52,13 @@ export default async function HistoryPage() {
   // Read-only view of the same Systems & Disciplines checklist a mentor
   // fills in on this student's profile page (components/
   // StudentTopicChecklist.tsx) - RLS only lets a student SELECT their own
-  // rows here, not write them.
+  // rows here, not write them. `resource` is included alongside
+  // category/topic so the read-only view can show the same 4 per-resource
+  // tabs (UWorld / Boards and Beyond / Amboss / Mehlman) the mentor sees -
+  // see migration add_resource_to_student_topic_checklist.
   const { data: topicChecklistData } = await supabase
     .from("student_topic_checklist")
-    .select("category, topic, completed")
+    .select("resource, category, topic, completed")
     .eq("student_id", user.id);
   const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
 
