@@ -111,19 +111,16 @@ export default async function MentorshipPage() {
     const upcoming = nonCancelled.filter((s) => getSlotStatus(s) === "upcoming" && formatSlotDate(s.start_time) !== todayLabel);
     const completed = nonCancelled.filter((s) => getSlotStatus(s) === "completed");
     const needsNotes = completed.filter((s) => !slotIdsWithNotes.has(s.id));
-    // "Students helped" should count real students, not a mentor testing
-    // their own booking flow - every mentor signs up through the same
-    // /signup form as a student, so a mentor who ever booked one of their
-    // own open slots (or another mentor account did, while testing) shows
-    // up in bookedSlots with a booked_by_profile.email matching a row in
-    // `mentors`. Filtering those out here is what took this from 13 down
-    // to the actual number of real students - without it, a mentor's own
-    // test bookings silently inflated their own stat forever.
-    const mentorEmailSet = new Set(mentors.map((m) => m.email.toLowerCase()));
-    const realStudentBookings = bookedSlots.filter(
-      (s) => !mentorEmailSet.has((s.booked_by_profile?.email ?? "").toLowerCase())
-    );
-    const helpedCount = new Set(realStudentBookings.map((s) => s.booked_by).filter(Boolean)).size;
+    // "Students helped" now just mirrors "My students" below (linkedStudents,
+    // the same .ilike("mentor_email", ...) - filtered list) instead of
+    // counting distinct past bookings. It used to count every student who'd
+    // EVER booked a session with this mentor, even ones since reassigned to
+    // someone else (e.g. Elmi Abdi) or never assigned at all - technically
+    // not wrong (it's a lifetime total, and a self-test booking was also
+    // fixed separately), but it never matched the mentor's own current
+    // roster, which is the number they actually expect to see here. Tying
+    // it to the same list removes that mismatch entirely.
+    const helpedCount = linkedStudents.length;
     const openUpcomingCount = allSlots.filter((s) => !s.is_booked && getSlotStatus(s) === "upcoming").length;
 
     // "This week" (calendar-style, day by day) - the next 7 days of upcoming
