@@ -75,6 +75,71 @@ async function notifyAdminsOfNewStudent(newUserId: string, newUserEmail: string,
   );
 }
 
+// Mirrors notifyAdminsOfNewStudent above, for the mentor-portal signup flow
+// instead - a mentor's account only exists at all because an admin already
+// added a matching row to the `mentors` table (see findMentorByEmail /
+// AdminMentorsClient), so this fires when that pre-added mentor finishes
+// creating their login (email confirmation link or first Google sign-in
+// through /mentor/signup or /mentor/login). Kept as a separate function
+// (rather than branching inside notifyAdminsOfNewStudent) since the
+// title/body copy and the "type" tag on the notifications row need to read
+// differently for a mentor joining vs. a student joining.
+async function notifyAdminsOfNewMentor(newUserId: string, newUserEmail: string, fullName: string | null) {
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceUrl || !serviceKey) return;
+  const serviceClient = createServiceClient(serviceUrl, serviceKey);
+
+  const { data: admins } = await serviceClient
+    .from("profiles")
+    .select("id, email, full_name")
+    .eq("is_admin", true);
+  const adminRows = (admins ?? []) as { id: string; email: string | null; full_name: string | null }[];
+  if (adminRows.length === 0) return;
+
+  const mentorLabel = fullName || newUserEmail;
+
+  await serviceClient.from("notifications").insert(
+    adminRows
+      .filter((a) => a.id !== newUserId)
+      .map((a) => ({
+        user_id: a.id,
+        type: "new_mentor_signup",
+        title: "New mentor signup",
+        body: `${mentorLabel} (${newUserEmail}) just activated their mentor account on Master Grid.`,
+        link: "/admin/mentors",
+      }))
+  );
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return;
+  const from = process.env.REMINDER_FROM_EMAIL || "Master Grid <onboarding@resend.dev>";
+
+  await Promise.all(
+    adminRows
+      .filter((a) => a.email)
+      .map((a) =>
+        sendEmail(
+          a.email as string,
+          "New mentor signup on Master Grid",
+          `
+            <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
+              <p>A mentor just activated their account:</p>
+              <p style="font-size: 16px; margin: 16px 0;">
+                <strong>${mentorLabel}</strong><br />
+                ${newUserEmail}
+              </p>
+              <p>- Master Grid</p>
+            </div>
+          `,
+          `A mentor just activated their account:\n${mentorLabel}\n${newUserEmail}\n\n- Master Grid`,
+          apiKey,
+          from
+        )
+      )
+  );
+}
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
@@ -155,16 +220,21 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}/mentor/login?error=not_mentor`);
       }
 
-      // Admin notification - only for a genuine student signup that just
-      // happened (account created in the last few minutes), not every time
-      // this same student logs back in via Google down the road.
-      if (portal === "student" && !isMentor) {
-        const createdMs = user.created_at ? new Date(user.created_at).getTime() : 0;
-        const isFreshSignup = createdMs > 0 && Date.now() - createdMs < 5 * 60 * 1000;
-        if (isFreshSignup) {
-          const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
-          await notifyAdminsOfNewStudent(user.id, user.email ?? "", fullName).catch(() => {});
-        }
+      // Admin notification - only for a genuine signup that just happened
+      // (account created in the last few minutes), not every time this same
+      // student or mentor logs back in via Google down the road. Split into
+      // two branches (student vs. mentor) so each gets its own notification
+      // copy and link - see notifyAdminsOfNewStudent / notifyAdminsOfNewMentor
+      // above.
+      const createdMs = user.created_at ? new Date(user.created_at).getTime() : 0;
+      const isFreshSignup = createdMs > 0 && Date.now() - createdMs < 5 * 60 * 1000;
+      const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
+
+      if (portal === "student" && !isMentor && isFreshSignup) {
+        await notifyAdminsOfNewStudent(user.id, user.email ?? "", fullName).catch(() => {});
+      }
+      if (portal === "mentor" && isMentor && isFreshSignup) {
+        await notifyAdminsOfNewMentor(user.id, user.email ?? "", fullName).catch(() => {});
       }
     }
 
