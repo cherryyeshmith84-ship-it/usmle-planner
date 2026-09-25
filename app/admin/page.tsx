@@ -7,6 +7,7 @@ import PublishToggle from "@/components/PublishToggle";
 import MentorAssignSelect from "@/components/MentorAssignSelect";
 import WaitingVisibilityToggle from "@/components/WaitingVisibilityToggle";
 import ViewerMentorsEditor from "@/components/ViewerMentorsEditor";
+import StudentViewersEditor from "@/components/StudentViewersEditor";
 import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ const STAGE_LABEL: Record<string, string> = {
 export default async function AdminHome() {
   const { supabase, user } = await requireAdmin();
 
-  const [profilesRes, templatesRes, mentorsRes, viewersRes, contentPublished] = await Promise.all([
+  const [profilesRes, templatesRes, mentorsRes, viewersGrantsRes, viewersRes, contentPublished] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
     supabase.from("schedule_templates").select("id, name"),
     // Every mentor row, active or not - active-only filtering happens below
@@ -31,6 +32,12 @@ export default async function AdminHome() {
     // Every existing "extra viewer" grant, all students at once - grouped
     // below into a per-student list rather than one query per student card.
     supabase.from("mentor_student_viewers").select("student_id, mentor_id"),
+    // The non-mentor "viewers" roster (see lib/viewers.ts and
+    // /admin/viewers) plus every existing student_viewers grant, so
+    // StudentViewersEditor below can render each student's non-mentor
+    // viewers without a query per card - same pattern as viewersGrantsRes
+    // above.
+    supabase.from("viewers").select("id, name, email, active").order("name"),
     getContentPublished(supabase),
   ]);
 
@@ -63,10 +70,25 @@ export default async function AdminHome() {
   // viewer access to each student, so ViewerMentorsEditor below doesn't
   // need its own query per card.
   const viewerMentorIdsByStudent = new Map<string, string[]>();
-  for (const row of (viewersRes.data ?? []) as { student_id: string; mentor_id: string }[]) {
+  for (const row of (viewersGrantsRes.data ?? []) as { student_id: string; mentor_id: string }[]) {
     const arr = viewerMentorIdsByStudent.get(row.student_id) ?? [];
     arr.push(row.mentor_id);
     viewerMentorIdsByStudent.set(row.student_id, arr);
+  }
+
+  const activeViewers = ((viewersRes.data ?? []) as { id: string; name: string; email: string; active: boolean }[]).filter(
+    (v) => v.active
+  );
+
+  // Non-mentor viewer grants, same student_id -> [id, ...] shape as
+  // viewerMentorIdsByStudent above, sourced from student_viewers instead
+  // of mentor_student_viewers.
+  const { data: studentViewerGrants } = await supabase.from("student_viewers").select("student_id, viewer_id");
+  const viewerIdsByStudent = new Map<string, string[]>();
+  for (const row of (studentViewerGrants ?? []) as { student_id: string; viewer_id: string }[]) {
+    const arr = viewerIdsByStudent.get(row.student_id) ?? [];
+    arr.push(row.viewer_id);
+    viewerIdsByStudent.set(row.student_id, arr);
   }
 
   // Founding-cohort applicants who haven't been paired with a mentor yet -
@@ -239,6 +261,19 @@ export default async function AdminHome() {
                       mentors={activeMentors}
                       primaryMentorEmail={s.mentor_email ?? null}
                       initialViewerMentorIds={viewerMentorIdsByStudent.get(s.id) ?? []}
+                    />
+                  </div>
+                )}
+                {/* Non-mentor "viewers" (see /admin/viewers) with read-only
+                    access to this student - a completely separate pool of
+                    people from the mentors granted above, added to their
+                    own roster rather than picked from Mentors. */}
+                {activeViewers.length > 0 && (
+                  <div className="mt-2">
+                    <StudentViewersEditor
+                      studentId={s.id}
+                      viewers={activeViewers}
+                      initialViewerIds={viewerIdsByStudent.get(s.id) ?? []}
                     />
                   </div>
                 )}
