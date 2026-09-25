@@ -140,6 +140,67 @@ async function notifyAdminsOfNewMentor(newUserId: string, newUserEmail: string, 
   );
 }
 
+// Mirrors notifyAdminsOfNewMentor above, for the separate "viewer" portal
+// (see lib/viewers.ts) - a viewer's account only exists because an admin
+// already added their email under Admin -> Viewers, so this fires once
+// they actually activate their login through /viewer/signup or
+// /viewer/login.
+async function notifyAdminsOfNewViewer(newUserId: string, newUserEmail: string, fullName: string | null) {
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceUrl || !serviceKey) return;
+  const serviceClient = createServiceClient(serviceUrl, serviceKey);
+
+  const { data: admins } = await serviceClient
+    .from("profiles")
+    .select("id, email, full_name")
+    .eq("is_admin", true);
+  const adminRows = (admins ?? []) as { id: string; email: string | null; full_name: string | null }[];
+  if (adminRows.length === 0) return;
+
+  const viewerLabel = fullName || newUserEmail;
+
+  await serviceClient.from("notifications").insert(
+    adminRows
+      .filter((a) => a.id !== newUserId)
+      .map((a) => ({
+        user_id: a.id,
+        type: "new_viewer_signup",
+        title: "New viewer signup",
+        body: `${viewerLabel} (${newUserEmail}) just activated their viewer account on Master Grid.`,
+        link: "/admin/viewers",
+      }))
+  );
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return;
+  const from = process.env.REMINDER_FROM_EMAIL || "Master Grid <onboarding@resend.dev>";
+
+  await Promise.all(
+    adminRows
+      .filter((a) => a.email)
+      .map((a) =>
+        sendEmail(
+          a.email as string,
+          "New viewer signup on Master Grid",
+          `
+            <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
+              <p>A viewer just activated their account:</p>
+              <p style="font-size: 16px; margin: 16px 0;">
+                <strong>${viewerLabel}</strong><br />
+                ${newUserEmail}
+              </p>
+              <p>- Master Grid</p>
+            </div>
+          `,
+          `A viewer just activated their account:\n${viewerLabel}\n${newUserEmail}\n\n- Master Grid`,
+          apiKey,
+          from
+        )
+      )
+  );
+}
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
@@ -150,15 +211,15 @@ export async function GET(request: Request) {
   const explicitNext = searchParams.get("next");
   let next = explicitNext || "/onboarding";
 
-  // "student" or "mentor" - which portal (app/login+/signup vs
-  // app/mentor/login+/mentor/signup) this login/signup started from. Set on
-  // every Google button and every emailRedirectTo across all four pages.
-  // Password login/signup can check the mentors table client-side the
-  // moment a session exists, but Google OAuth and email-confirmation links
-  // only ever get a session HERE, so this is the one place that can enforce
-  // the split for those two flows - bouncing a mentor who signed in through
-  // the student portal (or a student who signed in through the mentor
-  // portal) back out to the correct one instead of ever letting them in.
+  // "student", "mentor", or "viewer" - which portal (app/login+/signup,
+  // app/mentor/login+/mentor/signup, or app/viewer/login+/viewer/signup)
+  // this login/signup started from. Set on every Google button and every
+  // emailRedirectTo across all six pages. Password login/signup can check
+  // the mentors/viewers tables client-side the moment a session exists,
+  // but Google OAuth and email-confirmation links only ever get a session
+  // HERE, so this is the one place that can enforce the split for those
+  // two flows - bouncing anyone who signed in through the wrong portal
+  // back out instead of ever letting them in.
   const portal = searchParams.get("portal");
 
   // A reset-password link's code is one-time-use and expires after a
@@ -186,15 +247,18 @@ export async function GET(request: Request) {
 
     // Portal enforcement - a mentor is defined purely by an active row in
     // the mentors table matching this email (same check used everywhere
-    // else, see lib/mentors.ts findMentorByEmail). Wrong-portal accounts
-    // get signed straight back out before they ever see a real page.
+    // else, see lib/mentors.ts findMentorByEmail), and a viewer purely by
+    // an active row in the separate viewers table (lib/viewers.ts
+    // findViewerByEmail). Wrong-portal accounts get signed straight back
+    // out before they ever see a real page.
     //
     // Admins are exempt from the "student portal, but this email is a
     // mentor" block - there's no separate admin portal, so /login (and its
     // Google button) is still the right door for an admin even if their
     // email is ALSO registered as a mentor. Not exempt from the reverse
-    // (mentor portal requires an actual mentor row) since admin status
-    // alone shouldn't grant the mentor dashboard.
+    // (mentor portal requires an actual mentor row, viewer portal requires
+    // an actual viewer row) since admin status alone shouldn't grant either
+    // dashboard.
     if (user?.email && portal) {
       const { data: profile } = await supabase
         .from("profiles")
@@ -211,6 +275,14 @@ export async function GET(request: Request) {
         .maybeSingle();
       const isMentor = !!mentorRow;
 
+      const { data: viewerRow } = await supabase
+        .from("viewers")
+        .select("id")
+        .ilike("email", user.email)
+        .eq("active", true)
+        .maybeSingle();
+      const isViewer = !!viewerRow;
+
       if (portal === "student" && isMentor && !isAdmin) {
         await supabase.auth.signOut();
         return NextResponse.redirect(`${origin}/login?error=mentor_account`);
@@ -219,13 +291,17 @@ export async function GET(request: Request) {
         await supabase.auth.signOut();
         return NextResponse.redirect(`${origin}/mentor/login?error=not_mentor`);
       }
+      if (portal === "viewer" && !isViewer) {
+        await supabase.auth.signOut();
+        return NextResponse.redirect(`${origin}/viewer/login?error=not_viewer`);
+      }
 
       // Admin notification - only for a genuine signup that just happened
       // (account created in the last few minutes), not every time this same
-      // student or mentor logs back in via Google down the road. Split into
-      // two branches (student vs. mentor) so each gets its own notification
-      // copy and link - see notifyAdminsOfNewStudent / notifyAdminsOfNewMentor
-      // above.
+      // student, mentor, or viewer logs back in via Google down the road.
+      // Split into three branches so each gets its own notification copy
+      // and link - see notifyAdminsOfNewStudent / notifyAdminsOfNewMentor /
+      // notifyAdminsOfNewViewer above.
       const createdMs = user.created_at ? new Date(user.created_at).getTime() : 0;
       const isFreshSignup = createdMs > 0 && Date.now() - createdMs < 5 * 60 * 1000;
       const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
@@ -235,6 +311,9 @@ export async function GET(request: Request) {
       }
       if (portal === "mentor" && isMentor && isFreshSignup) {
         await notifyAdminsOfNewMentor(user.id, user.email ?? "", fullName).catch(() => {});
+      }
+      if (portal === "viewer" && isViewer && isFreshSignup) {
+        await notifyAdminsOfNewViewer(user.id, user.email ?? "", fullName).catch(() => {});
       }
     }
 
