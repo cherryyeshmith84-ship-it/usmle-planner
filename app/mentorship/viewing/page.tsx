@@ -4,22 +4,30 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import type { Mentor } from "@/lib/mentors";
 import { findMentorByEmail } from "@/lib/mentors";
+import { findViewerByEmail, type Viewer } from "@/lib/viewers";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
 /**
- * "Students you can view" - students this mentor is NOT the primary/
- * assigned mentor for, but an admin has granted them read-only "viewer"
- * access to (mentor_student_viewers, see migration
- * create_mentor_student_viewers). Deliberately a separate page from
- * /mentorship/students ("Your students") rather than merged into it, so
- * it's always obvious at a glance that everyone here is someone else's
- * student - the profile page itself also hides every edit control
- * (planner editor, notes editor, meeting link editor) for anyone who only
- * has viewer access, on top of the RLS layer already making writes
- * impossible.
+ * "Students you can view" - every student this mentor is NOT the primary/
+ * assigned mentor for, but has read-only access to. Two separate sources
+ * feed into this one list, merged together so a mentor only ever has to
+ * check one page instead of two:
+ *
+ * 1. mentor_student_viewers - an admin gave THIS mentor account read-only
+ *    access to someone else's student (see ViewerMentorsEditor.tsx).
+ * 2. student_viewers - this same email is ALSO on the separate, non-mentor
+ *    "viewers" roster (lib/viewers.ts) and was granted access there (see
+ *    StudentViewersEditor.tsx / the /viewer portal). A person who's both a
+ *    mentor AND was added to the viewers roster under the same email
+ *    shouldn't need a second login just to see those students too - they
+ *    show up right here alongside the mentor-viewer grants. Someone who is
+ *    ONLY a viewer (no mentors row at all) still can't reach this page at
+ *    all (see the redirect below) and uses their own /viewer dashboard
+ *    instead - this merge only ever helps an account that's already a
+ *    mentor.
  */
 export default async function MentorViewingPage() {
   const supabase = createClient();
@@ -41,16 +49,33 @@ export default async function MentorViewingPage() {
   const myMentorRecord = findMentorByEmail(mentors, user.email);
   if (!myMentorRecord) redirect("/mentorship");
 
-  // Which students an admin has granted this mentor viewer access to -
-  // "Mentors can see their own viewer grants" RLS scopes this to exactly
-  // this mentor's own rows already, but filtering by mentor_id explicitly
-  // keeps this query self-documenting (same reasoning as the explicit
-  // .ilike on /mentorship/students rather than relying on RLS alone).
-  const { data: grantsData } = await supabase
+  // Source 1: students an admin granted THIS mentor read-only access to
+  // via the mentor-viewer control. "Mentors can see their own viewer
+  // grants" RLS scopes this to exactly this mentor's own rows already, but
+  // filtering by mentor_id explicitly keeps this query self-documenting
+  // (same reasoning as the explicit .ilike on /mentorship/students rather
+  // than relying on RLS alone).
+  const { data: mentorGrantsData } = await supabase
     .from("mentor_student_viewers")
     .select("student_id")
     .eq("mentor_id", myMentorRecord.id);
-  const studentIds = (grantsData ?? []).map((g: { student_id: string }) => g.student_id);
+  const mentorGrantIds = (mentorGrantsData ?? []).map((g: { student_id: string }) => g.student_id);
+
+  // Source 2: if this same email is ALSO on the separate, non-mentor
+  // viewers roster, pull whatever students were granted there too, then
+  // merge (deduped) with source 1 above.
+  const { data: viewersData } = await supabase.from("viewers").select("*").eq("active", true);
+  const myViewerRecord = findViewerByEmail((viewersData ?? []) as Viewer[], user.email);
+  let viewerGrantIds: string[] = [];
+  if (myViewerRecord) {
+    const { data: viewerGrantsData } = await supabase
+      .from("student_viewers")
+      .select("student_id")
+      .eq("viewer_id", myViewerRecord.id);
+    viewerGrantIds = (viewerGrantsData ?? []).map((g: { student_id: string }) => g.student_id);
+  }
+
+  const studentIds = Array.from(new Set([...mentorGrantIds, ...viewerGrantIds]));
 
   let viewableStudents: Pick<
     Profile,
