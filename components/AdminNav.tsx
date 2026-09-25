@@ -45,7 +45,14 @@ const GROUPS: NavGroup[] = [
   },
   {
     title: "Mentorship",
-    items: [{ href: "/admin/mentors", label: "Mentors" }],
+    items: [
+      { href: "/admin/mentors", label: "Mentors" },
+      // Separate roster from Mentors above - a "viewer" is never a mentor,
+      // never has availability/sessions, and is added directly here rather
+      // than picked from the mentors list (see lib/viewers.ts and
+      // ViewerAdminClient.tsx).
+      { href: "/admin/viewers", label: "Viewers" },
+    ],
   },
   {
     title: "Settings",
