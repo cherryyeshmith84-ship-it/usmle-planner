@@ -177,10 +177,10 @@ export default function AdminStudentDetail({
           <img
             src={student.avatar_url}
             alt=""
-            className="w-14 h-14 rounded-full object-cover border border-slate-700 shrink-0"
+            className="w-20 h-20 rounded-full object-cover border border-slate-700 shrink-0"
           />
         ) : (
-          <span className="w-14 h-14 rounded-full bg-brand-900/50 text-brand-300 text-lg font-bold flex items-center justify-center shrink-0">
+          <span className="w-20 h-20 rounded-full bg-brand-900/50 text-brand-300 text-2xl font-bold flex items-center justify-center shrink-0">
             {(student.full_name || student.email || "?").trim().charAt(0).toUpperCase()}
           </span>
         )}
