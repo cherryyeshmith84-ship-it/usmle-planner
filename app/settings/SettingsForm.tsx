@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ExamTrack, PrepStage, Profile } from "@/lib/types";
+import ImageUploadField from "@/components/ImageUploadField";
 
 const RESOURCE_OPTIONS = [
   "UWorld",
@@ -31,6 +32,13 @@ const RESOURCE_OPTIONS = [
  * so a mentor/admin knows to double check whether the student's existing
  * plan still makes sense, without this component needing to know anything
  * about that admin-side logic itself.
+ *
+ * Profile picture uploads straight to the "student-photos" Storage bucket
+ * (see migration add_avatar_url_and_student_photos_bucket), under this
+ * student's own user id as the folder - same ImageUploadField.tsx pattern
+ * UWorldBlockTracker.tsx uses for block screenshots. A new student sees the
+ * same field during onboarding (app/onboarding/OnboardingForm.tsx); this is
+ * just the "change it later" version of that same field.
  */
 export default function SettingsForm({
   profile,
@@ -43,6 +51,7 @@ export default function SettingsForm({
 }) {
   const [fullName, setFullName] = useState(profile.full_name ?? "");
   const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url ?? null);
 
   const [track, setTrack] = useState<ExamTrack | "">(profile.exam_track ?? "");
   const [prepStage, setPrepStage] = useState<PrepStage | "">(profile.prep_stage ?? "");
@@ -95,6 +104,7 @@ export default function SettingsForm({
       .update({
         full_name: fullName || null,
         mentor_email: mentorEmail.trim() || null,
+        avatar_url: avatarUrl,
         exam_track: track || null,
         prep_stage: track === "step1" ? prepStage || null : null,
         subject_name: track === "subject" ? subjectName.trim() || null : null,
@@ -127,6 +137,13 @@ export default function SettingsForm({
     <form onSubmit={handleSave} className="space-y-6">
       <div className="card">
         <h2 className="font-semibold mb-4">Account</h2>
+        <ImageUploadField
+          label="Profile picture"
+          value={avatarUrl}
+          onChange={setAvatarUrl}
+          bucket="student-photos"
+          folder={userId}
+        />
         <label className="label">Email</label>
         <input className="input mb-4 bg-slate-800" value={email} disabled />
         <label className="label">Name</label>
