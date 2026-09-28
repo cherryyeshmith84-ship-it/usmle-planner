@@ -1,23 +1,100 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
-import type { Mentor } from "@/lib/mentors";
-import { findMentorByEmail } from "@/lib/mentors";
+import type { Mentor, MentorSlot, SessionNote } from "@/lib/mentors";
+import { findMentorByEmail, formatSlotDate, formatSlotTime, getSlotStatus } from "@/lib/mentors";
+import { findViewerByEmail, type Viewer } from "@/lib/viewers";
 import { getContentPublished } from "@/lib/platformSettings";
+import { computeDisciplineStrengths, computeSystemStrengths, type ScoreReport } from "@/lib/scoreReports";
+import type { PlannerColumn, PlannerEntry, StudyResource } from "@/lib/plannerColumns";
+import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
+import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import type { PlanTask } from "@/lib/planTasks";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
+import StudyPlanEditor from "@/components/StudyPlanEditor";
+import MeetingLinkEditor from "@/components/MeetingLinkEditor";
+import StudentNotesEditor from "@/components/StudentNotesEditor";
+import MentorScoreReportRow from "@/components/MentorScoreReportRow";
+import AssignToPlanButton from "@/components/AssignToPlanButton";
+import PlannerStartDateControl from "@/components/PlannerStartDateControl";
+import PlannerCalendar from "@/components/PlannerCalendar";
+import MentorChatPanel from "@/components/MentorChatPanel";
+import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
+import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
+import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
+import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 
 export const dynamic = "force-dynamic";
 
+const STAGE_LABEL: Record<string, string> = {
+  beginning: "Just starting",
+  middle: "In the middle",
+  end: "Final stretch",
+};
+
+const TREND_LABEL: Record<string, string> = {
+  improving: "↑ Improving",
+  declining: "↓ Declining",
+  flat: "→ Flat",
+  unknown: "",
+};
+const TREND_STYLE: Record<string, string> = {
+  improving: "text-green-400",
+  declining: "text-red-400",
+  flat: "text-slate-400",
+  unknown: "text-slate-500",
+};
+
+function scoreBadgeClass(pct: number | null) {
+  if (pct === null) return "bg-slate-800 text-slate-300";
+  if (pct >= 75) return "bg-green-900/40 text-green-400";
+  if (pct >= 60) return "bg-yellow-900/40 text-yellow-400";
+  if (pct >= 45) return "bg-orange-900/40 text-orange-400";
+  return "bg-red-900/40 text-red-400";
+}
+
 /**
- * Dedicated "Students" page for a mentor - every student who has linked this
- * mentor's email (Settings/onboarding "Your mentor's email" field), reached
- * via its own sidebar link (see NavBar.tsx) instead of being buried partway
- * down the mentor dashboard's scroll. Opening a student now lands on their
- * tabbed profile (Overview / Sessions / Study Planner / Analysis /
- * Messages) at /mentorship/student/[id] instead of one long page.
+ * "Student progress" view a mentor can open for a specific student. Score
+ * reports stay upload-only by the student - a mentor can only view and
+ * review those. Day-to-day planning happens entirely through the same
+ * calendar the student sees on their own /planner (PlannerCalendar.tsx,
+ * with canEdit + mentorId passed in so it becomes a full add/edit/remove
+ * Assignments editor instead of a read-only checklist).
+ *
+ * Split into tabs (Overview / Sessions / Study Planner / Analysis /
+ * Messages) via MentorStudentTabs.tsx instead of one long scrolling page -
+ * mirrors the same grouping a student sees for themselves in the sidebar
+ * (Mentorship / Upcoming Sessions / Study Planner / Analysis), just scoped
+ * to this one student and reached as in-page tabs since a mentor is
+ * switching between sections for the SAME student rather than navigating
+ * their own account. Sessions and Messages only make sense for this
+ * student's actual mentor, so those two tabs are omitted entirely for an
+ * admin browsing without a mentor relationship, for a read-only "viewer"
+ * mentor, and for a pure (non-mentor) viewer (see canEdit below).
+ *
+ * This page is shared by THREE kinds of read access, on top of the primary
+ * mentor's full edit access: an admin, a "viewer mentor" (an existing
+ * mentor an admin gave read-only access to someone else's student - see
+ * ViewerMentorsEditor.tsx), and a pure "viewer" (someone who isn't a
+ * mentor at all - see lib/viewers.ts and StudentViewersEditor.tsx). All
+ * three see the exact same read-only tabs; isPureViewer below only changes
+ * which page shell wraps them and where "Back" sends them, since a pure
+ * viewer has no reason to see the full student/mentor AppShell nav
+ * (Home/Learn/Improve/Mentorship don't apply to them at all).
+ *
+ * RLS (is_mentor_of_student - see migrations mentor_read_student_progress
+ * and mentor_write_student_planner_entries - OR is_viewer_mentor_of_student
+ * / is_viewer_of_student, see migrations create_mentor_student_viewers and
+ * create_viewers_and_student_viewers) is what actually enforces that a
+ * mentor or viewer can only load a student they have a real relationship
+ * OR an admin-granted viewer/grant relationship with, and that only a REAL
+ * mentor relationship can write anything - this page's own checks below
+ * are just a friendlier 404/read-only UI on top of that.
  */
-export default async function MentorStudentsPage() {
+export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
   const supabase = createClient();
   const {
     data: { user },
@@ -35,90 +112,684 @@ export default async function MentorStudentsPage() {
   const { data: mentorsData } = await supabase.from("mentors").select("*").eq("active", true);
   const mentors = (mentorsData ?? []) as Mentor[];
   const myMentorRecord = findMentorByEmail(mentors, user.email);
-  // Only mentors have any reason to land here - a student (or an admin, who
-  // has their own /admin/students list) hitting this URL just gets sent back.
-  if (!myMentorRecord) redirect("/mentorship");
 
-  // Filtered explicitly by THIS mentor's own email, not left to RLS alone -
-  // "Mentors can view profiles of students who linked their email" does
-  // scope a plain mentor account correctly, but an admin account (or any
-  // account that also matches one of the OTHER "mentor can view" policies,
-  // e.g. having once booked/messaged a student who has since been
-  // reassigned) additionally satisfies broader policies like "Admins can
-  // view all profiles" - Postgres RLS OR's every matching policy together,
-  // so without this explicit filter an admin-mentor would see every
-  // student assigned to every mentor here, not just their own. Bit us in
-  // practice: a student reassigned away from this mentor kept showing up
-  // in "Your students" because the viewer was also an admin.
-  const { data: linkedStudentsData } = await supabase
+  // Whether the signed-in email belongs to the separate, non-mentor
+  // "viewer" roster at all (lib/viewers.ts) - checked before the
+  // per-student grant below so a viewer with no grant for THIS student can
+  // still be sent back to their own /viewer dashboard instead of the
+  // generic /mentorship redirect a totally unrelated account would get.
+  let myViewerRecord: Viewer | null = null;
+  if (!myMentorRecord && !profile?.is_admin) {
+    const { data: viewersData } = await supabase.from("viewers").select("*").eq("active", true);
+    myViewerRecord = findViewerByEmail((viewersData ?? []) as Viewer[], user.email);
+  }
+
+  // Whether an admin has actually granted this specific viewer access to
+  // THIS specific student (student_viewers) - being on the viewers roster
+  // at all isn't enough on its own, same as being an active mentor isn't
+  // enough to read a student they have no relationship with (RLS enforces
+  // this regardless; this is just what decides the page's own UI branch).
+  let isPureViewer = false;
+  if (myViewerRecord) {
+    const { data: grantRow } = await supabase
+      .from("student_viewers")
+      .select("id")
+      .eq("student_id", params.studentId)
+      .eq("viewer_id", myViewerRecord.id)
+      .maybeSingle();
+    isPureViewer = !!grantRow;
+  }
+
+  // Only mentors, admins, and pure viewers with an actual grant for this
+  // student have any reason to land here. A viewer account with no grant
+  // for this particular student goes back to their own dashboard; anyone
+  // else (a random student, say) goes back to /mentorship same as before.
+  if (!myMentorRecord && !profile?.is_admin && !isPureViewer) {
+    redirect(myViewerRecord ? "/viewer" : "/mentorship");
+  }
+
+  // Whether this mentor is the student's REAL mentor (current mentor_email,
+  // or a historical relationship via a past booking/message - see
+  // is_mentor_of_student's own doc comment) as opposed to only having
+  // read-only "viewer" access an admin granted via mentor_student_viewers.
+  // Both cases let the profile query below succeed (two separate RLS
+  // SELECT policies on profiles), so this RPC call is the only way to tell
+  // them apart - without it, a viewer-only mentor would see every edit
+  // control below (notes, meeting link, planner, study plan) and only find
+  // out writes silently fail once they actually tried to save.
+  const { data: isRealMentorData } = myMentorRecord
+    ? await supabase.rpc("is_mentor_of_student", { target_student_id: params.studentId })
+    : { data: false };
+  const canEdit = !!myMentorRecord && !!isRealMentorData;
+
+  const { data: studentData } = await supabase
     .from("profiles")
-    .select("id, full_name, email, avatar_url, status_update, status_updated_at, exam_date")
-    // Case-insensitive match (ilike with no wildcards = exact match
-    // ignoring case) - a student can type their mentor's email by hand
-    // under Settings, so it isn't guaranteed to be cased identically to
-    // this mentor's own mentors.email row. Matches how the RLS policy
-    // backing this same relationship (lower(mentor_email) = lower(email))
-    // already treats it.
-    .ilike("mentor_email", myMentorRecord.email)
-    .order("full_name", { ascending: true });
-  const linkedStudents = (linkedStudentsData ?? []) as Pick<
+    .select(
+      "id, full_name, email, avatar_url, status_update, status_updated_at, exam_track, subject_name, prep_stage, exam_date, daily_hour_goal, resources, completed_so_far, weak_areas, strong_areas, goals_notes"
+    )
+    .eq("id", params.studentId)
+    .maybeSingle();
+  // RLS on profiles only returns a row here if this mentor/viewer actually
+  // has a relationship (real, viewer-mentor, or pure-viewer grant) with
+  // this student, or the viewer is an admin - no row means either the
+  // student doesn't exist or there's no relationship at all, and either
+  // way a 404 is the right, non-leaky response.
+  if (!studentData) notFound();
+  const student = studentData as Pick<
     Profile,
-    "id" | "full_name" | "email" | "avatar_url" | "status_update" | "status_updated_at" | "exam_date"
-  >[];
+    | "id"
+    | "full_name"
+    | "email"
+    | "avatar_url"
+    | "status_update"
+    | "status_updated_at"
+    | "exam_track"
+    | "subject_name"
+    | "prep_stage"
+    | "exam_date"
+    | "daily_hour_goal"
+    | "resources"
+    | "completed_so_far"
+    | "weak_areas"
+    | "strong_areas"
+    | "goals_notes"
+  >;
+
+  const [
+    scoreReportsRes,
+    plannerColumnsRes,
+    plannerEntriesRes,
+    slotsRes,
+    notesRes,
+    studyPlanRes,
+    meetingLinkRes,
+    studentNoteRes,
+    dailyNotesRes,
+    planTasksRes,
+    plannerSettingsRes,
+    blocksRes,
+    resourcesRes,
+    topicChecklistRes,
+  ] = await Promise.all([
+    supabase
+      .from("score_reports")
+      .select("*")
+      .eq("user_id", params.studentId)
+      .order("taken_date", { ascending: false }),
+    // Both the shared global defaults (student_id null) AND this student's
+    // own customized columns (if their mentor has set any up) - not
+    // filtered to active=true here since MentorPlannerColumnsEditor also
+    // needs to manage hidden ones. resolvePlannerColumns below picks which
+    // set actually applies, then it's filtered to active for display.
+    supabase.from("planner_columns").select("*").or(`student_id.is.null,student_id.eq.${params.studentId}`),
+    // No date limit here (unlike the old read-only summary table) - the
+    // editable grid below computes its own visible date range and needs
+    // the full history to know what's actually been logged.
+    supabase.from("planner_entries").select("*").eq("user_id", params.studentId),
+    // The next five queries are all scoped to THIS signed-in mentor's own
+    // relationship with this student (sessions they personally booked,
+    // their own session notes/study plan/meeting link/private note) - a
+    // read-only viewer (mentor or pure viewer) has none of these with a
+    // student they're not actually assigned to, so there's nothing to
+    // fetch for them. Gated on canEdit (not just myMentorRecord) so a
+    // viewer's page load doesn't even attempt these mentor-private
+    // lookups.
+    canEdit
+      ? supabase
+          .from("mentor_slots")
+          .select("*")
+          .eq("mentor_id", myMentorRecord!.id)
+          .eq("booked_by", params.studentId)
+          .eq("is_booked", true)
+          .order("start_time", { ascending: false })
+      : Promise.resolve({ data: [] as MentorSlot[] }),
+    canEdit
+      ? supabase
+          .from("mentor_session_notes")
+          .select("*")
+          .eq("mentor_id", myMentorRecord!.id)
+          .eq("student_id", params.studentId)
+      : Promise.resolve({ data: [] as SessionNote[] }),
+    canEdit
+      ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    // Scoped to THIS mentor specifically, not just the student - the table
+    // only ever holds one row per student (student_id is the primary key),
+    // so if this student previously had a different mentor who set a link,
+    // that row is still sitting there with the old mentor_id until
+    // overwritten. Without the mentor_id filter here, a new mentor opening
+    // this page would see the old mentor's stale link as if it were their
+    // own. Filtering it out entirely (rather than showing it) means the new
+    // mentor sees no link yet and adds their own, which then correctly
+    // overwrites the row via MeetingLinkEditor's upsert.
+    canEdit
+      ? supabase
+          .from("mentor_meeting_links")
+          .select("*")
+          .eq("student_id", params.studentId)
+          .eq("mentor_id", myMentorRecord!.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    // Same per-(mentor, student) scoping as the meeting link above - see
+    // StudentNotesEditor.tsx's doc comment for why the mentor_id filter
+    // matters here too.
+    canEdit
+      ? supabase
+          .from("mentor_student_notes")
+          .select("*")
+          .eq("student_id", params.studentId)
+          .eq("mentor_id", myMentorRecord!.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
+    supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
+    supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
+    supabase.from("uworld_blocks").select("*").eq("user_id", params.studentId),
+    supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
+    // resource added alongside category/topic so the checklist can be
+    // split into 4 independent per-resource tabs (UWorld / Boards and
+    // Beyond / Amboss / Mehlman) in StudentTopicChecklist.tsx - see
+    // migration add_resource_to_student_topic_checklist.
+    supabase
+      .from("student_topic_checklist")
+      .select("resource, category, topic, completed")
+      .eq("student_id", params.studentId),
+  ]);
+
+  const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
+  const allPlannerColumnRows = (plannerColumnsRes.data ?? []) as PlannerColumn[];
+  const plannerColumns = resolvePlannerColumns(allPlannerColumnRows, params.studentId).filter((c) => c.active);
+  const plannerEntries = (plannerEntriesRes.data ?? []) as PlannerEntry[];
+  const sessions = (slotsRes.data ?? []) as MentorSlot[];
+  const notesBySlotId = new Map<string, SessionNote>((notesRes.data ?? []).map((n: any) => [n.slot_id, n]));
+  const studyPlan = studyPlanRes.data as { content: string; updated_at: string } | null;
+  const meetingLink = meetingLinkRes.data as { meeting_link: string; updated_at: string } | null;
+  const studentNote = studentNoteRes.data as { note: string; updated_at: string } | null;
+  const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
+  const planTasks = (planTasksRes.data ?? []) as PlanTask[];
+  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  const uworldBlocks = (blocksRes.data ?? []) as UWorldBlock[];
+  const studyResources = (resourcesRes.data ?? []) as StudyResource[];
+  const topicChecklistRows = (topicChecklistRes.data ?? []) as TopicChecklistRow[];
+
+  const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
+  const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
+
+  // Full comparison tables (not just the top-5 weakest above) - a mentor
+  // planning a session needs to see every system/discipline across every
+  // report, the same depth the student themselves sees on their own
+  // Analysis page, not just a quick-glance summary.
+  const regularReports = scoreReports.filter((r) => r.exam_type !== "question_level");
+  const comparisonReports = [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
+  const allSystemStrengths = computeSystemStrengths(regularReports);
+  const allDisciplineStrengths = computeDisciplineStrengths(regularReports);
+
+  // Self-reported day-to-day qbank performance (Question Bank Blocks,
+  // logged from the Study Planner calendar below) - separate from the
+  // uploaded score reports above, broken out per system per bank.
+  const qbankBreakdown = computeQBankSystemBreakdown(uworldBlocks);
+
+  // --- Tab contents -------------------------------------------------------
+
+  const overviewContent = (
+    <div className="space-y-8">
+      {/* Status - the student's own free-text update, from Settings or
+          their Home dashboard (components/StatusUpdateCard.tsx). Not shown
+          at all if they've never set one, rather than an empty card. */}
+      {student.status_update && (
+        <div className="card">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Status</p>
+          <p className="text-sm text-slate-300 whitespace-pre-wrap">{student.status_update}</p>
+          {student.status_updated_at && (
+            <p className="text-xs text-slate-600 mt-1">
+              Updated {formatSlotDate(student.status_updated_at)} at {formatSlotTime(student.status_updated_at)}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Intake - what this student filled in on "Tell us about your prep"
+          during onboarding (app/onboarding/OnboardingForm.tsx). */}
+      <div className="card grid sm:grid-cols-2 gap-4">
+        <div>
+          <p className="label">Track</p>
+          <p className="text-sm">
+            {student.exam_track === "subject"
+              ? `Subject exams${student.subject_name ? ` - ${student.subject_name}` : ""}`
+              : student.exam_track === "step1"
+              ? "Step 1 (CBSE)"
+              : "Not set"}
+          </p>
+        </div>
+        <div>
+          <p className="label">Prep stage</p>
+          <p className="text-sm">{student.prep_stage ? STAGE_LABEL[student.prep_stage] : "Not set"}</p>
+        </div>
+        <div>
+          <p className="label">Exam date</p>
+          <p className="text-sm">{student.exam_date || "Not set"}</p>
+        </div>
+        <div>
+          <p className="label">Daily hour goal</p>
+          <p className="text-sm">{student.daily_hour_goal ? `${student.daily_hour_goal}h` : "Not set"}</p>
+        </div>
+        <div className="sm:col-span-2">
+          <p className="label">Resources</p>
+          <p className="text-sm">{student.resources?.length ? student.resources.join(", ") : "Not set"}</p>
+        </div>
+      </div>
+
+      {(student.completed_so_far || student.strong_areas || student.weak_areas || student.goals_notes) && (
+        <div className="card space-y-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
+          {student.completed_so_far && (
+            <div>
+              <p className="label">Completed so far</p>
+              <p className="text-sm text-slate-300">{student.completed_so_far}</p>
+            </div>
+          )}
+          {student.strong_areas && (
+            <div>
+              <p className="label">Strong in</p>
+              <p className="text-sm text-slate-300">{student.strong_areas}</p>
+            </div>
+          )}
+          {student.weak_areas && (
+            <div>
+              <p className="label">Struggling with</p>
+              <p className="text-sm text-slate-300">{student.weak_areas}</p>
+            </div>
+          )}
+          {student.goals_notes && (
+            <div>
+              <p className="label">Goals / wants</p>
+              <p className="text-sm text-slate-300">{student.goals_notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Systems & Disciplines coverage checklist - edit-only, so it only
+          renders when the viewer actually has REAL (not viewer-only) mentor
+          access to this student (same gating MeetingLinkEditor below
+          uses). */}
+      {canEdit && (
+        <StudentTopicChecklist
+          studentId={params.studentId}
+          mentorId={myMentorRecord!.id}
+          initialRows={topicChecklistRows}
+        />
+      )}
+
+      {/* Notes - a standing, mentor-only note about this student, shown
+          above the Meeting link card below. See StudentNotesEditor.tsx for
+          how this differs from the per-day Mentor Notes on the Study
+          Planner calendar and from per-session notes. Edit-only - a
+          read-only viewer never sees this, same as they never see
+          mentor_daily_notes (see the RLS policies in migrations
+          create_mentor_student_viewers and
+          create_viewers_and_student_viewers). */}
+      {canEdit && (
+        <StudentNotesEditor
+          studentId={params.studentId}
+          mentorId={myMentorRecord!.id}
+          currentUserId={user.id}
+          initialNote={studentNote?.note ?? null}
+          initialUpdatedAt={studentNote?.updated_at ?? null}
+        />
+      )}
+
+      {/* Meeting link - permanent per-(mentor, student) room, different
+          students of the same mentor can have different links. Edit-only. */}
+      {canEdit && (
+        <MeetingLinkEditor
+          studentId={params.studentId}
+          mentorId={myMentorRecord!.id}
+          currentUserId={user.id}
+          initialLink={meetingLink?.meeting_link ?? null}
+          initialUpdatedAt={meetingLink?.updated_at ?? null}
+        />
+      )}
+    </div>
+  );
+
+  const sessionsContent = (
+    <div>
+      {sessions.length === 0 ? (
+        <p className="text-sm text-slate-500">No sessions with this student yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map((s) => {
+            const status = getSlotStatus(s);
+            const note = notesBySlotId.get(s.id);
+            return (
+              <div key={s.id} className="card py-3">
+                <p className="text-sm">
+                  {formatSlotDate(s.start_time)}, {formatSlotTime(s.start_time)}&ndash;
+                  {formatSlotTime(s.end_time)}{" "}
+                  <span className="text-slate-500">
+                    ({status === "upcoming" ? "Upcoming" : status === "cancelled" ? "Cancelled" : "Completed"})
+                  </span>
+                </p>
+                {note && (
+                  <div className="mt-2 pl-1 space-y-1 text-sm text-slate-300">
+                    {note.discussion && <p><span className="text-slate-500">Discussion:</span> {note.discussion}</p>}
+                    {note.strengths && <p><span className="text-slate-500">Strengths:</span> {note.strengths}</p>}
+                    {note.weaknesses && <p><span className="text-slate-500">Weaknesses:</span> {note.weaknesses}</p>}
+                    {note.study_plan && <p><span className="text-slate-500">Study plan:</span> {note.study_plan}</p>}
+                    {note.goals && <p><span className="text-slate-500">Goals:</span> {note.goals}</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  const studyPlannerContent = (
+    <div className="space-y-8">
+      {/* Planner schedule - where this student's plan starts. Edit-only. */}
+      {canEdit && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
+          <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
+        </div>
+      )}
+
+      {/* Study planner - the same calendar the student sees on their own
+          /planner. Click a day to add/edit Assignments, log UWorld blocks,
+          and read/write Mentor Notes - editable only when the viewer has
+          REAL (not viewer-only) mentor access to this student. */}
+      <div>
+        <PlannerCalendar
+          targetUserId={params.studentId}
+          initialTasks={planTasks}
+          initialEntries={plannerEntries}
+          initialBlocks={uworldBlocks}
+          initialMentorNotes={dailyNotes}
+          studyResources={studyResources}
+          mainColumns={mainPlannerColumns(plannerColumns)}
+          columns={plannerColumns}
+          canEdit={canEdit}
+          mentorId={myMentorRecord?.id ?? null}
+          startDate={plannerStartDate}
+          todayIso={easternDateStringNow()}
+        />
+      </div>
+    </div>
+  );
+
+  const analysisContent = (
+    <div className="space-y-8">
+      <div>
+        {scoreReports.length === 0 ? (
+          <p className="text-sm text-slate-500">No score reports uploaded yet.</p>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="card">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Weakest systems</p>
+              <div className="space-y-1.5">
+                {systemStrengths.map((s) => (
+                  <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
+                    <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
+                    <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                      <span className="text-slate-400">
+                        {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                      </span>
+                      {canEdit && (
+                        <AssignToPlanButton
+                          studentId={params.studentId}
+                          mentorId={myMentorRecord!.id}
+                          title={`Review ${s.system}`}
+                          detail={`Weak system - ${s.averagePercent}% average${
+                            s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
+                          }`}
+                        />
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                Weakest disciplines
+              </p>
+              <div className="space-y-1.5">
+                {disciplineStrengths.length === 0 ? (
+                  <p className="text-sm text-slate-500">No discipline breakdown available.</p>
+                ) : (
+                  disciplineStrengths.map((s) => (
+                    <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
+                      <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
+                      <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                        <span className="text-slate-400">
+                          {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
+                        </span>
+                        {canEdit && (
+                          <AssignToPlanButton
+                            studentId={params.studentId}
+                            mentorId={myMentorRecord!.id}
+                            title={`Review ${s.system}`}
+                            detail={`Weak discipline - ${s.averagePercent}% average${
+                              s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
+                            }`}
+                          />
+                        )}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {comparisonReports.length > 1 && (
+          <div className="card overflow-x-auto mt-4">
+            <p className="text-sm font-semibold mb-3">Progress by system</p>
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="pr-3 py-1">System</th>
+                  {comparisonReports.map((r) => (
+                    <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                      {r.taken_date ?? "?"}
+                      <br />
+                      <span className="text-slate-600">{r.exam_name}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allSystemStrengths.map((s) => (
+                  <tr key={s.system} className="border-t border-slate-800">
+                    <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                    {comparisonReports.map((r) => {
+                      const pct = r.system_breakdown?.[s.system];
+                      return (
+                        <td key={r.id} className="px-2 py-1.5 text-center">
+                          {typeof pct === "number" ? (
+                            <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                          ) : (
+                            <span className="text-slate-700">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {comparisonReports.length > 1 && allDisciplineStrengths.length > 0 && (
+          <div className="card overflow-x-auto mt-4">
+            <p className="text-sm font-semibold mb-3">Progress by discipline</p>
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="pr-3 py-1">Discipline</th>
+                  {comparisonReports.map((r) => (
+                    <th key={r.id} className="px-2 py-1 whitespace-nowrap">
+                      {r.taken_date ?? "?"}
+                      <br />
+                      <span className="text-slate-600">{r.exam_name}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allDisciplineStrengths.map((s) => (
+                  <tr key={s.system} className="border-t border-slate-800">
+                    <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{s.system}</td>
+                    {comparisonReports.map((r) => {
+                      const pct = r.discipline_breakdown?.[s.system];
+                      return (
+                        <td key={r.id} className="px-2 py-1.5 text-center">
+                          {typeof pct === "number" ? (
+                            <span className={`rounded-full px-1.5 py-0.5 ${scoreBadgeClass(pct)}`}>{pct}</span>
+                          ) : (
+                            <span className="text-slate-700">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
+        <QBankSystemBreakdown cells={qbankBreakdown} />
+      </div>
+
+      {/* Study plan - only when the viewer has REAL mentor access; overrides
+          the default AI-generated study plan the student otherwise sees on
+          their own Analysis page. */}
+      {canEdit && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Study plan</h2>
+          <StudyPlanEditor
+            studentId={params.studentId}
+            mentorId={myMentorRecord!.id}
+            currentUserId={user.id}
+            initialContent={studyPlan?.content ?? null}
+            initialUpdatedAt={studyPlan?.updated_at ?? null}
+          />
+        </div>
+      )}
+
+      {/* Score reports */}
+      {scoreReports.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold mb-3">Score reports</h2>
+          <div className="space-y-2">
+            {scoreReports.map((r) => (
+              <MentorScoreReportRow key={r.id} report={r} canReview={canEdit} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const messagesContent = canEdit ? (
+    <MentorChatPanel
+      mentorId={myMentorRecord!.id}
+      studentId={params.studentId}
+      otherPartyLabel={student.full_name || "this student"}
+    />
+  ) : null;
+
+  // Sessions and Messages only make sense for this student's REAL mentor -
+  // a read-only viewer (mentor or pure viewer) never booked sessions or
+  // messaged this student, so both tabs are left out entirely for them
+  // (same as they already were for admins browsing without any mentor
+  // relationship at all).
+  const tabs: StudentTabDef[] = [
+    { id: "overview", label: "Overview", content: overviewContent },
+    ...(canEdit ? [{ id: "sessions", label: "Sessions", content: sessionsContent }] : []),
+    { id: "planner", label: "Study Planner", content: studyPlannerContent },
+    { id: "analysis", label: "Analysis", content: analysisContent },
+    ...(canEdit ? [{ id: "messages", label: "Messages", content: messagesContent }] : []),
+  ];
+
+  // A pure viewer came from their own /viewer dashboard and has no reason
+  // to ever see /mentorship/*. A viewer-only mentor came from "Students you
+  // can view", not "Your students" - sending "Back" to a list they don't
+  // have (or that just wouldn't include this student) would be a dead end.
+  const backHref = isPureViewer
+    ? "/viewer"
+    : myMentorRecord && !canEdit
+    ? "/mentorship/viewing"
+    : "/mentorship/students";
+
+  const mainContent = (
+    <main className="flex-1 px-6 py-8 w-full">
+      <Link href={backHref} className="text-xs text-brand-400 hover:text-brand-300">
+        ← Back to students
+      </Link>
+      <div className="flex items-center gap-3 mt-2 mb-1">
+        {student.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={student.avatar_url}
+            alt=""
+            className="w-20 h-20 rounded-full object-cover border border-slate-700 shrink-0"
+          />
+        ) : (
+          <span className="w-20 h-20 rounded-full bg-brand-900/50 text-brand-300 text-2xl font-bold flex items-center justify-center shrink-0">
+            {(student.full_name || "?").trim().charAt(0).toUpperCase()}
+          </span>
+        )}
+        <h1 className="text-xl font-bold">{student.full_name || "Student"}</h1>
+      </div>
+      <p className="text-sm text-slate-400 mb-6">
+        {canEdit
+          ? "Click a tab to switch sections, or click any day on the Study Planner calendar to add or edit Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
+          : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
+      </p>
+
+      <MentorStudentTabs tabs={tabs} defaultTab="overview" />
+    </main>
+  );
+
+  // A pure (non-mentor) viewer never gets the shared AppShell/NavBar - that
+  // nav is built entirely around Home/Learn/Improve/Mentorship, none of
+  // which apply to someone who isn't a student or a mentor (see
+  // app/viewer/page.tsx's own doc comment for the same reasoning). A
+  // minimal standalone header keeps their "separated dashboard" true
+  // everywhere they can go, not just on their own landing page.
+  if (isPureViewer) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <header className="border-b border-slate-800 bg-white px-6 py-4 flex items-center justify-between shrink-0">
+          <Link href="/viewer" className="flex items-center gap-2">
+            <img src="/logo.png" alt="" className="w-7 h-7 rounded-md" />
+            <span className="font-bold text-brand-300">
+              Master Grid <span className="text-slate-500 font-normal">&middot; Viewer</span>
+            </span>
+          </Link>
+          <form action="/auth/signout" method="post">
+            <button className="text-sm font-medium text-slate-500 hover:text-slate-300">Sign out</button>
+          </form>
+        </header>
+        <div className="flex-1 overflow-y-auto">{mainContent}</div>
+      </div>
+    );
+  }
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
-      <main className="flex-1 px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-1">Your students</h1>
-        <p className="text-sm text-slate-400 mb-6">
-          Everyone who has linked your email as their mentor. Open a student to see their sessions, study
-          planner, analysis, and messages.
-        </p>
-        {linkedStudents.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            No students have linked your email yet - once a student adds your email under their Settings,
-            they&apos;ll show up here.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {linkedStudents.map((s) => (
-              <Link
-                key={s.id}
-                href={`/mentorship/student/${s.id}`}
-                className="card py-3 flex items-center gap-3 text-sm hover:border-brand-400 transition"
-              >
-                {s.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={s.avatar_url}
-                    alt=""
-                    className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0"
-                  />
-                ) : (
-                  <span className="w-10 h-10 rounded-full bg-brand-900/50 text-brand-300 text-sm font-bold flex items-center justify-center shrink-0">
-                    {(s.full_name || "?").trim().charAt(0).toUpperCase()}
-                  </span>
-                )}
-                <div className="min-w-0 flex-1 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p>
-                      <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
-                      <span className="text-slate-500">&middot; {s.email}</span>
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {s.exam_date ? `Exam ${s.exam_date}` : "No exam date set"}
-                    </p>
-                    {s.status_update && (
-                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">&ldquo;{s.status_update}&rdquo;</p>
-                    )}
-                  </div>
-                  <span className="text-xs text-brand-400 shrink-0">Open →</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </main>
+      {mainContent}
     </AppShell>
   );
 }
