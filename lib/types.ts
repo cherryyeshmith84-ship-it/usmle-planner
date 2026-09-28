@@ -1,5 +1,3 @@
-import type { ErrorType, QBankQuestionType, QuestionDifficulty } from "./qbankTypes";
-
 export type PrepStage = "beginning" | "middle" | "end";
 
 export type ExamTrack = "step1" | "subject";
@@ -22,7 +20,6 @@ export interface Profile {
   exam_date: string | null;
   prep_stage: PrepStage | null;
   daily_hour_goal: number | null;
-  daily_question_goal?: number | null;
   resources: string[] | null;
   ai_instructions: string | null;
   is_admin?: boolean;
@@ -39,37 +36,18 @@ export interface Profile {
   goals_notes?: string | null;
   track_changed_pending?: boolean;
   active_plan_source?: ActivePlanSource;
-  // Student-entered link to a specific mentor (by the mentor's email) -
-  // gives that mentor access to this student's planner/analysis/etc.
-  // immediately, without needing a booked session or a message first. See
-  // is_mentor_of_student() in Postgres, which checks this alongside the
-  // older booking/message paths.
-  mentor_email?: string | null;
-  // Same idea as mentor_email, but for a Tutor/Mentor+Tutor row instead -
-  // kept as a fully separate field (not reused) so a student's mentoring
-  // relationship and tutoring relationship can be with two different
-  // people, and each professional's dashboard only ever shows their own
-  // linked students, never the other's.
-  tutor_email?: string | null;
-  // Free-text status the student sets for their own mentor to see - not
-  // tied to a specific day, just "the latest thing I want my mentor to
-  // know" (e.g. "Feeling behind on Biochem this week"). Editable from
-  // Settings and the Home dashboard (see components/StatusUpdateCard.tsx).
-  status_update?: string | null;
-  status_updated_at?: string | null;
-  // Whether this student has finished or skipped the in-app tutorial
-  // (components/OnboardingTour.tsx) - once true, it never shows again.
-  tutorial_completed?: boolean;
-  // Admin-only flag that pulls this student out of every mentor's
-  // self-service Waiting list (app/mentorship/waiting/page.tsx) without
-  // assigning them a mentor - e.g. a spam/test signup, or someone the
-  // admin wants to route by hand instead of leaving open for any mentor to
-  // self-claim. Toggled from the admin dashboard's "Waiting for a mentor"
-  // list (see components/WaitingVisibilityToggle.tsx). Never affects
-  // anything else - a hidden student still shows up normally everywhere
-  // else in the admin UI, and still gets a mentor exactly the same way
-  // (manual assignment or, once un-hidden, mentor self-claim).
-  waiting_hidden?: boolean;
+  // IANA timezone string (e.g. "America/Chicago") - silently auto-detected
+  // and kept in sync by components/TimezoneSync.tsx on every page load, no
+  // onboarding step or settings UI involved. Null until a student's browser
+  // has reported in at least once; the 9pm planner reminder cron
+  // (app/api/cron/planner-9pm-reminder/route.ts) falls back to Eastern Time
+  // for anyone still null. See migration
+  // add_profile_timezone_and_9pm_reminder_dedup.
+  timezone?: string | null;
+  // Eastern-calendar-date (matches easternDateStringNow()) the 9pm reminder
+  // was last evaluated for this student - internal dedup marker for that
+  // same cron, not surfaced anywhere in the UI.
+  last_9pm_reminder_date?: string | null;
 }
 
 export interface TemplateTask {
@@ -156,70 +134,19 @@ export interface AssessmentChoice {
   // "near" = a close, plausible distractor (tests fine discrimination).
   // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
-  // Optional image shown alongside this specific choice - e.g. an EKG strip
-  // or histology slide that IS the answer choice, not just the question.
-  image_url?: string | null;
-  // Optional short explanation for just this choice (e.g. "A is incorrect
-  // because..."), shown in the explanation section right next to this
-  // choice's letter and image - not buried in one big shared paragraph.
-  rationale?: string | null;
-  // "Error DNA" fields - only meaningful on wrong choices. A short mnemonic
-  // note plus tagging used to spot patterns in what a student tends to
-  // confuse. Mirrors QBankChoice in lib/qbankTypes.ts.
-  error_note?: string | null;
-  error_type?: ErrorType | string | null;
-  confused_with?: string | null;
-  weak_concept?: string | null;
-  // Correct-choice-only field - the one-line "why this is right" takeaway.
-  key_concept?: string | null;
-}
-
-// Extra per-question editor fields, mirroring QBankQuestionMeta in
-// lib/qbankTypes.ts (minus the draft/review/publish status, which doesn't
-// apply here - a whole assessment is saved as one unit, not per question).
-export interface AssessmentQuestionMeta {
-  educational_objective?: string;
-  key_takeaway?: string;
-  exam_trap?: string;
-  topic?: string;
-  subtopic?: string;
-  primary_concept?: string;
-  // Comma-separated free text (kept as a plain string here, rather than an
-  // array, since it's edited inline per-question in a long form).
-  secondary_concepts?: string;
-  difficulty?: QuestionDifficulty;
-  question_type?: QBankQuestionType | string;
-  // Optional table-style answer choices - mirrors
-  // QBankQuestionMeta.answer_table_columns in lib/qbankTypes.ts. When set,
-  // each choice's `text` is interpreted as pipe- ("|") separated cell
-  // values in this column order and rendered as a table with these names
-  // as headers, instead of a plain answer-choice list.
-  answer_table_columns?: string[];
 }
 
 export interface AssessmentQuestion {
   id: string;
   question: string;
-  // Optional image shown alongside the question stem - e.g. a lab-value
-  // table, X-ray, ECG, or histology slide that doesn't work as plain text.
-  question_image_url?: string | null;
   choices: AssessmentChoice[];
   correct_choice_id: string;
   explanation: string;
-  // Optional image shown alongside the explanation (after the student
-  // answers), same idea as question_image_url.
-  explanation_image_url?: string | null;
-  meta?: AssessmentQuestionMeta | null;
 }
-
-export type AssessmentKind = "self_assessment" | "qbank";
 
 export interface Assessment {
   id: string;
   name: string;
-  // "self_assessment" (default): one attempt only, like a real exam.
-  // "qbank": retakeable practice - shows up under the Question Bank tab.
-  kind?: AssessmentKind;
   // Exam is split into blocks: questions_per_block questions each, with
   // block_time_minutes to complete each block (like an NBME-style exam).
   questions_per_block: number;
