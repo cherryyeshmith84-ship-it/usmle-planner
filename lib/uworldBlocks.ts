@@ -14,6 +14,14 @@ export interface UWorldBlock {
   mode: UWorldBlockMode | null;
   qbank: UWorldBlockQBank | null;
   system: string | null;
+  // Optional screenshot of the block's result straight from the question
+  // bank (a "proof" image backing up the typed-in Percentage/Average
+  // fields) - stored in the "block-screenshots" Supabase Storage bucket,
+  // under this block's user_id as the folder (see migration
+  // add_block_screenshots). Visible to the student, their mentor, admins,
+  // and anyone granted viewer access to this student - the same audience
+  // that already sees the numeric fields above.
+  screenshot_url?: string | null;
   created_at?: string;
   updated_at?: string;
 }
