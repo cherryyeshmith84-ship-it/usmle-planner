@@ -1,53 +1,48 @@
-"use client";
-
-import { useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
+import type { ReactNode } from "react";
+import NavBar from "./NavBar";
+import TopHeader from "./TopHeader";
+import TimezoneSync from "./TimezoneSync";
+import Planner9pmPopup from "./Planner9pmPopup";
 
 /**
- * Silently keeps profiles.timezone in sync with whatever IANA timezone the
- * signed-in person's own browser reports (Intl.DateTimeFormat().resolvedOptions().timeZone)
- * - no onboarding step, no Settings field, nothing for anyone to fill in.
- * Mounted once, globally, in AppShell.tsx, so it runs on every page load for
- * every signed-in role (student, mentor, admin) without needing to be wired
- * into each page individually.
+ * Shared page shell: sidebar (NavBar) + persistent top header, wrapping
+ * whatever the page renders as its main content. Replaces the old pattern
+ * where every page manually rendered `<div className="min-h-screen
+ * flex"><NavBar/><main>...</main></div>` on its own - that worked but meant
+ * there was nowhere shared to hang a top header, and each page repeated the
+ * same boilerplate. Pages still render their own <main> as a child (so each
+ * keeps its own max-width/padding), this just adds the sidebar + header
+ * around it.
  *
- * This is what lets the 9pm planner reminder
- * (app/api/cron/planner-9pm-reminder/route.ts) know when it's actually 9pm
- * for a given student, without ever asking them to pick a timezone from a
- * dropdown - see migration add_profile_timezone_and_9pm_reminder_dedup.
- *
- * Fire-and-forget: writes unconditionally on every mount rather than
- * reading first to compare - an extra identical write is harmless, and
- * skipping the read keeps this to a single request. Silently does nothing
- * if no one's signed in, or if the write fails (e.g. offline) - never
- * surfaces an error to the person, since this has nothing to do with
- * whatever page they're actually trying to use.
+ * TimezoneSync and Planner9pmPopup are both mounted here, unconditionally,
+ * rather than on individual pages - that's what makes them work sitewide
+ * (any signed-in page, not just Dashboard/Study Planner) with zero new
+ * props threaded through every AppShell caller. Both render nothing
+ * visible most of the time: TimezoneSync is a silent background sync, and
+ * Planner9pmPopup only ever renders its modal after 9pm local time when
+ * there's actually something to remind about (see each component's own
+ * doc comment).
  */
-export default function TimezoneSync() {
-  useEffect(() => {
-    let cancelled = false;
-    async function sync() {
-      let tz: string;
-      try {
-        tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      } catch {
-        return;
-      }
-      if (!tz) return;
-
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (cancelled || !user) return;
-
-      await supabase.from("profiles").update({ timezone: tz }).eq("id", user.id);
-    }
-    sync();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return null;
+export default function AppShell({
+  isAdmin,
+  userName,
+  streak,
+  children,
+}: {
+  isAdmin?: boolean;
+  userName?: string | null;
+  streak?: number;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-screen flex">
+      <TimezoneSync />
+      <Planner9pmPopup />
+      <NavBar isAdmin={isAdmin} userName={userName} streak={streak} />
+      <div className="flex-1 flex flex-col min-w-0">
+        <TopHeader userName={userName} streak={streak} />
+        {children}
+      </div>
+    </div>
+  );
 }
