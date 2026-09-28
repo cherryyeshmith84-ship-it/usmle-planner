@@ -22,23 +22,37 @@ import Planner9pmPopup from "./Planner9pmPopup";
  * Planner9pmPopup only ever renders its modal after 9pm local time when
  * there's actually something to remind about (see each component's own
  * doc comment).
+ *
+ * contentPublished is forwarded straight through to NavBar, which uses it
+ * to gate the Learn/Improve nav groups until the coach publishes content
+ * (see NavBar.tsx's own GATED_GROUP_TITLES). This prop went missing from
+ * AppShell for a stretch, which broke the production build for every page
+ * that still passed it in (a TS "Property does not exist" error on
+ * <AppShell ... contentPublished={...}> - e.g. app/assessments/page.tsx) -
+ * restored here rather than stripping the prop from every caller, since
+ * dozens of pages already pass it and NavBar still needs it.
  */
 export default function AppShell({
   isAdmin,
   userName,
   streak,
+  contentPublished,
   children,
 }: {
   isAdmin?: boolean;
   userName?: string | null;
   streak?: number;
+  // Whether the coach has published student content yet. Optional/defaults
+  // to true inside NavBar itself, so a caller that doesn't pass this still
+  // sees the full nav (same fallback NavBar already had).
+  contentPublished?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="min-h-screen flex">
       <TimezoneSync />
       <Planner9pmPopup />
-      <NavBar isAdmin={isAdmin} userName={userName} streak={streak} />
+      <NavBar isAdmin={isAdmin} userName={userName} streak={streak} contentPublished={contentPublished} />
       <div className="flex-1 flex flex-col min-w-0">
         <TopHeader userName={userName} streak={streak} />
         {children}
