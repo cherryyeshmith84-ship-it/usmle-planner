@@ -171,9 +171,23 @@ export default function AdminStudentDetail({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold">{student.full_name || student.email || "Student"}</h1>
-        <p className="text-sm text-slate-400">{student.email}</p>
+      <div className="flex items-center gap-3">
+        {student.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={student.avatar_url}
+            alt=""
+            className="w-14 h-14 rounded-full object-cover border border-slate-700 shrink-0"
+          />
+        ) : (
+          <span className="w-14 h-14 rounded-full bg-brand-900/50 text-brand-300 text-lg font-bold flex items-center justify-center shrink-0">
+            {(student.full_name || student.email || "?").trim().charAt(0).toUpperCase()}
+          </span>
+        )}
+        <div>
+          <h1 className="text-xl font-bold">{student.full_name || student.email || "Student"}</h1>
+          <p className="text-sm text-slate-400">{student.email}</p>
+        </div>
       </div>
 
       {activeSource === "own" && (
