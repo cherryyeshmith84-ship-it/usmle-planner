@@ -1,65 +1,53 @@
-import type { ReactNode } from "react";
-import NavBar from "./NavBar";
-import TopHeader from "./TopHeader";
-import OnboardingTour from "./OnboardingTour";
-import SessionAlertPopup from "./SessionAlertPopup";
+"use client";
+
+import { useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 /**
- * Shared page shell: sidebar (NavBar) + persistent top header, wrapping
- * whatever the page renders as its main content. Replaces the old pattern
- * where every page manually rendered `<div className="min-h-screen
- * flex"><NavBar/><main>...</main></div>` on its own - that worked but meant
- * there was nowhere shared to hang a top header, and each page repeated the
- * same boilerplate. Pages still render their own <main> as a child (so each
- * keeps its own max-width/padding), this just adds the sidebar + header
- * around it.
+ * Silently keeps profiles.timezone in sync with whatever IANA timezone the
+ * signed-in person's own browser reports (Intl.DateTimeFormat().resolvedOptions().timeZone)
+ * - no onboarding step, no Settings field, nothing for anyone to fill in.
+ * Mounted once, globally, in AppShell.tsx, so it runs on every page load for
+ * every signed-in role (student, mentor, admin) without needing to be wired
+ * into each page individually.
  *
- * Deliberately a plain sync component with no Supabase import - it's used
- * from DashboardClient.tsx, which is a Client Component, and a Client
- * Component can't (even transitively) import lib/supabase/server.ts (that
- * needs next/headers, server-only - breaks the build if pulled in here).
- * So `contentPublished` (the platform_settings publish switch, used to hide
- * the Learn/Improve nav groups from students) has to be fetched by each
- * calling Server Component page and passed in as a plain boolean prop -
- * defaults to true so any page that hasn't been updated to pass it just
- * shows the full nav.
+ * This is what lets the 9pm planner reminder
+ * (app/api/cron/planner-9pm-reminder/route.ts) know when it's actually 9pm
+ * for a given student, without ever asking them to pick a timezone from a
+ * dropdown - see migration add_profile_timezone_and_9pm_reminder_dedup.
+ *
+ * Fire-and-forget: writes unconditionally on every mount rather than
+ * reading first to compare - an extra identical write is harmless, and
+ * skipping the read keeps this to a single request. Silently does nothing
+ * if no one's signed in, or if the write fails (e.g. offline) - never
+ * surfaces an error to the person, since this has nothing to do with
+ * whatever page they're actually trying to use.
  */
-export default function AppShell({
-  isAdmin,
-  userName,
-  streak,
-  contentPublished = true,
-  children,
-}: {
-  isAdmin?: boolean;
-  userName?: string | null;
-  streak?: number;
-  contentPublished?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    // h-screen + overflow-hidden on the outer row (instead of the old
-    // min-h-screen, which let this row grow as tall as the page content and
-    // just scroll along with it, sidebar included) means the sidebar itself
-    // never moves - only the content column on the right scrolls, via its
-    // own overflow-y-auto below.
-    <div className="h-screen flex overflow-hidden">
-      <NavBar isAdmin={isAdmin} userName={userName} streak={streak} contentPublished={contentPublished} />
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
-        <TopHeader userName={userName} streak={streak} />
-        {children}
-      </div>
-      {/* Mounted once here (not per-page) so every page gets the app-wide
-          onboarding tour automatically - it resolves entirely client-side
-          whether to actually show itself (see OnboardingTour.tsx's own doc
-          comment), so this is safe to render unconditionally. */}
-      <OnboardingTour />
-      {/* Same "mount once, resolves itself" pattern as OnboardingTour above -
-          pops up a modal over whatever page is open the moment a mentor
-          reschedules or cancels a student's session (see
-          SessionAlertPopup.tsx's own doc comment for why this needs to be
-          more attention-grabbing than the quiet bell dropdown). */}
-      <SessionAlertPopup />
-    </div>
-  );
+export default function TimezoneSync() {
+  useEffect(() => {
+    let cancelled = false;
+    async function sync() {
+      let tz: string;
+      try {
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        return;
+      }
+      if (!tz) return;
+
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+
+      await supabase.from("profiles").update({ timezone: tz }).eq("id", user.id);
+    }
+    sync();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return null;
 }
