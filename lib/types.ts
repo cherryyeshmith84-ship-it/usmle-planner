@@ -82,6 +82,13 @@ export interface Profile {
   // was last evaluated for this student - internal dedup marker for that
   // same cron, not surfaced anywhere in the UI.
   last_9pm_reminder_date?: string | null;
+  // Optional profile picture, uploaded via ImageUploadField to the
+  // "student-photos" Storage bucket (see migration
+  // add_avatar_url_and_student_photos_bucket) - settable from Settings for
+  // an existing student, or during onboarding for a new one. Shown on the
+  // student's own dashboard and anywhere their profile is visible to a
+  // mentor, admin, or viewer.
+  avatar_url?: string | null;
 }
 
 export interface TemplateTask {
