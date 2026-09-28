@@ -9,6 +9,15 @@ function dismissKey(): string {
   return `planner-9pm-popup-dismissed-${new Date().toDateString()}`;
 }
 
+/** Local calendar date ("YYYY-MM-DD") from the browser's own clock - "en-CA"
+ *  formats dates in that order, same trick used server-side in
+ *  lib/timezone.ts. This is what /api/planner/today-status checks against,
+ *  so "today" always means the student's own local day, not the server's
+ *  UTC day. */
+function localDateString(): string {
+  return new Date().toLocaleDateString("en-CA");
+}
+
 /**
  * Sitewide "update your planner" popup - the website-popup half of the
  * 9pm-local-time reminder (the other half is the email sent by
@@ -22,9 +31,12 @@ function dismissKey(): string {
  * no stored timezone needed for this half (profiles.timezone, synced by
  * TimezoneSync.tsx, is only needed server-side for the email cron, which
  * has no browser to ask). Whether there's actually anything to remind
- * about comes from /api/planner/today-status, which applies the exact same
- * "hasn't touched today's planner, or has outstanding Assignments" rule the
- * email cron uses.
+ * about comes from /api/planner/today-status?date=<local date>, which
+ * applies the exact same "hasn't touched today's planner, or has
+ * outstanding Assignments" rule the email cron uses - passing the local
+ * date explicitly (rather than letting the server guess from UTC) is what
+ * keeps "today" meaning the same calendar day here as it does on the
+ * student's own clock.
  *
  * Dismissing is remembered in localStorage keyed by the browser's own
  * local calendar date (`Date().toDateString()`), same pattern
@@ -44,7 +56,7 @@ export default function Planner9pmPopup() {
       if (window.localStorage.getItem(dismissKey()) === "1") return;
 
       try {
-        const res = await fetch("/api/planner/today-status");
+        const res = await fetch(`/api/planner/today-status?date=${localDateString()}`);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled && data?.needsReminder) setShow(true);
