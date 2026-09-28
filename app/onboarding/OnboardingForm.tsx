@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ExamTrack, PrepStage, Profile } from "@/lib/types";
+import ImageUploadField from "@/components/ImageUploadField";
 
 const RESOURCE_OPTIONS = [
   "UWorld",
@@ -26,6 +27,7 @@ export default function OnboardingForm({
 }) {
   const router = useRouter();
 
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialProfile?.avatar_url ?? null);
   const [track, setTrack] = useState<ExamTrack | "">(initialProfile?.exam_track ?? "");
   const [prepStage, setPrepStage] = useState<PrepStage | "">(initialProfile?.prep_stage ?? "");
   const [examDate, setExamDate] = useState(initialProfile?.exam_date ?? "");
@@ -74,6 +76,7 @@ export default function OnboardingForm({
       .from("profiles")
       .update({
         onboarding_completed: true,
+        avatar_url: avatarUrl,
         exam_track: track,
         prep_stage: track === "step1" ? prepStage : null,
         subject_name: track === "subject" ? subjectName.trim() : null,
@@ -127,6 +130,18 @@ export default function OnboardingForm({
         this herself and assigns your plan personally &mdash; you&apos;ll see
         it appear on your dashboard once it&apos;s ready.
       </p>
+
+      {/* Optional - uploads to the same "student-photos" bucket, and same
+          field, as the one in Settings (app/settings/SettingsForm.tsx), so
+          setting it here now or later in Settings both just update
+          profiles.avatar_url the same way. */}
+      <ImageUploadField
+        label="Add a profile photo (optional)"
+        value={avatarUrl}
+        onChange={setAvatarUrl}
+        bucket="student-photos"
+        folder={userId}
+      />
 
       <label className="label">Your mentor&apos;s email (optional)</label>
       <input
