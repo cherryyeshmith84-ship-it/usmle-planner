@@ -743,10 +743,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
           <img
             src={student.avatar_url}
             alt=""
-            className="w-12 h-12 rounded-full object-cover border border-slate-700 shrink-0"
+            className="w-20 h-20 rounded-full object-cover border border-slate-700 shrink-0"
           />
         ) : (
-          <span className="w-12 h-12 rounded-full bg-brand-900/50 text-brand-300 text-base font-bold flex items-center justify-center shrink-0">
+          <span className="w-20 h-20 rounded-full bg-brand-900/50 text-brand-300 text-2xl font-bold flex items-center justify-center shrink-0">
             {(student.full_name || "?").trim().charAt(0).toUpperCase()}
           </span>
         )}
