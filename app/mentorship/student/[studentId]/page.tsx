@@ -165,7 +165,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const { data: studentData } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, email, status_update, status_updated_at, exam_track, subject_name, prep_stage, exam_date, daily_hour_goal, resources, completed_so_far, weak_areas, strong_areas, goals_notes"
+      "id, full_name, email, avatar_url, status_update, status_updated_at, exam_track, subject_name, prep_stage, exam_date, daily_hour_goal, resources, completed_so_far, weak_areas, strong_areas, goals_notes"
     )
     .eq("id", params.studentId)
     .maybeSingle();
@@ -180,6 +180,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
     | "id"
     | "full_name"
     | "email"
+    | "avatar_url"
     | "status_update"
     | "status_updated_at"
     | "exam_track"
@@ -736,7 +737,21 @@ export default async function StudentProgressPage({ params }: { params: { studen
       <Link href={backHref} className="text-xs text-brand-400 hover:text-brand-300">
         ← Back to students
       </Link>
-      <h1 className="text-xl font-bold mt-2 mb-1">{student.full_name || "Student"}</h1>
+      <div className="flex items-center gap-3 mt-2 mb-1">
+        {student.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={student.avatar_url}
+            alt=""
+            className="w-12 h-12 rounded-full object-cover border border-slate-700 shrink-0"
+          />
+        ) : (
+          <span className="w-12 h-12 rounded-full bg-brand-900/50 text-brand-300 text-base font-bold flex items-center justify-center shrink-0">
+            {(student.full_name || "?").trim().charAt(0).toUpperCase()}
+          </span>
+        )}
+        <h1 className="text-xl font-bold">{student.full_name || "Student"}</h1>
+      </div>
       <p className="text-sm text-slate-400 mb-6">
         {canEdit
           ? "Click a tab to switch sections, or click any day on the Study Planner calendar to add or edit Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
