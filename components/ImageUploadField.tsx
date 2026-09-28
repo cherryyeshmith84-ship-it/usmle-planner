@@ -4,24 +4,41 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Small reusable image-upload control used in both the Self Assessment and
- * Question Bank admin forms - lets an admin attach an image (a lab-value
- * table, X-ray, ECG, histology slide, etc.) to a question or its
- * explanation, for cases a plain-text paste can't represent well.
+ * Small reusable image-upload control - originally built for the Self
+ * Assessment and Question Bank admin forms (uploading to the
+ * "question-images" bucket), now also reused by UWorldBlockTracker.tsx to
+ * let a student attach a screenshot of their block % result (uploading to
+ * the separate "block-screenshots" bucket instead - see migration
+ * add_block_screenshots). The `bucket` and `folder` props are what make
+ * that reuse possible without duplicating this component: `bucket` picks
+ * which Storage bucket the file goes to, and `folder` (when given) prefixes
+ * the random filename with a path segment - for block screenshots this is
+ * the student's own user id, which is what the bucket's RLS policies check
+ * to decide who's allowed to read/write it.
  *
- * Uploads straight to the "question-images" Supabase Storage bucket (see
- * supabase/schema_v17_question_images.sql) and stores the resulting public
- * URL via onChange - the parent form is responsible for saving that URL
- * string onto the question.
+ * `readOnly` renders the image (if any) with no file input and no "Remove"
+ * button - used when someone who can only VIEW this field (a mentor,
+ * admin, or viewer looking at a student's page) shouldn't see edit
+ * controls they have no permission to use anyway.
+ *
+ * Existing callers that don't pass `bucket`/`folder`/`readOnly` keep their
+ * old behavior exactly (question-images bucket, no folder prefix, always
+ * editable).
  */
 export default function ImageUploadField({
   label,
   value,
   onChange,
+  bucket = "question-images",
+  folder,
+  readOnly = false,
 }: {
   label: string;
   value: string | null | undefined;
   onChange: (url: string | null) => void;
+  bucket?: string;
+  folder?: string;
+  readOnly?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +56,10 @@ export default function ImageUploadField({
     setError(null);
     const supabase = createClient();
     const ext = file.name.split(".").pop() || "png";
-    const path = `${crypto.randomUUID()}.${ext}`;
+    const filename = `${crypto.randomUUID()}.${ext}`;
+    const path = folder ? `${folder}/${filename}` : filename;
 
-    const { error: uploadError } = await supabase.storage
-      .from("question-images")
-      .upload(path, file, { upsert: false });
+    const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: false });
 
     if (uploadError) {
       setUploading(false);
@@ -51,7 +67,7 @@ export default function ImageUploadField({
       return;
     }
 
-    const { data } = supabase.storage.from("question-images").getPublicUrl(path);
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
     setUploading(false);
     onChange(data.publicUrl);
   }
@@ -62,21 +78,21 @@ export default function ImageUploadField({
       {value ? (
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={value}
-            alt=""
-            className="max-h-56 rounded-lg border border-slate-700 mb-1"
-          />
-          <div>
-            <button
-              type="button"
-              onClick={() => onChange(null)}
-              className="text-xs text-red-400 hover:text-red-300"
-            >
-              Remove image
-            </button>
-          </div>
+          <img src={value} alt="" className="max-h-56 rounded-lg border border-slate-700 mb-1" />
+          {!readOnly && (
+            <div>
+              <button
+                type="button"
+                onClick={() => onChange(null)}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                Remove image
+              </button>
+            </div>
+          )}
         </div>
+      ) : readOnly ? (
+        <p className="text-xs text-slate-500">No image uploaded.</p>
       ) : (
         <input
           type="file"
