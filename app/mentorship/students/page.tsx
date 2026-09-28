@@ -52,7 +52,7 @@ export default async function MentorStudentsPage() {
   // in "Your students" because the viewer was also an admin.
   const { data: linkedStudentsData } = await supabase
     .from("profiles")
-    .select("id, full_name, email, status_update, status_updated_at, exam_date")
+    .select("id, full_name, email, avatar_url, status_update, status_updated_at, exam_date")
     // Case-insensitive match (ilike with no wildcards = exact match
     // ignoring case) - a student can type their mentor's email by hand
     // under Settings, so it isn't guaranteed to be cased identically to
@@ -61,7 +61,10 @@ export default async function MentorStudentsPage() {
     // already treats it.
     .ilike("mentor_email", myMentorRecord.email)
     .order("full_name", { ascending: true });
-  const linkedStudents = (linkedStudentsData ?? []) as Pick<Profile, "id" | "full_name" | "email" | "status_update" | "status_updated_at" | "exam_date">[];
+  const linkedStudents = (linkedStudentsData ?? []) as Pick<
+    Profile,
+    "id" | "full_name" | "email" | "avatar_url" | "status_update" | "status_updated_at" | "exam_date"
+  >[];
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
@@ -82,21 +85,35 @@ export default async function MentorStudentsPage() {
               <Link
                 key={s.id}
                 href={`/mentorship/student/${s.id}`}
-                className="card py-3 flex items-start justify-between gap-3 text-sm hover:border-brand-400 transition block"
+                className="card py-3 flex items-center gap-3 text-sm hover:border-brand-400 transition"
               >
-                <div className="min-w-0">
-                  <p>
-                    <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
-                    <span className="text-slate-500">&middot; {s.email}</span>
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {s.exam_date ? `Exam ${s.exam_date}` : "No exam date set"}
-                  </p>
-                  {s.status_update && (
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">&ldquo;{s.status_update}&rdquo;</p>
-                  )}
+                {s.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={s.avatar_url}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0"
+                  />
+                ) : (
+                  <span className="w-10 h-10 rounded-full bg-brand-900/50 text-brand-300 text-sm font-bold flex items-center justify-center shrink-0">
+                    {(s.full_name || "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p>
+                      <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
+                      <span className="text-slate-500">&middot; {s.email}</span>
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {s.exam_date ? `Exam ${s.exam_date}` : "No exam date set"}
+                    </p>
+                    {s.status_update && (
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">&ldquo;{s.status_update}&rdquo;</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-brand-400 shrink-0">Open →</span>
                 </div>
-                <span className="text-xs text-brand-400 shrink-0">Open →</span>
               </Link>
             ))}
           </div>
