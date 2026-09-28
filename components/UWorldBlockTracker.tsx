@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { UWorldBlock, UWorldBlockMode, UWorldBlockQBank } from "@/lib/uworldBlocks";
 import { QBANKS } from "@/lib/uworldBlocks";
 import { STEP1_SYSTEMS } from "@/lib/qbankTypes";
+import ImageUploadField from "./ImageUploadField";
 
 const MODES: UWorldBlockMode[] = ["Timed", "Untimed", "Tutor"];
 
@@ -16,6 +17,7 @@ interface DraftBlock {
   mode: UWorldBlockMode | "";
   qbank: UWorldBlockQBank | "";
   system: string;
+  screenshot_url: string | null;
 }
 
 function toDraft(b: UWorldBlock): DraftBlock {
@@ -27,6 +29,7 @@ function toDraft(b: UWorldBlock): DraftBlock {
     mode: b.mode ?? "",
     qbank: b.qbank ?? "",
     system: b.system ?? "",
+    screenshot_url: b.screenshot_url ?? null,
   };
 }
 
@@ -44,6 +47,16 @@ function toDraft(b: UWorldBlock): DraftBlock {
  * everything. Both tags are optional - an untagged block still counts
  * everywhere it always did (weekly average, streaks, question counts), it
  * just won't show up broken out by bank/system.
+ *
+ * Each block can also carry an optional Screenshot - a photo of the actual
+ * block-results screen from the bank, as backup/proof for the typed-in
+ * Percentage/Average above. Uploaded straight to the "block-screenshots"
+ * Storage bucket under this student's own user id (see migration
+ * add_block_screenshots) via the same ImageUploadField.tsx other admin
+ * forms already use. Visible read-only (no upload/remove controls) when
+ * canEdit is false - a mentor's "Students you can view" grant, an admin
+ * browsing, or a non-mentor viewer all render this with canEdit=false, same
+ * as every other field in this tracker.
  *
  * Save is explicit (not autosave) to match the rest of the planner's UX -
  * on save this replaces every block row for this user+date with whatever's
@@ -116,7 +129,7 @@ export default function UWorldBlockTracker({
     setNextNewId((n) => n + 1);
     setBlocks((prev) => [
       ...prev,
-      { key, questions: "", percentage: "", average: "", mode: "", qbank: "", system: "" },
+      { key, questions: "", percentage: "", average: "", mode: "", qbank: "", system: "", screenshot_url: null },
     ]);
   }
 
@@ -141,6 +154,7 @@ export default function UWorldBlockTracker({
       mode: b.mode || null,
       qbank: b.qbank || null,
       system: b.system || null,
+      screenshot_url: b.screenshot_url || null,
     }));
 
     let newIds: string[] = [];
@@ -293,6 +307,16 @@ export default function UWorldBlockTracker({
                   ))}
                 </select>
               </label>
+              <div className="pt-1">
+                <ImageUploadField
+                  label="Screenshot (optional)"
+                  value={b.screenshot_url}
+                  onChange={(url) => updateBlock(b.key, { screenshot_url: url })}
+                  bucket="block-screenshots"
+                  folder={targetUserId}
+                  readOnly={!canEdit}
+                />
+              </div>
             </div>
           ))}
         </div>
