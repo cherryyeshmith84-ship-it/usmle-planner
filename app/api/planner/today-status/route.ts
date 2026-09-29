@@ -13,18 +13,21 @@ export const dynamic = "force-dynamic";
  * planner still needs attention for a specific calendar date - the date is
  * passed in as a query param (`?date=YYYY-MM-DD`) computed from the
  * caller's OWN local clock, since that's the whole point of this endpoint:
- * "is TODAY (in my timezone, right now) still incomplete", not the
+ * "is TODAY (in my timezone, right now) still untouched", not the
  * server's UTC day or any fixed Eastern-Time day. Falls back to today's
  * UTC date if the param is missing or malformed, which only matters for a
  * caller that skipped sending it.
  *
- * Reuses computeTodayStatus - the exact same "every Assignment checked
- * off, plus whatever journal sections are turned on for this student,
- * plus any started Question Bank Block fully filled in" rule the planner
- * calendar and the 9pm email reminder
+ * Reuses computeTodayStatus - the exact same status calculation the
+ * planner calendar and the 9pm email reminder
  * (app/api/cron/planner-9pm-reminder/route.ts) both already use, so the
- * popup, the calendar, and the email can never disagree about whether a
- * day still needs work.
+ * popup, the calendar, and the email can never disagree about the
+ * underlying numbers. The "needs a reminder" bar is deliberately lower
+ * than "Completed" though: it only flags a day where the student hasn't
+ * checked off a single Assignment yet (assignmentsCompleted === 0), same
+ * threshold the email cron uses - a student partway through today's
+ * Assignments has already "updated" the planner and shouldn't get nagged
+ * again just for not being 100% done.
  */
 function isValidDateParam(v: string | null): v is string {
   return !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -57,7 +60,7 @@ export async function GET(req: NextRequest) {
   const tasks = (tasksRes.data ?? []) as PlanTask[];
 
   const status = computeTodayStatus(entries, blocks, tasks, date, columns);
-  const needsReminder = status.assignmentsTotal > 0 && !status.studyCompleted;
+  const needsReminder = status.assignmentsTotal > 0 && status.assignmentsCompleted === 0;
 
   return NextResponse.json({ needsReminder, date });
 }
