@@ -38,6 +38,13 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://master-grid.vercel
  * student_planner_settings row); this one reminds every onboarded student
  * with any Assignments due today, whether their plan came from a mentor or
  * their own Personal Plan.
+ *
+ * Only nags a student who has touched NONE of today's Assignments by 9pm -
+ * any progress at all (even 1 of several checked off) counts as "updated"
+ * and skips the email, same as a fully completed day. This is deliberately
+ * more lenient than the in-app "Completed" badge (which still requires
+ * every Assignment plus the journal fields), so a student who's partway
+ * through their day isn't nagged for not having finished everything.
  */
 
 function isAuthorized(req: NextRequest): boolean {
@@ -86,7 +93,7 @@ async function sendReminderEmail(to: string, firstName: string): Promise<boolean
       html: `
         <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
           <p>Hi ${firstName},</p>
-          <p>It's 9 PM your time, and today's row on your Master Grid planner still needs an update.
+          <p>It's 9 PM your time, and today's row on your Master Grid planner hasn't been touched yet.
             Take a minute to check off your Assignments and fill in anything else that's needed
             before the day closes out.</p>
           <p><a href="${plannerUrl}">Open your planner &#8594;</a></p>
@@ -161,10 +168,12 @@ async function runReminders() {
     const journalColumns = resolvePlannerColumns(columns, student.id);
     const status = computeTodayStatus(entries, blocks, planTasks, local.date, journalColumns);
 
-    if (status.assignmentsTotal === 0 || status.studyCompleted) {
-      // Nothing to nag about - still mark the dedup date so this student
-      // isn't re-evaluated again on the next 15-minute tick within the
-      // same local 9pm hour.
+    if (status.assignmentsTotal === 0 || status.assignmentsCompleted > 0) {
+      // Nothing to nag about - either no Assignments were due today, or
+      // the student has made at least some progress (a partial update is
+      // enough to skip the reminder, not just a fully "Completed" day).
+      // Still mark the dedup date so this student isn't re-evaluated again
+      // on the next 15-minute tick within the same local 9pm hour.
       await supabase.from("profiles").update({ last_9pm_reminder_date: easternToday }).eq("id", student.id);
       continue;
     }
