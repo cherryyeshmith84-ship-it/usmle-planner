@@ -125,9 +125,14 @@ export function WelcomeCard({
 export function TodaysPlanCard({
   plannedSystem,
   tasks,
+  todayIso,
 }: {
   plannedSystem: string | null;
   tasks: PlanTask[];
+  // Needed by AssignmentsChecklist below so a checkbox toggle (or, if this
+  // student's mentor has turned on self-assigned tasks, the add-a-task
+  // form) always targets today's actual date, not an unset one.
+  todayIso: string;
 }) {
   const progress = computeTaskProgress(tasks);
   const estimatedTime = formatEstimatedTime(tasks);
@@ -144,7 +149,7 @@ export function TodaysPlanCard({
         <p className="text-sm text-slate-500 mb-3">No assignments from your mentor for today yet.</p>
       ) : (
         <div className="mb-3">
-          <AssignmentsChecklist tasks={tasks} />
+          <AssignmentsChecklist tasks={tasks} date={todayIso} />
         </div>
       )}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500 mb-4">
