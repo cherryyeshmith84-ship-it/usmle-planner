@@ -20,6 +20,7 @@ import StudentNotesEditor from "@/components/StudentNotesEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import AssignToPlanButton from "@/components/AssignToPlanButton";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
+import SelfAssignedTasksToggle from "@/components/SelfAssignedTasksToggle";
 import PlannerCalendar from "@/components/PlannerCalendar";
 import MentorChatPanel from "@/components/MentorChatPanel";
 import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
@@ -283,7 +284,13 @@ export default async function StudentProgressPage({ params }: { params: { studen
       : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
-    supabase.from("student_planner_settings").select("start_date").eq("student_id", params.studentId).maybeSingle(),
+    // allow_self_assigned_tasks alongside start_date, so the Study Planner
+    // tab below can show the mentor-only SelfAssignedTasksToggle switch.
+    supabase
+      .from("student_planner_settings")
+      .select("start_date, allow_self_assigned_tasks")
+      .eq("student_id", params.studentId)
+      .maybeSingle(),
     supabase.from("uworld_blocks").select("*").eq("user_id", params.studentId),
     supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
     // resource added alongside category/topic so the checklist can be
@@ -307,7 +314,11 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const studentNote = studentNoteRes.data as { note: string; updated_at: string } | null;
   const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
   const planTasks = (planTasksRes.data ?? []) as PlanTask[];
-  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  const plannerSettingsRow = plannerSettingsRes.data as
+    | { start_date: string | null; allow_self_assigned_tasks: boolean | null }
+    | null;
+  const plannerStartDate = plannerSettingsRow?.start_date ?? null;
+  const allowSelfAssignedTasks = plannerSettingsRow?.allow_self_assigned_tasks ?? false;
   const uworldBlocks = (blocksRes.data ?? []) as UWorldBlock[];
   const studyResources = (resourcesRes.data ?? []) as StudyResource[];
   const topicChecklistRows = (topicChecklistRes.data ?? []) as TopicChecklistRow[];
@@ -490,11 +501,13 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const studyPlannerContent = (
     <div className="space-y-8">
-      {/* Planner schedule - where this student's plan starts. Edit-only. */}
+      {/* Planner schedule - where this student's plan starts, and whether
+          they can add their own Assignments. Edit-only. */}
       {canEdit && (
-        <div>
+        <div className="space-y-4">
           <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
           <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
+          <SelfAssignedTasksToggle studentId={params.studentId} initialAllowed={allowSelfAssignedTasks} />
         </div>
       )}
 
