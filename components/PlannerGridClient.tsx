@@ -744,6 +744,7 @@ export default function PlannerGridClient({
                               </p>
                               <AssignmentsChecklist
                                 tasks={planTasksByDate[date] ?? []}
+                                date={date}
                                 editable={canEdit && !isLocked(date)}
                               />
                             </div>
