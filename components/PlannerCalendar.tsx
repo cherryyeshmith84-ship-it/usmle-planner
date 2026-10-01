@@ -77,6 +77,7 @@ export default function PlannerCalendar({
   enforceEditWindow = false,
   startDate,
   todayIso,
+  allowSelfAssignedTasks = false,
 }: {
   targetUserId: string;
   initialTasks: PlanTask[];
@@ -98,6 +99,12 @@ export default function PlannerCalendar({
   enforceEditWindow?: boolean;
   startDate: string | null;
   todayIso: string;
+  // This student's student_planner_settings.allow_self_assigned_tasks
+  // (see SelfAssignedTasksToggle.tsx) - passed through to DailyPlannerPanel
+  // so the student's Assignments checklist can show its own add-a-task
+  // form. Irrelevant (and left false) on a mentor/admin's own view of this
+  // same calendar, since they always get the full editor instead.
+  allowSelfAssignedTasks?: boolean;
 }) {
   const [monthAnchor, setMonthAnchor] = useState(todayIso);
   const [selectedDate, setSelectedDate] = useState(todayIso);
@@ -243,6 +250,7 @@ export default function PlannerCalendar({
           locked={selectedLocked}
           mentorId={mentorId}
           todayIso={todayIso}
+          allowSelfAssigned={allowSelfAssignedTasks}
         />
       </div>
     </div>
