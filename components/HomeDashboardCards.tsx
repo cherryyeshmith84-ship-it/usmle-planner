@@ -125,14 +125,21 @@ export function WelcomeCard({
 export function TodaysPlanCard({
   plannedSystem,
   tasks,
-  todayIso,
+  date,
+  allowSelfAssigned = false,
 }: {
   plannedSystem: string | null;
   tasks: PlanTask[];
-  // Needed by AssignmentsChecklist below so a checkbox toggle (or, if this
-  // student's mentor has turned on self-assigned tasks, the add-a-task
-  // form) always targets today's actual date, not an unset one.
-  todayIso: string;
+  // Today's date (Eastern Time, same `today` the rest of app/dashboard/page.tsx
+  // uses) - AssignmentsChecklist needs this so a self-added task from here
+  // lands on the right day, not whatever date the component happened to
+  // mount with.
+  date: string;
+  // Mirrors this student's student_planner_settings.allow_self_assigned_tasks
+  // (see SelfAssignedTasksToggle.tsx) - lets the "+ Add your own task" form
+  // show up on this dashboard card too, not just the full Study Planner
+  // calendar.
+  allowSelfAssigned?: boolean;
 }) {
   const progress = computeTaskProgress(tasks);
   const estimatedTime = formatEstimatedTime(tasks);
@@ -145,11 +152,11 @@ export function TodaysPlanCard({
           <span className="text-slate-500">System:</span> <span className="font-semibold">{plannedSystem}</span>
         </p>
       )}
-      {tasks.length === 0 ? (
+      {tasks.length === 0 && !allowSelfAssigned ? (
         <p className="text-sm text-slate-500 mb-3">No assignments from your mentor for today yet.</p>
       ) : (
         <div className="mb-3">
-          <AssignmentsChecklist tasks={tasks} date={todayIso} />
+          <AssignmentsChecklist tasks={tasks} date={date} allowSelfAssigned={allowSelfAssigned} />
         </div>
       )}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500 mb-4">
