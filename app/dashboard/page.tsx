@@ -344,7 +344,7 @@ export default async function DashboardPage() {
           initialUpdatedAt={profile.status_updated_at ?? null}
         />
 
-        <TodaysPlanCard plannedSystem={plannedSystem} tasks={todaysTasks} />
+        <TodaysPlanCard plannedSystem={plannedSystem} tasks={todaysTasks} todayIso={today} />
 
         <PlannerStatusHeader status={todayStatus} />
 
