@@ -92,6 +92,7 @@ export default function DailyPlannerPanel({
   locked,
   mentorId,
   todayIso,
+  allowSelfAssigned = false,
 }: {
   targetUserId: string;
   date: string;
@@ -116,6 +117,10 @@ export default function DailyPlannerPanel({
   // so it can block adding NEW assignments to an already-passed day (a
   // mentor can still edit/remove what's already there).
   todayIso: string;
+  // Mirrors this student's student_planner_settings.allow_self_assigned_tasks
+  // (see SelfAssignedTasksToggle.tsx) - only meaningful on the student's own
+  // view (mentorId null); a mentor viewing their own editor never needs it.
+  allowSelfAssigned?: boolean;
 }) {
   const notesColumn = columns.find((c) => c.key === "student_notes") ?? null;
   const issueColumn = columns.find((c) => c.key === "study_issue") ?? null;
@@ -184,7 +189,12 @@ export default function DailyPlannerPanel({
             todayIso={todayIso}
           />
         ) : (
-          <AssignmentsChecklist tasks={dayTasks} editable={canEdit && !locked} />
+          <AssignmentsChecklist
+            tasks={dayTasks}
+            date={date}
+            editable={canEdit && !locked}
+            allowSelfAssigned={allowSelfAssigned}
+          />
         )}
       </div>
 
