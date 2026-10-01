@@ -146,7 +146,14 @@ export default async function DashboardPage() {
       // student switched mentors, this row may still belong to the OLD one
       // until their new mentor sets a fresh link.
       supabase.from("mentor_meeting_links").select("mentor_id, meeting_link").eq("student_id", user.id).maybeSingle(),
-      supabase.from("student_planner_settings").select("start_date").eq("student_id", user.id).maybeSingle(),
+      // allow_self_assigned_tasks alongside start_date - SelfAssignedTasksToggle.tsx
+      // is what a mentor flips this on with; needed here so TodaysPlanCard
+      // can show the "+ Add your own task" form when it's on.
+      supabase
+        .from("student_planner_settings")
+        .select("start_date, allow_self_assigned_tasks")
+        .eq("student_id", user.id)
+        .maybeSingle(),
       // Same global-defaults-plus-this-student's-own-customization query as
       // /planner - needed here too now that the header's pace/motivation
       // numbers and the missed-day prompt read the flat grid as well as
@@ -165,7 +172,11 @@ export default async function DashboardPage() {
   const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
   const bookings = (bookingsRes.data ?? []) as Booking[];
   const meetingLinkRow = meetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
-  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  const plannerSettingsRow = plannerSettingsRes.data as
+    | { start_date: string | null; allow_self_assigned_tasks: boolean | null }
+    | null;
+  const plannerStartDate = plannerSettingsRow?.start_date ?? null;
+  const allowSelfAssignedTasks = plannerSettingsRow?.allow_self_assigned_tasks ?? false;
   // Full resolved+active columns (Mood, Today's Biggest Issue, Resources
   // Used, Student Notes, ...) - not just the flat-grid subset - needed so
   // computeTodayStatus/computeSchedulePaceDays can check whether this
@@ -344,7 +355,12 @@ export default async function DashboardPage() {
           initialUpdatedAt={profile.status_updated_at ?? null}
         />
 
-        <TodaysPlanCard plannedSystem={plannedSystem} tasks={todaysTasks} todayIso={today} />
+        <TodaysPlanCard
+          plannedSystem={plannedSystem}
+          tasks={todaysTasks}
+          date={today}
+          allowSelfAssigned={allowSelfAssignedTasks}
+        />
 
         <PlannerStatusHeader status={todayStatus} />
 
