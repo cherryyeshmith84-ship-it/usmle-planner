@@ -1,6 +1,6 @@
 export type UWorldBlockMode = "Timed" | "Untimed" | "Tutor";
 
-export const QBANKS = ["UWorld", "Amboss", "Mehlman"] as const;
+export const QBANKS = ["UWorld", "Amboss", "Mehlman", "Sketchy Micro"] as const;
 export type UWorldBlockQBank = (typeof QBANKS)[number];
 
 export interface UWorldBlock {
