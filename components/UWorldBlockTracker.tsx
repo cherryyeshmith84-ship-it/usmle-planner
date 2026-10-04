@@ -9,6 +9,20 @@ import ImageUploadField from "./ImageUploadField";
 
 const MODES: UWorldBlockMode[] = ["Timed", "Untimed", "Tutor"];
 
+// Tracker-only system options, kept OUT of lib/qbankTypes.ts's STEP1_SYSTEMS
+// on purpose - that list is shared with score-report system breakdowns
+// (QBankSystemBreakdown.tsx, computeSystemStrengths), which need exactly
+// the real NBME organ-system outline to stay accurate. "Random" already
+// worked this way (a block pulling from every system at once isn't a real
+// system); "Microbiology" is the same idea from the other direction - it's
+// one of the official STEP1_SUBJECTS (a discipline), not an NBME "system",
+// but a student logging a Sketchy Micro block still needs somewhere to tag
+// it, so it shows up here as its own row in the tracker's breakdown table
+// without being treated as a real system elsewhere in the app.
+const EXTRA_SYSTEM_OPTIONS = ["Random (mixed systems)", "Microbiology"];
+
+const CUSTOM_SYSTEM = "__custom_system__";
+
 interface DraftBlock {
   key: string; // stable local key - real id for existing rows, "new-N" for freshly added ones
   questions: string;
@@ -33,6 +47,16 @@ function toDraft(b: UWorldBlock): DraftBlock {
   };
 }
 
+/** Whether a block's current system value is one of the preset dropdown
+ *  options - false for a historical free-typed value or anything not on
+ *  the list, which is exactly when the "Other" text box should show
+ *  instead of just the select. Blank ("") counts as preset since that's
+ *  just the unselected "-" placeholder, not a custom value. */
+function isPresetSystem(system: string): boolean {
+  if (system === "") return true;
+  return EXTRA_SYSTEM_OPTIONS.includes(system) || (STEP1_SYSTEMS as readonly string[]).includes(system);
+}
+
 /**
  * Question-bank block tracker (Study Planner v1 item 2, originally
  * "UWorld Block Tracker") - lets a student log each block of questions they
@@ -40,9 +64,11 @@ function toDraft(b: UWorldBlock): DraftBlock {
  * Percentage/Average/Mode), no math required or performed here. Generalized
  * beyond just UWorld - a student who splits practice across UWorld, Amboss,
  * and Mehlman logs every block here, each tagged with which bank AND which
- * organ system it covered (lib/qbankTypes.ts's STEP1_SYSTEMS - the same
- * canonical list score reports use), so Analysis can show an average % per
- * system per bank (lib/qbankBlockStats.ts /
+ * system/topic it covered (lib/qbankTypes.ts's STEP1_SYSTEMS - the same
+ * canonical list score reports use - plus a couple tracker-only extras
+ * like Microbiology, and a free-text "Other" fallback for anything not
+ * listed - see EXTRA_SYSTEM_OPTIONS/CUSTOM_SYSTEM above), so Analysis can
+ * show an average % per system per bank (lib/qbankBlockStats.ts /
  * components/QBankSystemBreakdown.tsx) instead of one flat number across
  * everything. Both tags are optional - an untagged block still counts
  * everywhere it always did (weekly average, streaks, question counts), it
@@ -204,121 +230,138 @@ export default function UWorldBlockTracker({
         <p className="text-xs text-slate-500">No blocks logged for this day yet.</p>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {blocks.map((b, i) => (
-            <div key={b.key} className="rounded-lg border border-slate-800 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-300">Block {i + 1}</p>
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => removeBlock(b.key)}
-                    className="text-xs text-red-400 hover:text-red-300"
+          {blocks.map((b, i) => {
+            const systemIsPreset = isPresetSystem(b.system);
+            return (
+              <div key={b.key} className="rounded-lg border border-slate-800 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-300">Block {i + 1}</p>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => removeBlock(b.key)}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Question bank</span>
+                  <select
+                    value={b.qbank}
+                    disabled={!canEdit}
+                    onChange={(e) => updateBlock(b.key, { qbank: e.target.value as UWorldBlockQBank })}
+                    className="input text-sm py-1 px-2 w-full"
                   >
-                    Remove
-                  </button>
-                )}
+                    <option value="">-</option>
+                    {QBANKS.map((q) => (
+                      <option key={q} value={q}>
+                        {q}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-500">System</span>
+                  <select
+                    value={systemIsPreset ? b.system : CUSTOM_SYSTEM}
+                    disabled={!canEdit}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      // Picking "Other" clears the field so the text box
+                      // below starts blank instead of pre-filled with
+                      // whatever preset was selected before.
+                      updateBlock(b.key, { system: next === CUSTOM_SYSTEM ? "" : next });
+                    }}
+                    className="input text-sm py-1 px-2 w-full"
+                  >
+                    <option value="">-</option>
+                    {EXTRA_SYSTEM_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                    {STEP1_SYSTEMS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_SYSTEM}>Other (type your own)...</option>
+                  </select>
+                  {!systemIsPreset && (
+                    <input
+                      type="text"
+                      value={b.system}
+                      disabled={!canEdit}
+                      placeholder="Type the system/topic"
+                      onChange={(e) => updateBlock(b.key, { system: e.target.value })}
+                      className="input text-sm py-1 px-2 w-full mt-1.5"
+                      autoFocus
+                    />
+                  )}
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Questions</span>
+                  <input
+                    type="number"
+                    value={b.questions}
+                    disabled={!canEdit}
+                    onChange={(e) => updateBlock(b.key, { questions: e.target.value })}
+                    className="input text-sm py-1 px-2 w-full"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Percentage</span>
+                  <input
+                    type="number"
+                    value={b.percentage}
+                    disabled={!canEdit}
+                    placeholder="%"
+                    onChange={(e) => updateBlock(b.key, { percentage: e.target.value })}
+                    className="input text-sm py-1 px-2 w-full"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Average</span>
+                  <input
+                    type="number"
+                    value={b.average}
+                    disabled={!canEdit}
+                    placeholder="Peer avg %"
+                    onChange={(e) => updateBlock(b.key, { average: e.target.value })}
+                    className="input text-sm py-1 px-2 w-full"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Mode</span>
+                  <select
+                    value={b.mode}
+                    disabled={!canEdit}
+                    onChange={(e) => updateBlock(b.key, { mode: e.target.value as UWorldBlockMode })}
+                    className="input text-sm py-1 px-2 w-full"
+                  >
+                    <option value="">-</option>
+                    {MODES.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="pt-1">
+                  <ImageUploadField
+                    label="Screenshot (optional)"
+                    value={b.screenshot_url}
+                    onChange={(url) => updateBlock(b.key, { screenshot_url: url })}
+                    bucket="block-screenshots"
+                    folder={targetUserId}
+                    readOnly={!canEdit}
+                  />
+                </div>
               </div>
-              <label className="block">
-                <span className="text-xs text-slate-500">Question bank</span>
-                <select
-                  value={b.qbank}
-                  disabled={!canEdit}
-                  onChange={(e) => updateBlock(b.key, { qbank: e.target.value as UWorldBlockQBank })}
-                  className="input text-sm py-1 px-2 w-full"
-                >
-                  <option value="">-</option>
-                  {QBANKS.map((q) => (
-                    <option key={q} value={q}>
-                      {q}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-500">System</span>
-                <select
-                  value={b.system}
-                  disabled={!canEdit}
-                  onChange={(e) => updateBlock(b.key, { system: e.target.value })}
-                  className="input text-sm py-1 px-2 w-full"
-                >
-                  <option value="">-</option>
-                  {/* Random (mixed-system) blocks are common - UWorld's own
-                      "Random" quiz mode pulls from every system at once, so
-                      forcing a single system on it would misrepresent what
-                      was actually practiced. Kept out of lib/qbankTypes.ts's
-                      STEP1_SYSTEMS (that list is shared with score-report
-                      breakdowns, which really do need one real system per
-                      column) - this is a tracker-only option that just shows
-                      up as its own row in the per-system breakdown table. */}
-                  <option value="Random">Random (mixed systems)</option>
-                  {STEP1_SYSTEMS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-500">Questions</span>
-                <input
-                  type="number"
-                  value={b.questions}
-                  disabled={!canEdit}
-                  onChange={(e) => updateBlock(b.key, { questions: e.target.value })}
-                  className="input text-sm py-1 px-2 w-full"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-500">Percentage</span>
-                <input
-                  type="number"
-                  value={b.percentage}
-                  disabled={!canEdit}
-                  placeholder="%"
-                  onChange={(e) => updateBlock(b.key, { percentage: e.target.value })}
-                  className="input text-sm py-1 px-2 w-full"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-500">Average</span>
-                <input
-                  type="number"
-                  value={b.average}
-                  disabled={!canEdit}
-                  placeholder="Peer avg %"
-                  onChange={(e) => updateBlock(b.key, { average: e.target.value })}
-                  className="input text-sm py-1 px-2 w-full"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-500">Mode</span>
-                <select
-                  value={b.mode}
-                  disabled={!canEdit}
-                  onChange={(e) => updateBlock(b.key, { mode: e.target.value as UWorldBlockMode })}
-                  className="input text-sm py-1 px-2 w-full"
-                >
-                  <option value="">-</option>
-                  {MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="pt-1">
-                <ImageUploadField
-                  label="Screenshot (optional)"
-                  value={b.screenshot_url}
-                  onChange={(url) => updateBlock(b.key, { screenshot_url: url })}
-                  bucket="block-screenshots"
-                  folder={targetUserId}
-                  readOnly={!canEdit}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
