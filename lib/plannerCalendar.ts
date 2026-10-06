@@ -44,7 +44,9 @@ export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; lab
 
 /**
  * Single day's calendar status - based on mentor_plan_tasks ("Assignments",
- * the checklist a mentor sets and a student checks off), same as before.
+ * the checklist a mentor sets OR a student self-assigns when their mentor
+ * has allowed it - see student_create_plan_task / SelfAssignedTasksToggle),
+ * plus whatever UWorld Blocks the student actually logged that day.
  *
  * `_mainColumns` is accepted for backward compatibility with existing
  * callers but is NOT factored into the status - it's the old retired flat
@@ -52,6 +54,23 @@ export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; lab
  * way to be filled in from any current UI. See the long-standing comment
  * history here: counting that grid as "the plan" used to trap days on
  * "partial" (yellow) forever even after every Assignment was done.
+ *
+ * A day only counts as fully "missed" (red) when NEITHER any Assignment was
+ * checked off NOR any UWorld Block was logged with a real question count -
+ * added after a real case where a student self-assigned a task (e.g. "40
+ * UWorld questions"), actually did the work, and separately logged a real
+ * UWorld Block for that exact day (40 questions, 68%) - but never went back
+ * to tick the Assignment's own checkbox too. Before this, that day showed
+ * flat "Missed" to their mentor/admin despite clear, logged evidence of
+ * real work, because checking off an Assignment and logging a Block are two
+ * separate actions with nothing to link them. Now a logged Block counts the
+ * same as a checked-off Assignment for ruling out "Missed" - a day like
+ * that becomes "Partial" instead. This mirrors the same leniency already
+ * applied to the 9pm reminder email (any real progress, not just a fully
+ * "Completed" day, is enough to not be flagged) - see
+ * planner-9pm-reminder/route.ts. It does NOT loosen what counts as fully
+ * "completed" (green) below - that still requires every Assignment checked
+ * off, same as before.
  *
  * `journalColumns`/`dayBlocks` ARE factored in, though: once every
  * Assignment for a day is checked off, the day only counts as fully
@@ -72,8 +91,10 @@ export const DAY_STATUS_COLOR: Record<DayStatus, { bg: string; text: string; lab
  * "today" always wins regardless of completion state. Future days with
  * Assignments get a distinct "upcoming-planned" tint instead of plain gray
  * "upcoming" - visible, immediate confirmation that a plan actually reached
- * the system, without claiming it's "done" before it's even arrived. A day
- * with zero assigned tasks can never be "completed" - only "no-plan".
+ * the system, without claiming it's "done" before it's even arrived. A past
+ * day with zero assigned tasks AND no logged Blocks is "no-plan"; one with
+ * no tasks but at least one logged Block is "partial" rather than blank,
+ * for the same "logged work should be visible" reason above.
  */
 export function computeDayStatus(
   dayTasks: PlanTask[],
@@ -85,13 +106,17 @@ export function computeDayStatus(
   dayBlocks: UWorldBlock[] = []
 ): DayStatus {
   const hasTasks = dayTasks.length > 0;
+  const hasLoggedBlock = dayBlocks.some((b) => b.questions !== null && b.questions !== undefined);
 
   if (date === todayIso) return "today";
   if (date > todayIso) return hasTasks ? "upcoming-planned" : "upcoming";
-  if (!hasTasks) return "no-plan";
+  if (!hasTasks) return hasLoggedBlock ? "partial" : "no-plan";
 
-  if (dayTasks.every((t) => !t.completed)) return "missed";
-  if (!dayTasks.every((t) => t.completed)) return "partial";
+  const anyTaskDone = dayTasks.some((t) => t.completed);
+  const allTasksDone = dayTasks.every((t) => t.completed);
+
+  if (!anyTaskDone && !hasLoggedBlock) return "missed";
+  if (!allTasksDone) return "partial";
 
   const v = entry?.field_values ?? {};
   const issueOk = !hasActiveColumn(journalColumns, "study_issue") || !!v["study_issue"];
