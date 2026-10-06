@@ -154,9 +154,9 @@ function LoginForm() {
             Sign up
           </Link>
         </p>
-        <p className="text-xs text-slate-500 mt-3 text-center">
+        <p className="text-base text-slate-300 mt-4 text-center">
           Are you a mentor?{" "}
-          <Link href="/mentor/login" className="text-brand-400 font-semibold">
+          <Link href="/mentor/login" className="text-brand-400 font-bold">
             Log in here
           </Link>
         </p>
