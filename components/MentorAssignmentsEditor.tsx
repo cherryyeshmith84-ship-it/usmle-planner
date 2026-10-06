@@ -30,7 +30,7 @@ const RESOURCE_OPTIONS = [
 // Every organ system/subject a mentor would organize a Step 1 assignment
 // under. Same "Other" fallback as resources above. Also doubles as the
 // fixed list of planner-template categories below - a template is just
-// "this mentor's saved assignment list for this system."
+// "this mentor's saved multi-day plan for this system."
 const SYSTEM_OPTIONS = [
   "CARDIOVASCULAR",
   "RESPIRATORY/PULMONARY",
@@ -68,24 +68,36 @@ interface DraftTask {
   repeatDays: number;
 }
 
-// A mentor's own reusable list of assignments for one system (e.g.
-// "CARDIOVASCULAR" -> 40 UWorld Qs, Pathoma 2.1-2.4, Sketchy Cardio) - built
-// once in the "Manage templates" view below, then dropped onto any day for
-// any student instead of retyping the same titles every time. Entirely
-// mentor-scoped (mentor_planner_templates.mentor_id), never tied to one
-// particular student. `name` is normally one of SYSTEM_OPTIONS, but a
-// mentor can also create a "custom category" template for something
-// outside that list (e.g. "NBME Review Week").
+// A mentor's own reusable, multi-day plan for one system (e.g.
+// "CARDIOVASCULAR" -> Day 1: Pathoma 2.1-2.4 + 40 UWorld Qs, Day 2: Sketchy
+// Cardio + 40 more Qs, ...) - built once in the "Manage templates" view
+// below, then dropped onto any day for any student in one click, with Day 1
+// landing on whichever date is currently open and Day 2, Day 3, etc.
+// landing on the following calendar days. Entirely mentor-scoped
+// (mentor_planner_templates.mentor_id), never tied to one particular
+// student. `name` is normally one of SYSTEM_OPTIONS, but a mentor can also
+// create a "custom category" template for something outside that list
+// (e.g. "NBME Review Week").
 interface TemplateItem {
   id: string;
   title: string;
+  detail: string | null;
   isOptional: boolean;
   sortOrder: number;
+}
+interface TemplateDay {
+  id: string;
+  dayNumber: number;
+  // Free-text "what should be done this day" - shown both while building
+  // the template (Manage templates) and in the apply preview, above that
+  // day's individual items.
+  notes: string | null;
+  items: TemplateItem[];
 }
 interface Template {
   id: string;
   name: string;
-  items: TemplateItem[];
+  days: TemplateDay[]; // sorted by dayNumber ascending
 }
 
 function toDraft(t: PlanTask): DraftTask {
@@ -143,22 +155,27 @@ function addDaysIso(date: string, n: number): string {
  * re-syncing `drafts` from the database here closes that gap: a second
  * Save with no further edits now has nothing left to (re)insert.
  *
- * "+ Use Template" (mentor_planner_templates / mentor_planner_template_items,
- * both RLS-scoped to this mentor by mentors.email = auth.jwt() email) lets a
- * mentor build one reusable assignment list PER SYSTEM - the same 18
- * systems as the "Add From Resource List" dialog's System dropdown above -
- * and drop the whole list onto any day (for any of their students) in one
- * click, instead of rebuilding it by hand every time. Every system always
- * shows up in the picker even before a mentor has added anything to it
- * (nothing is created in the database until the first item is added to
- * that system), so the structure matches "one permanent planner per
- * system" rather than a mentor having to remember to create each one
- * first. A mentor can also add a "custom category" template for something
- * that doesn't fit the 18 systems (e.g. "NBME Review Week"). The same
- * dialog doubles as the template manager (add/remove items, delete a
- * template) so there's no separate settings page to find. Templates are
- * loaded lazily (only once the dialog is first opened) since they're
- * mentor-wide, not specific to this student or day.
+ * "+ Use Template" (mentor_planner_templates -> mentor_planner_template_days
+ * -> mentor_planner_template_items, all RLS-scoped to this mentor by
+ * mentors.email = auth.jwt() email) lets a mentor build one reusable,
+ * MULTI-DAY plan per system - the same 18 systems as the "Add From Resource
+ * List" dialog's System dropdown above. Each day in the plan has its own
+ * free-text "what should be done" notes box plus as many individual
+ * assignment items (title + optional extra detail) as that day needs.
+ * Applying a template writes every checked item straight to the database
+ * (no separate Save click needed) with Day 1 landing on whichever date is
+ * currently open and Day 2, Day 3, etc. landing on the following calendar
+ * days - never onto an already-passed day, same rule "Repeat for" already
+ * follows above. Every system always shows up in the picker even before a
+ * mentor has added anything to it (nothing is created in the database
+ * until the first day/item is saved), so the structure matches "one
+ * permanent, day-by-day planner per system" rather than a mentor having to
+ * remember to create each one first. A mentor can also add a "custom
+ * category" template for something that doesn't fit the 18 systems. The
+ * same dialog doubles as the template manager (add/remove days and items,
+ * delete a template) so there's no separate settings page to find.
+ * Templates are loaded lazily (only once the dialog is first opened) since
+ * they're mentor-wide, not specific to this student or day.
  */
 export default function MentorAssignmentsEditor({
   studentId,
@@ -208,15 +225,19 @@ export default function MentorAssignmentsEditor({
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
   // Selection is tracked by SYSTEM name (not a database id) since most
-  // systems have no template row yet until a mentor adds their first item -
-  // see findTemplateByName below.
+  // systems have no template row yet until a mentor adds their first day -
+  // see findTemplateByName below. Shared between the apply view and the
+  // manage view, so switching systems in one carries over to the other.
   const [selectedSystemName, setSelectedSystemName] = useState<string>(SYSTEM_OPTIONS[0]);
   const [templateItemChecks, setTemplateItemChecks] = useState<Record<string, boolean>>({});
-  const [templateRepeatDays, setTemplateRepeatDays] = useState(1);
   const [manageMode, setManageMode] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
-  const [newItemTitleBySystem, setNewItemTitleBySystem] = useState<Record<string, string>>({});
+  // Draft text for the "add item to this day" mini-form, keyed by
+  // "<system>::<dayNumber>" so every day's box (including the always-present
+  // "next day" placeholder) keeps its own in-progress text.
+  const [itemDraftByDay, setItemDraftByDay] = useState<Record<string, { title: string; detail: string }>>({});
   const [manageSaving, setManageSaving] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
 
@@ -225,8 +246,8 @@ export default function MentorAssignmentsEditor({
   }
 
   // Any template a mentor created that ISN'T one of the 18 fixed systems
-  // above (e.g. "NBME Review Week") - shown as its own section below the
-  // system list, in both the apply and manage views.
+  // above (e.g. "NBME Review Week") - shown as its own section in both the
+  // apply and manage pickers.
   const customTemplates = (templates ?? [])
     .filter((t) => !SYSTEM_OPTIONS.some((s) => s.toLowerCase() === t.name.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -297,6 +318,7 @@ export default function MentorAssignmentsEditor({
     setTemplatesLoading(true);
     setTemplatesError(null);
     const supabase = createClient();
+
     const { data: templateRows, error: templateError } = await supabase
       .from("mentor_planner_templates")
       .select("id, name")
@@ -307,46 +329,74 @@ export default function MentorAssignmentsEditor({
       setTemplatesError(templateError.message);
       return;
     }
-    const ids = (templateRows ?? []).map((t) => t.id as string);
-    let itemRows: { id: string; template_id: string; title: string; is_optional: boolean; sort_order: number }[] = [];
-    if (ids.length > 0) {
-      const { data, error: itemsError } = await supabase
-        .from("mentor_planner_template_items")
-        .select("id, template_id, title, is_optional, sort_order")
-        .in("template_id", ids)
-        .order("sort_order", { ascending: true });
-      if (itemsError) {
+
+    const templateIds = (templateRows ?? []).map((t) => t.id as string);
+    let dayRows: { id: string; template_id: string; day_number: number; notes: string | null }[] = [];
+    if (templateIds.length > 0) {
+      const { data, error } = await supabase
+        .from("mentor_planner_template_days")
+        .select("id, template_id, day_number, notes")
+        .in("template_id", templateIds)
+        .order("day_number", { ascending: true });
+      if (error) {
         setTemplatesLoading(false);
-        setTemplatesError(itemsError.message);
+        setTemplatesError(error.message);
+        return;
+      }
+      dayRows = data ?? [];
+    }
+
+    const dayIds = dayRows.map((d) => d.id);
+    let itemRows: { id: string; template_day_id: string; title: string; detail: string | null; is_optional: boolean; sort_order: number }[] = [];
+    if (dayIds.length > 0) {
+      const { data, error } = await supabase
+        .from("mentor_planner_template_items")
+        .select("id, template_day_id, title, detail, is_optional, sort_order")
+        .in("template_day_id", dayIds)
+        .order("sort_order", { ascending: true });
+      if (error) {
+        setTemplatesLoading(false);
+        setTemplatesError(error.message);
         return;
       }
       itemRows = data ?? [];
     }
+
     const grouped: Template[] = (templateRows ?? []).map((t) => ({
       id: t.id as string,
       name: t.name as string,
-      items: itemRows
-        .filter((i) => i.template_id === t.id)
-        .map((i) => ({ id: i.id, title: i.title, isOptional: i.is_optional, sortOrder: i.sort_order })),
+      days: dayRows
+        .filter((d) => d.template_id === t.id)
+        .map((d) => ({
+          id: d.id,
+          dayNumber: d.day_number,
+          notes: d.notes,
+          items: itemRows
+            .filter((i) => i.template_day_id === d.id)
+            .map((i) => ({ id: i.id, title: i.title, detail: i.detail, isOptional: i.is_optional, sortOrder: i.sort_order })),
+        })),
     }));
+
     setTemplates(grouped);
     setTemplatesLoading(false);
+
     const current = grouped.find((t) => t.name.toLowerCase() === selectedSystemName.toLowerCase());
-    setTemplateItemChecks(Object.fromEntries((current?.items ?? []).map((i) => [i.id, true])));
+    const allItemIds = (current?.days ?? []).flatMap((d) => d.items.map((i) => i.id));
+    setTemplateItemChecks(Object.fromEntries(allItemIds.map((id) => [id, true])));
   }
 
   function openTemplateDialog() {
     if (isPastDay) return;
     setSaveMessage(null);
     setManageMode(false);
-    setTemplateRepeatDays(1);
     setTemplatesError(null);
     setShowTemplateDialog(true);
     if (templates === null) {
       loadTemplates();
     } else {
       const current = findTemplateByName(selectedSystemName);
-      setTemplateItemChecks(Object.fromEntries((current?.items ?? []).map((i) => [i.id, true])));
+      const allItemIds = (current?.days ?? []).flatMap((d) => d.items.map((i) => i.id));
+      setTemplateItemChecks(Object.fromEntries(allItemIds.map((id) => [id, true])));
     }
   }
 
@@ -354,53 +404,160 @@ export default function MentorAssignmentsEditor({
     setSelectedSystemName(name);
     setTemplatesError(null);
     const t = findTemplateByName(name);
-    setTemplateItemChecks(Object.fromEntries((t?.items ?? []).map((i) => [i.id, true])));
+    const allItemIds = (t?.days ?? []).flatMap((d) => d.items.map((i) => i.id));
+    setTemplateItemChecks(Object.fromEntries(allItemIds.map((id) => [id, true])));
   }
 
-  function addFromTemplate() {
-    const t = findTemplateByName(selectedSystemName);
-    const chosenItems = (t?.items ?? []).filter((i) => templateItemChecks[i.id]);
-    if (chosenItems.length === 0) {
-      setTemplatesError("Pick at least one item to add.");
-      return;
-    }
-    setSaveMessage(null);
-    setTemplatesError(null);
-    const repeatDays = Math.max(1, Math.min(90, Math.round(templateRepeatDays) || 1));
-    let nid = nextNewId;
-    const newDrafts: DraftTask[] = chosenItems.map((item) => {
-      const key = `new-${nid}`;
-      nid += 1;
-      return { key, id: null, title: item.title, isOptional: item.isOptional, completed: false, repeatDays };
-    });
-    setNextNewId(nid);
-    setDrafts((prev) => [...prev, ...newDrafts]);
-    setShowTemplateDialog(false);
-  }
-
-  async function createCustomCategory() {
-    const name = customCategoryName.trim();
-    if (!name) return;
-    setManageSaving(true);
-    setManageError(null);
+  // Creates the template row for `name` if it doesn't exist yet, returning
+  // its id either way. Every system is shown in the UI up front, but
+  // nothing exists in the database for it until this runs.
+  async function ensureTemplateId(name: string): Promise<string> {
+    const existing = findTemplateByName(name);
+    if (existing) return existing.id;
     const supabase = createClient();
     const { data, error } = await supabase
       .from("mentor_planner_templates")
       .insert({ mentor_id: mentorId, name })
       .select("id, name")
       .single();
+    if (error) throw new Error(error.message);
+    setTemplates((prev) => [...(prev ?? []), { id: data.id, name: data.name, days: [] }]);
+    return data.id as string;
+  }
+
+  // Creates the day row for (name, dayNumber) if `dayId` is null (the
+  // "next day" placeholder a mentor just started typing into), returning a
+  // real day id either way.
+  async function ensureDay(name: string, dayId: string | null, dayNumber: number): Promise<string> {
+    if (dayId) return dayId;
+    const templateId = await ensureTemplateId(name);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("mentor_planner_template_days")
+      .insert({ template_id: templateId, day_number: dayNumber })
+      .select("id, template_id, day_number, notes")
+      .single();
+    if (error) throw new Error(error.message);
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) =>
+        tpl.id === templateId
+          ? { ...tpl, days: [...tpl.days, { id: data.id, dayNumber: data.day_number, notes: data.notes, items: [] }] }
+          : tpl
+      )
+    );
+    return data.id as string;
+  }
+
+  async function saveDayNotes(name: string, dayId: string | null, dayNumber: number, notes: string) {
+    setManageSaving(true);
+    setManageError(null);
+    try {
+      const realDayId = await ensureDay(name, dayId, dayNumber);
+      const supabase = createClient();
+      const trimmed = notes.trim() || null;
+      const { error } = await supabase.from("mentor_planner_template_days").update({ notes: trimmed }).eq("id", realDayId);
+      if (error) throw new Error(error.message);
+      setTemplates((prev) =>
+        (prev ?? []).map((tpl) => ({
+          ...tpl,
+          days: tpl.days.map((d) => (d.id === realDayId ? { ...d, notes: trimmed } : d)),
+        }))
+      );
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : "Failed to save notes.");
+    } finally {
+      setManageSaving(false);
+    }
+  }
+
+  async function addItemToDay(name: string, dayId: string | null, dayNumber: number) {
+    const draftKey = `${name}::${dayNumber}`;
+    const draft = itemDraftByDay[draftKey] ?? { title: "", detail: "" };
+    const title = draft.title.trim();
+    if (!title) return;
+    setManageSaving(true);
+    setManageError(null);
+    try {
+      const realDayId = await ensureDay(name, dayId, dayNumber);
+      const existingDay = (templates ?? []).flatMap((t) => t.days).find((d) => d.id === realDayId);
+      const sortOrder = existingDay ? existingDay.items.length : 0;
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("mentor_planner_template_items")
+        .insert({ template_day_id: realDayId, title, detail: draft.detail.trim() || null, sort_order: sortOrder })
+        .select("id, title, detail, is_optional, sort_order")
+        .single();
+      if (error) throw new Error(error.message);
+      setTemplates((prev) =>
+        (prev ?? []).map((tpl) => ({
+          ...tpl,
+          days: tpl.days.map((d) =>
+            d.id === realDayId
+              ? {
+                  ...d,
+                  items: [
+                    ...d.items,
+                    { id: data.id, title: data.title, detail: data.detail, isOptional: data.is_optional, sortOrder: data.sort_order },
+                  ],
+                }
+              : d
+          ),
+        }))
+      );
+      setItemDraftByDay((prev) => ({ ...prev, [draftKey]: { title: "", detail: "" } }));
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : "Failed to add item.");
+    } finally {
+      setManageSaving(false);
+    }
+  }
+
+  async function deleteTemplateItem(itemId: string) {
+    setManageSaving(true);
+    setManageError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("mentor_planner_template_items").delete().eq("id", itemId);
     setManageSaving(false);
     if (error) {
       setManageError(error.message);
       return;
     }
-    setCustomCategoryName("");
-    setTemplates((prev) => [...(prev ?? []), { id: data.id, name: data.name, items: [] }]);
-    setSelectedSystemName(data.name);
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) => ({ ...tpl, days: tpl.days.map((d) => ({ ...d, items: d.items.filter((i) => i.id !== itemId) })) }))
+    );
+  }
+
+  async function toggleTemplateItemOptional(itemId: string, value: boolean) {
+    const supabase = createClient();
+    const { error } = await supabase.from("mentor_planner_template_items").update({ is_optional: value }).eq("id", itemId);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) => ({
+        ...tpl,
+        days: tpl.days.map((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, isOptional: value } : i)) })),
+      }))
+    );
+  }
+
+  async function deleteDay(dayId: string) {
+    if (!window.confirm("Delete this day and all its items? This can't be undone.")) return;
+    setManageSaving(true);
+    setManageError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("mentor_planner_template_days").delete().eq("id", dayId);
+    setManageSaving(false);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setTemplates((prev) => (prev ?? []).map((tpl) => ({ ...tpl, days: tpl.days.filter((d) => d.id !== dayId) })));
   }
 
   async function deleteTemplate(templateId: string, name: string) {
-    if (!window.confirm(`Clear the "${name}" template and all its items? This can't be undone.`)) return;
+    if (!window.confirm(`Delete the entire "${name}" template (every day and item in it)? This can't be undone.`)) return;
     setManageSaving(true);
     setManageError(null);
     const supabase = createClient();
@@ -413,91 +570,119 @@ export default function MentorAssignmentsEditor({
     setTemplates((prev) => (prev ?? []).filter((t) => t.id !== templateId));
   }
 
-  // Adds an item to the named system's template, creating the template row
-  // itself first if this is the first item ever saved under that system
-  // (every system is shown in the UI up front, but nothing exists in the
-  // database for it until this happens).
-  async function addItemToSystem(name: string) {
-    const title = (newItemTitleBySystem[name] ?? "").trim();
-    if (!title) return;
+  async function createCustomCategory() {
+    const name = customCategoryName.trim();
+    if (!name) return;
     setManageSaving(true);
     setManageError(null);
-    const supabase = createClient();
+    try {
+      await ensureTemplateId(name);
+      setCustomCategoryName("");
+      setSelectedSystemName(name);
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : "Failed to create category.");
+    } finally {
+      setManageSaving(false);
+    }
+  }
 
-    const existing = findTemplateByName(name);
-    let templateId = existing?.id ?? null;
-    const sortOrder = existing ? existing.items.length : 0;
+  // Writes every checked item straight to mentor_plan_tasks - Day 1 on
+  // `date`, Day 2 on `date`+1, etc. - skipping any day that's already
+  // passed (same rule the "Repeat for" field follows in save() below), then
+  // refreshes the currently-open day's checklist so new items show up
+  // immediately without a separate Save click.
+  async function applyTemplateSequence() {
+    const t = findTemplateByName(selectedSystemName);
+    if (!t || t.days.length === 0) return;
 
-    if (!templateId) {
-      const { data, error } = await supabase
-        .from("mentor_planner_templates")
-        .insert({ mentor_id: mentorId, name })
-        .select("id, name")
-        .single();
-      if (error) {
-        setManageSaving(false);
-        setManageError(error.message);
-        return;
+    const checked: { item: TemplateItem; dayNumber: number }[] = [];
+    for (const d of t.days) {
+      for (const item of d.items) {
+        if (templateItemChecks[item.id]) checked.push({ item, dayNumber: d.dayNumber });
       }
-      templateId = data.id;
-      setTemplates((prev) => [...(prev ?? []), { id: data.id, name: data.name, items: [] }]);
     }
-
-    const { data: itemData, error: itemError } = await supabase
-      .from("mentor_planner_template_items")
-      .insert({ template_id: templateId, title, sort_order: sortOrder })
-      .select("id, title, is_optional, sort_order")
-      .single();
-    setManageSaving(false);
-    if (itemError) {
-      setManageError(itemError.message);
+    if (checked.length === 0) {
+      setTemplatesError("Pick at least one item to add.");
       return;
     }
-    setNewItemTitleBySystem((prev) => ({ ...prev, [name]: "" }));
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) =>
-        tpl.id === templateId
-          ? {
-              ...tpl,
-              items: [
-                ...tpl.items,
-                { id: itemData.id, title: itemData.title, isOptional: itemData.is_optional, sortOrder: itemData.sort_order },
-              ],
-            }
-          : tpl
-      )
-    );
-  }
-
-  async function deleteTemplateItem(templateId: string, itemId: string) {
-    setManageSaving(true);
-    setManageError(null);
+    setTemplatesError(null);
+    setSaveMessage(null);
+    setApplyingTemplate(true);
     const supabase = createClient();
-    const { error } = await supabase.from("mentor_planner_template_items").delete().eq("id", itemId);
-    setManageSaving(false);
-    if (error) {
-      setManageError(error.message);
-      return;
-    }
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) => (tpl.id === templateId ? { ...tpl, items: tpl.items.filter((i) => i.id !== itemId) } : tpl))
-    );
-  }
 
-  async function toggleTemplateItemOptional(templateId: string, itemId: string, value: boolean) {
-    const supabase = createClient();
-    const { error } = await supabase.from("mentor_planner_template_items").update({ is_optional: value }).eq("id", itemId);
-    if (error) {
-      setManageError(error.message);
+    const rows: {
+      student_id: string;
+      mentor_id: string;
+      task_date: string;
+      title: string;
+      detail: string | null;
+      is_optional: boolean;
+      sort_order: number;
+      source: "mentor";
+    }[] = [];
+    let furthestDate = date;
+    for (const { item, dayNumber } of checked) {
+      const targetDate = addDaysIso(date, dayNumber - 1);
+      if (targetDate < todayIso) continue;
+      rows.push({
+        student_id: studentId,
+        mentor_id: mentorId,
+        task_date: targetDate,
+        title: item.title,
+        detail: item.detail,
+        is_optional: item.isOptional,
+        sort_order: item.sortOrder,
+        source: "mentor",
+      });
+      if (targetDate > furthestDate) furthestDate = targetDate;
+    }
+
+    if (rows.length === 0) {
+      setApplyingTemplate(false);
+      setTemplatesError("Nothing to add - every selected day has already passed.");
       return;
     }
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) =>
-        tpl.id === templateId
-          ? { ...tpl, items: tpl.items.map((i) => (i.id === itemId ? { ...i, isOptional: value } : i)) }
-          : tpl
-      )
-    );
+
+    const { error } = await supabase.from("mentor_plan_tasks").insert(rows);
+    if (error) {
+      setApplyingTemplate(false);
+      setTemplatesError(error.message);
+      return;
+    }
+
+    const { data: freshTasks, error: refetchError } = await supabase
+      .from("mentor_plan_tasks")
+      .select("*")
+      .eq("student_id", studentId)
+      .eq("task_date", date)
+      .order("sort_order", { ascending: true });
+    setApplyingTemplate(false);
+    if (!refetchError && freshTasks) {
+      setDrafts((freshTasks as PlanTask[]).map(toDraft));
+    }
+
+    setShowTemplateDialog(false);
+    setSaveMessage(furthestDate !== date ? `Template applied - saved through ${furthestDate}.` : "Template applied.");
+
+    // Fire-and-forget in-app notification to the student - a failure here
+    // shouldn't block the apply itself, which already succeeded above.
+    fetch("/api/notifications/relationship-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mentorId,
+        studentId,
+        type: "task_update",
+        title: "Your mentor updated your tasks",
+        detail:
+          furthestDate !== date
+            ? `Tasks for ${date} through ${furthestDate} were added or changed.`
+            : `Tasks for ${date} were added or changed.`,
+        link: "/planner",
+      }),
+    }).catch(() => {});
+
+    router.refresh();
   }
 
   async function save() {
@@ -739,8 +924,9 @@ export default function MentorAssignmentsEditor({
       ) : (
         <p className="text-[11px] text-slate-500 pt-0.5">
           Tip: set "Repeat for" on an assignment (e.g. 10) to apply it to today plus the next 9 days in one
-          save, instead of adding it separately on every day. Or build a reusable "Use Template" list once
-          per system and drop it onto any student's day with one click.
+          save, instead of adding it separately on every day. Or build a reusable, day-by-day "Use Template"
+          plan once per system and drop the whole sequence onto any student starting from whatever day
+          you're viewing.
         </p>
       )}
 
@@ -864,7 +1050,7 @@ export default function MentorAssignmentsEditor({
 
       {showTemplateDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
-          <div className="card max-w-md w-full space-y-3 max-h-[85vh] overflow-y-auto">
+          <div className="card max-w-lg w-full space-y-3 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">{manageMode ? "Manage templates" : "Use a template"}</p>
               <button
@@ -878,251 +1064,244 @@ export default function MentorAssignmentsEditor({
 
             {templatesLoading && <p className="text-xs text-slate-500">Loading templates...</p>}
 
-            {!templatesLoading && !manageMode && (
-              <>
-                <div>
-                  <label className="label">System</label>
-                  <select
-                    className="input text-sm"
-                    value={selectedSystemName}
-                    onChange={(e) => selectTemplate(e.target.value)}
-                  >
-                    <optgroup label="By system">
-                      {SYSTEM_OPTIONS.map((s) => {
-                        const t = findTemplateByName(s);
-                        const count = t?.items.length ?? 0;
+            {!templatesLoading && (
+              <div>
+                <label className="label">System</label>
+                <select
+                  className="input text-sm"
+                  value={selectedSystemName}
+                  onChange={(e) => selectTemplate(e.target.value)}
+                >
+                  <optgroup label="By system">
+                    {SYSTEM_OPTIONS.map((s) => {
+                      const t = findTemplateByName(s);
+                      const itemCount = (t?.days ?? []).reduce((sum, d) => sum + d.items.length, 0);
+                      return (
+                        <option key={s} value={s}>
+                          {s} ({itemCount} item{itemCount === 1 ? "" : "s"})
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                  {customTemplates.length > 0 && (
+                    <optgroup label="Custom">
+                      {customTemplates.map((t) => {
+                        const itemCount = t.days.reduce((sum, d) => sum + d.items.length, 0);
                         return (
-                          <option key={s} value={s}>
-                            {s} ({count} item{count === 1 ? "" : "s"})
+                          <option key={t.id} value={t.name}>
+                            {t.name} ({itemCount} item{itemCount === 1 ? "" : "s"})
                           </option>
                         );
                       })}
                     </optgroup>
-                    {customTemplates.length > 0 && (
-                      <optgroup label="Custom">
-                        {customTemplates.map((t) => (
-                          <option key={t.id} value={t.name}>
-                            {t.name} ({t.items.length} item{t.items.length === 1 ? "" : "s"})
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
-                </div>
+                  )}
+                </select>
+              </div>
+            )}
 
-                {(!selectedTemplate || selectedTemplate.items.length === 0) && (
+            {!templatesLoading && !manageMode && (
+              <>
+                {(!selectedTemplate || selectedTemplate.days.length === 0) && (
                   <p className="text-xs text-slate-500">
-                    No items saved for this system yet. Switch to "Manage templates" to add some.
+                    No days saved for this system yet. Switch to "Manage templates" to build one.
                   </p>
                 )}
 
-                {selectedTemplate && selectedTemplate.items.length > 0 && (
-                  <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-800 rounded-md p-2">
-                    {selectedTemplate.items.map((item) => (
-                      <label key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
-                        <input
-                          type="checkbox"
-                          checked={!!templateItemChecks[item.id]}
-                          onChange={(e) =>
-                            setTemplateItemChecks((prev) => ({ ...prev, [item.id]: e.target.checked }))
-                          }
-                          className="w-3.5 h-3.5 shrink-0"
-                        />
-                        <span className="flex-1">{item.title}</span>
-                        {item.isOptional && (
-                          <span className="text-[10px] font-semibold text-slate-500 shrink-0">Optional</span>
+                {selectedTemplate && selectedTemplate.days.length > 0 && (
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto border border-slate-800 rounded-md p-2.5">
+                    {selectedTemplate.days.map((d) => (
+                      <div key={d.id} className="space-y-1">
+                        <p className="text-xs font-semibold text-slate-400">
+                          Day {d.dayNumber} - lands on {addDaysIso(date, d.dayNumber - 1)}
+                        </p>
+                        {d.notes && <p className="text-[11px] text-slate-400 italic whitespace-pre-wrap pl-1">{d.notes}</p>}
+                        {d.items.length === 0 ? (
+                          <p className="text-[11px] text-slate-600 pl-1">No items on this day.</p>
+                        ) : (
+                          <div className="space-y-0.5">
+                            {d.items.map((item) => (
+                              <label key={item.id} className="flex items-start gap-2 text-xs text-slate-300 pl-1">
+                                <input
+                                  type="checkbox"
+                                  checked={!!templateItemChecks[item.id]}
+                                  onChange={(e) =>
+                                    setTemplateItemChecks((prev) => ({ ...prev, [item.id]: e.target.checked }))
+                                  }
+                                  className="w-3.5 h-3.5 shrink-0 mt-0.5"
+                                />
+                                <span className="flex-1">
+                                  {item.title}
+                                  {item.detail && <span className="block text-slate-500">{item.detail}</span>}
+                                </span>
+                                {item.isOptional && (
+                                  <span className="text-[10px] font-semibold text-slate-500 shrink-0">Optional</span>
+                                )}
+                              </label>
+                            ))}
+                          </div>
                         )}
-                      </label>
+                      </div>
                     ))}
                   </div>
                 )}
-
-                <label className="flex items-center gap-1.5 text-xs text-slate-500">
-                  Repeat for
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={templateRepeatDays}
-                    onChange={(e) => setTemplateRepeatDays(Number(e.target.value) || 1)}
-                    className="input text-xs py-1 px-1.5 w-12 text-center"
-                  />
-                  day{templateRepeatDays === 1 ? "" : "s"}
-                </label>
 
                 {templatesError && <p className="text-xs text-red-400">{templatesError}</p>}
 
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={addFromTemplate}
-                    disabled={!selectedTemplate || selectedTemplate.items.length === 0}
+                    onClick={applyTemplateSequence}
+                    disabled={!selectedTemplate || selectedTemplate.days.length === 0 || applyingTemplate}
                     className="btn-primary text-sm"
                   >
-                    Add selected items
+                    {applyingTemplate ? "Applying..." : "Apply starting this day"}
                   </button>
                   <button type="button" onClick={() => setShowTemplateDialog(false)} className="btn-secondary text-sm">
                     Cancel
                   </button>
                 </div>
+                {selectedTemplate && selectedTemplate.days.length > 0 && (
+                  <p className="text-[11px] text-slate-500">
+                    Checked items save immediately (Day 1 on {date}
+                    {selectedTemplate.days.length > 1
+                      ? `, Day ${selectedTemplate.days[selectedTemplate.days.length - 1].dayNumber} on ${addDaysIso(
+                          date,
+                          selectedTemplate.days[selectedTemplate.days.length - 1].dayNumber - 1
+                        )}`
+                      : ""}
+                    ) - no extra Save click needed.
+                  </p>
+                )}
               </>
             )}
 
             {!templatesLoading && manageMode && (
               <div className="space-y-4">
-                <p className="text-xs text-slate-500">
-                  Add assignments to a system once here, then they'll be ready to drop onto any student's
-                  day from the "Use Template" button.
-                </p>
-
                 {manageError && <p className="text-xs text-red-400">{manageError}</p>}
 
-                <div className="space-y-3">
-                  {SYSTEM_OPTIONS.map((systemName) => {
-                    const t = findTemplateByName(systemName);
-                    return (
-                      <div key={systemName} className="border border-slate-800 rounded-md p-2.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold">{systemName}</p>
-                          {t && t.items.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => deleteTemplate(t.id, systemName)}
-                              className="text-xs text-red-400 hover:text-red-300"
-                            >
-                              Clear all
-                            </button>
-                          )}
-                        </div>
-
-                        {t && t.items.length > 0 && (
-                          <div className="space-y-1">
-                            {t.items.map((item) => (
-                              <div key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
-                                <span className="flex-1">{item.title}</span>
-                                <label className="flex items-center gap-1 text-slate-500 shrink-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={item.isOptional}
-                                    onChange={(e) => toggleTemplateItemOptional(t.id, item.id, e.target.checked)}
-                                    className="w-3.5 h-3.5"
-                                  />
-                                  Optional
-                                </label>
+                {(() => {
+                  const t = findTemplateByName(selectedSystemName);
+                  const days = t?.days ?? [];
+                  const nextDayNumber = days.length > 0 ? Math.max(...days.map((d) => d.dayNumber)) + 1 : 1;
+                  const slots: { id: string | null; dayNumber: number; notes: string | null; items: TemplateItem[] }[] = [
+                    ...days,
+                    { id: null, dayNumber: nextDayNumber, notes: null, items: [] },
+                  ];
+                  return (
+                    <div className="space-y-3">
+                      {slots.map((d) => {
+                        const draftKey = `${selectedSystemName}::${d.dayNumber}`;
+                        const draft = itemDraftByDay[draftKey] ?? { title: "", detail: "" };
+                        const isNew = d.id === null;
+                        return (
+                          <div key={d.dayNumber} className="border border-slate-800 rounded-md p-2.5 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-semibold">
+                                Day {d.dayNumber}
+                                {isNew ? " (new)" : ""}
+                              </p>
+                              {!isNew && (
                                 <button
                                   type="button"
-                                  onClick={() => deleteTemplateItem(t.id, item.id)}
-                                  className="text-red-400 hover:text-red-300 shrink-0"
+                                  onClick={() => deleteDay(d.id as string)}
+                                  className="text-xs text-red-400 hover:text-red-300"
                                 >
-                                  Remove
+                                  Delete day
                                 </button>
+                              )}
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] text-slate-500">What should be done this day</label>
+                              <textarea
+                                key={`${d.id ?? "new"}-${d.notes ?? ""}`}
+                                defaultValue={d.notes ?? ""}
+                                onBlur={(e) => {
+                                  if (e.target.value !== (d.notes ?? "")) {
+                                    saveDayNotes(selectedSystemName, d.id, d.dayNumber, e.target.value);
+                                  }
+                                }}
+                                rows={2}
+                                placeholder="e.g. Review Pathoma 2.1-2.4, watch Sketchy Heart Failure, light review day"
+                                className="input text-xs py-1.5 px-2 w-full resize-y"
+                              />
+                            </div>
+
+                            {d.items.length > 0 && (
+                              <div className="space-y-1.5">
+                                {d.items.map((item) => (
+                                  <div
+                                    key={item.id}
+                                    className="flex items-start gap-2 text-xs text-slate-300 border-t border-slate-800/70 pt-1.5"
+                                  >
+                                    <div className="flex-1">
+                                      <p>{item.title}</p>
+                                      {item.detail && <p className="text-slate-500">{item.detail}</p>}
+                                    </div>
+                                    <label className="flex items-center gap-1 text-slate-500 shrink-0">
+                                      <input
+                                        type="checkbox"
+                                        checked={item.isOptional}
+                                        onChange={(e) => toggleTemplateItemOptional(item.id, e.target.checked)}
+                                        className="w-3.5 h-3.5"
+                                      />
+                                      Optional
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteTemplateItem(item.id)}
+                                      className="text-red-400 hover:text-red-300 shrink-0"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
+
+                            <div className="space-y-1.5 pt-1">
+                              <input
+                                type="text"
+                                className="input text-xs py-1 px-2 w-full"
+                                placeholder="Item title (e.g. 40 Cardiology Questions)"
+                                value={draft.title}
+                                onChange={(e) =>
+                                  setItemDraftByDay((prev) => ({ ...prev, [draftKey]: { ...draft, title: e.target.value } }))
+                                }
+                              />
+                              <textarea
+                                className="input text-xs py-1 px-2 w-full resize-y"
+                                placeholder="Extra detail for this item (optional)"
+                                rows={1}
+                                value={draft.detail}
+                                onChange={(e) =>
+                                  setItemDraftByDay((prev) => ({ ...prev, [draftKey]: { ...draft, detail: e.target.value } }))
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() => addItemToDay(selectedSystemName, d.id, d.dayNumber)}
+                                disabled={manageSaving || !draft.title.trim()}
+                                className="btn-secondary text-xs"
+                              >
+                                + Add item to Day {d.dayNumber}
+                              </button>
+                            </div>
                           </div>
-                        )}
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            className="input text-xs py-1 px-2 flex-1"
-                            placeholder="Add an item (e.g. 40 Cardiology Questions)"
-                            value={newItemTitleBySystem[systemName] ?? ""}
-                            onChange={(e) =>
-                              setNewItemTitleBySystem((prev) => ({ ...prev, [systemName]: e.target.value }))
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                addItemToSystem(systemName);
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => addItemToSystem(systemName)}
-                            disabled={manageSaving || !(newItemTitleBySystem[systemName] ?? "").trim()}
-                            className="btn-secondary text-xs shrink-0"
-                          >
-                            + Item
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {customTemplates.length > 0 && (
-                  <div className="space-y-3 pt-2 border-t border-slate-800">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                      Custom categories
-                    </p>
-                    {customTemplates.map((t) => (
-                      <div key={t.id} className="border border-slate-800 rounded-md p-2.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold">{t.name}</p>
-                          <button
-                            type="button"
-                            onClick={() => deleteTemplate(t.id, t.name)}
-                            className="text-xs text-red-400 hover:text-red-300"
-                          >
-                            Delete template
-                          </button>
-                        </div>
-
-                        {t.items.length > 0 && (
-                          <div className="space-y-1">
-                            {t.items.map((item) => (
-                              <div key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
-                                <span className="flex-1">{item.title}</span>
-                                <label className="flex items-center gap-1 text-slate-500 shrink-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={item.isOptional}
-                                    onChange={(e) => toggleTemplateItemOptional(t.id, item.id, e.target.checked)}
-                                    className="w-3.5 h-3.5"
-                                  />
-                                  Optional
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteTemplateItem(t.id, item.id)}
-                                  className="text-red-400 hover:text-red-300 shrink-0"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            className="input text-xs py-1 px-2 flex-1"
-                            placeholder="Add an item"
-                            value={newItemTitleBySystem[t.name] ?? ""}
-                            onChange={(e) =>
-                              setNewItemTitleBySystem((prev) => ({ ...prev, [t.name]: e.target.value }))
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                addItemToSystem(t.name);
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => addItemToSystem(t.name)}
-                            disabled={manageSaving || !(newItemTitleBySystem[t.name] ?? "").trim()}
-                            className="btn-secondary text-xs shrink-0"
-                          >
-                            + Item
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                {selectedTemplate && !SYSTEM_OPTIONS.some((s) => s.toLowerCase() === selectedSystemName.toLowerCase()) && (
+                  <button
+                    type="button"
+                    onClick={() => deleteTemplate(selectedTemplate.id, selectedTemplate.name)}
+                    className="text-xs text-red-400 hover:text-red-300"
+                  >
+                    Delete this custom category entirely
+                  </button>
                 )}
 
                 <div className="pt-2 border-t border-slate-800">
