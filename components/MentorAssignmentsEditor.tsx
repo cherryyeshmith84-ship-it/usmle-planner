@@ -28,7 +28,9 @@ const RESOURCE_OPTIONS = [
 ];
 
 // Every organ system/subject a mentor would organize a Step 1 assignment
-// under. Same "Other" fallback as resources above.
+// under. Same "Other" fallback as resources above. Also doubles as the
+// fixed list of planner-template categories below - a template is just
+// "this mentor's saved assignment list for this system."
 const SYSTEM_OPTIONS = [
   "CARDIOVASCULAR",
   "RESPIRATORY/PULMONARY",
@@ -66,12 +68,14 @@ interface DraftTask {
   repeatDays: number;
 }
 
-// A mentor's own reusable list of assignments for a system/topic (e.g.
-// "Cardiology" -> 40 UWorld Qs, Pathoma 2.1-2.4, Sketchy Cardio) - built
-// once in the "Manage templates" view below, then applied to any day for
+// A mentor's own reusable list of assignments for one system (e.g.
+// "CARDIOVASCULAR" -> 40 UWorld Qs, Pathoma 2.1-2.4, Sketchy Cardio) - built
+// once in the "Manage templates" view below, then dropped onto any day for
 // any student instead of retyping the same titles every time. Entirely
 // mentor-scoped (mentor_planner_templates.mentor_id), never tied to one
-// particular student.
+// particular student. `name` is normally one of SYSTEM_OPTIONS, but a
+// mentor can also create a "custom category" template for something
+// outside that list (e.g. "NBME Review Week").
 interface TemplateItem {
   id: string;
   title: string;
@@ -141,14 +145,20 @@ function addDaysIso(date: string, n: number): string {
  *
  * "+ Use Template" (mentor_planner_templates / mentor_planner_template_items,
  * both RLS-scoped to this mentor by mentors.email = auth.jwt() email) lets a
- * mentor build a reusable list once per system - e.g. a "Cardiology"
- * template holding every assignment they'd normally retype for every
- * student - and drop the whole list onto any day (for any of their
- * students) in one click, instead of rebuilding it by hand each time. The
- * same dialog also doubles as the template manager (create/rename/delete
- * templates and their items) so there's no separate settings page to find.
- * Templates are loaded lazily (only once the dialog is first opened) since
- * they're mentor-wide, not specific to this student or day.
+ * mentor build one reusable assignment list PER SYSTEM - the same 18
+ * systems as the "Add From Resource List" dialog's System dropdown above -
+ * and drop the whole list onto any day (for any of their students) in one
+ * click, instead of rebuilding it by hand every time. Every system always
+ * shows up in the picker even before a mentor has added anything to it
+ * (nothing is created in the database until the first item is added to
+ * that system), so the structure matches "one permanent planner per
+ * system" rather than a mentor having to remember to create each one
+ * first. A mentor can also add a "custom category" template for something
+ * that doesn't fit the 18 systems (e.g. "NBME Review Week"). The same
+ * dialog doubles as the template manager (add/remove items, delete a
+ * template) so there's no separate settings page to find. Templates are
+ * loaded lazily (only once the dialog is first opened) since they're
+ * mentor-wide, not specific to this student or day.
  */
 export default function MentorAssignmentsEditor({
   studentId,
@@ -192,19 +202,34 @@ export default function MentorAssignmentsEditor({
 
   // "Use Template" dialog - see doc comment above for what this does.
   // `templates === null` means "never loaded yet"; an empty array means
-  // "loaded, mentor just has none" - used to tell those two cases apart.
+  // "loaded, mentor just hasn't saved anything to any system yet" - used to
+  // tell those two cases apart (only the first one needs a DB round trip).
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  // Selection is tracked by SYSTEM name (not a database id) since most
+  // systems have no template row yet until a mentor adds their first item -
+  // see findTemplateByName below.
+  const [selectedSystemName, setSelectedSystemName] = useState<string>(SYSTEM_OPTIONS[0]);
   const [templateItemChecks, setTemplateItemChecks] = useState<Record<string, boolean>>({});
   const [templateRepeatDays, setTemplateRepeatDays] = useState(1);
   const [manageMode, setManageMode] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState("");
-  const [newItemTitleByTemplate, setNewItemTitleByTemplate] = useState<Record<string, string>>({});
+  const [customCategoryName, setCustomCategoryName] = useState("");
+  const [newItemTitleBySystem, setNewItemTitleBySystem] = useState<Record<string, string>>({});
   const [manageSaving, setManageSaving] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
+
+  function findTemplateByName(name: string): Template | null {
+    return (templates ?? []).find((t) => t.name.toLowerCase() === name.toLowerCase()) ?? null;
+  }
+
+  // Any template a mentor created that ISN'T one of the 18 fixed systems
+  // above (e.g. "NBME Review Week") - shown as its own section below the
+  // system list, in both the apply and manage views.
+  const customTemplates = (templates ?? [])
+    .filter((t) => !SYSTEM_OPTIONS.some((s) => s.toLowerCase() === t.name.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   function updateDraft(key: string, patch: Partial<DraftTask>) {
     if (isPastDay) return;
@@ -306,10 +331,8 @@ export default function MentorAssignmentsEditor({
     }));
     setTemplates(grouped);
     setTemplatesLoading(false);
-    if (grouped.length > 0) {
-      setSelectedTemplateId(grouped[0].id);
-      setTemplateItemChecks(Object.fromEntries(grouped[0].items.map((i) => [i.id, true])));
-    }
+    const current = grouped.find((t) => t.name.toLowerCase() === selectedSystemName.toLowerCase());
+    setTemplateItemChecks(Object.fromEntries((current?.items ?? []).map((i) => [i.id, true])));
   }
 
   function openTemplateDialog() {
@@ -321,22 +344,22 @@ export default function MentorAssignmentsEditor({
     setShowTemplateDialog(true);
     if (templates === null) {
       loadTemplates();
-    } else if (templates.length > 0 && !selectedTemplateId) {
-      setSelectedTemplateId(templates[0].id);
-      setTemplateItemChecks(Object.fromEntries(templates[0].items.map((i) => [i.id, true])));
+    } else {
+      const current = findTemplateByName(selectedSystemName);
+      setTemplateItemChecks(Object.fromEntries((current?.items ?? []).map((i) => [i.id, true])));
     }
   }
 
-  function selectTemplate(id: string) {
-    setSelectedTemplateId(id);
-    const t = (templates ?? []).find((x) => x.id === id);
+  function selectTemplate(name: string) {
+    setSelectedSystemName(name);
+    setTemplatesError(null);
+    const t = findTemplateByName(name);
     setTemplateItemChecks(Object.fromEntries((t?.items ?? []).map((i) => [i.id, true])));
   }
 
   function addFromTemplate() {
-    const t = (templates ?? []).find((x) => x.id === selectedTemplateId);
-    if (!t) return;
-    const chosenItems = t.items.filter((i) => templateItemChecks[i.id]);
+    const t = findTemplateByName(selectedSystemName);
+    const chosenItems = (t?.items ?? []).filter((i) => templateItemChecks[i.id]);
     if (chosenItems.length === 0) {
       setTemplatesError("Pick at least one item to add.");
       return;
@@ -355,8 +378,8 @@ export default function MentorAssignmentsEditor({
     setShowTemplateDialog(false);
   }
 
-  async function createTemplate() {
-    const name = newTemplateName.trim();
+  async function createCustomCategory() {
+    const name = customCategoryName.trim();
     if (!name) return;
     setManageSaving(true);
     setManageError(null);
@@ -371,13 +394,13 @@ export default function MentorAssignmentsEditor({
       setManageError(error.message);
       return;
     }
-    setNewTemplateName("");
+    setCustomCategoryName("");
     setTemplates((prev) => [...(prev ?? []), { id: data.id, name: data.name, items: [] }]);
-    setSelectedTemplateId(data.id);
+    setSelectedSystemName(data.name);
   }
 
-  async function deleteTemplate(templateId: string) {
-    if (!window.confirm("Delete this template and all its items? This can't be undone.")) return;
+  async function deleteTemplate(templateId: string, name: string) {
+    if (!window.confirm(`Clear the "${name}" template and all its items? This can't be undone.`)) return;
     setManageSaving(true);
     setManageError(null);
     const supabase = createClient();
@@ -388,28 +411,49 @@ export default function MentorAssignmentsEditor({
       return;
     }
     setTemplates((prev) => (prev ?? []).filter((t) => t.id !== templateId));
-    if (selectedTemplateId === templateId) setSelectedTemplateId("");
   }
 
-  async function addTemplateItem(templateId: string) {
-    const title = (newItemTitleByTemplate[templateId] ?? "").trim();
+  // Adds an item to the named system's template, creating the template row
+  // itself first if this is the first item ever saved under that system
+  // (every system is shown in the UI up front, but nothing exists in the
+  // database for it until this happens).
+  async function addItemToSystem(name: string) {
+    const title = (newItemTitleBySystem[name] ?? "").trim();
     if (!title) return;
     setManageSaving(true);
     setManageError(null);
     const supabase = createClient();
-    const current = (templates ?? []).find((t) => t.id === templateId);
-    const sortOrder = current ? current.items.length : 0;
-    const { data, error } = await supabase
+
+    const existing = findTemplateByName(name);
+    let templateId = existing?.id ?? null;
+    const sortOrder = existing ? existing.items.length : 0;
+
+    if (!templateId) {
+      const { data, error } = await supabase
+        .from("mentor_planner_templates")
+        .insert({ mentor_id: mentorId, name })
+        .select("id, name")
+        .single();
+      if (error) {
+        setManageSaving(false);
+        setManageError(error.message);
+        return;
+      }
+      templateId = data.id;
+      setTemplates((prev) => [...(prev ?? []), { id: data.id, name: data.name, items: [] }]);
+    }
+
+    const { data: itemData, error: itemError } = await supabase
       .from("mentor_planner_template_items")
       .insert({ template_id: templateId, title, sort_order: sortOrder })
       .select("id, title, is_optional, sort_order")
       .single();
     setManageSaving(false);
-    if (error) {
-      setManageError(error.message);
+    if (itemError) {
+      setManageError(itemError.message);
       return;
     }
-    setNewItemTitleByTemplate((prev) => ({ ...prev, [templateId]: "" }));
+    setNewItemTitleBySystem((prev) => ({ ...prev, [name]: "" }));
     setTemplates((prev) =>
       (prev ?? []).map((tpl) =>
         tpl.id === templateId
@@ -417,7 +461,7 @@ export default function MentorAssignmentsEditor({
               ...tpl,
               items: [
                 ...tpl.items,
-                { id: data.id, title: data.title, isOptional: data.is_optional, sortOrder: data.sort_order },
+                { id: itemData.id, title: itemData.title, isOptional: itemData.is_optional, sortOrder: itemData.sort_order },
               ],
             }
           : tpl
@@ -598,7 +642,7 @@ export default function MentorAssignmentsEditor({
     router.refresh();
   }
 
-  const selectedTemplate = (templates ?? []).find((t) => t.id === selectedTemplateId) ?? null;
+  const selectedTemplate = findTemplateByName(selectedSystemName);
 
   return (
     <div className="space-y-2">
@@ -836,133 +880,189 @@ export default function MentorAssignmentsEditor({
 
             {!templatesLoading && !manageMode && (
               <>
-                {(templates ?? []).length === 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-slate-500">
-                      You haven't created any templates yet. Build one (e.g. "Cardiology") once, then apply
-                      it to any student's day in one click.
-                    </p>
-                    <button type="button" onClick={() => setManageMode(true)} className="btn-secondary text-xs">
-                      + Create a template
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <label className="label">Template</label>
-                      <select
-                        className="input text-sm"
-                        value={selectedTemplateId}
-                        onChange={(e) => selectTemplate(e.target.value)}
-                      >
-                        {(templates ?? []).map((t) => (
-                          <option key={t.id} value={t.id}>
+                <div>
+                  <label className="label">System</label>
+                  <select
+                    className="input text-sm"
+                    value={selectedSystemName}
+                    onChange={(e) => selectTemplate(e.target.value)}
+                  >
+                    <optgroup label="By system">
+                      {SYSTEM_OPTIONS.map((s) => {
+                        const t = findTemplateByName(s);
+                        const count = t?.items.length ?? 0;
+                        return (
+                          <option key={s} value={s}>
+                            {s} ({count} item{count === 1 ? "" : "s"})
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                    {customTemplates.length > 0 && (
+                      <optgroup label="Custom">
+                        {customTemplates.map((t) => (
+                          <option key={t.id} value={t.name}>
                             {t.name} ({t.items.length} item{t.items.length === 1 ? "" : "s"})
                           </option>
                         ))}
-                      </select>
-                    </div>
-
-                    {selectedTemplate && selectedTemplate.items.length === 0 && (
-                      <p className="text-xs text-slate-500">
-                        This template has no items yet. Switch to "Manage templates" to add some.
-                      </p>
+                      </optgroup>
                     )}
+                  </select>
+                </div>
 
-                    {selectedTemplate && selectedTemplate.items.length > 0 && (
-                      <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-800 rounded-md p-2">
-                        {selectedTemplate.items.map((item) => (
-                          <label key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
-                            <input
-                              type="checkbox"
-                              checked={!!templateItemChecks[item.id]}
-                              onChange={(e) =>
-                                setTemplateItemChecks((prev) => ({ ...prev, [item.id]: e.target.checked }))
-                              }
-                              className="w-3.5 h-3.5 shrink-0"
-                            />
-                            <span className="flex-1">{item.title}</span>
-                            {item.isOptional && (
-                              <span className="text-[10px] font-semibold text-slate-500 shrink-0">Optional</span>
-                            )}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-
-                    <label className="flex items-center gap-1.5 text-xs text-slate-500">
-                      Repeat for
-                      <input
-                        type="number"
-                        min={1}
-                        max={90}
-                        value={templateRepeatDays}
-                        onChange={(e) => setTemplateRepeatDays(Number(e.target.value) || 1)}
-                        className="input text-xs py-1 px-1.5 w-12 text-center"
-                      />
-                      day{templateRepeatDays === 1 ? "" : "s"}
-                    </label>
-
-                    {templatesError && <p className="text-xs text-red-400">{templatesError}</p>}
-
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={addFromTemplate}
-                        disabled={!selectedTemplate || selectedTemplate.items.length === 0}
-                        className="btn-primary text-sm"
-                      >
-                        Add selected items
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowTemplateDialog(false)}
-                        className="btn-secondary text-sm"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </>
+                {(!selectedTemplate || selectedTemplate.items.length === 0) && (
+                  <p className="text-xs text-slate-500">
+                    No items saved for this system yet. Switch to "Manage templates" to add some.
+                  </p>
                 )}
+
+                {selectedTemplate && selectedTemplate.items.length > 0 && (
+                  <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-800 rounded-md p-2">
+                    {selectedTemplate.items.map((item) => (
+                      <label key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={!!templateItemChecks[item.id]}
+                          onChange={(e) =>
+                            setTemplateItemChecks((prev) => ({ ...prev, [item.id]: e.target.checked }))
+                          }
+                          className="w-3.5 h-3.5 shrink-0"
+                        />
+                        <span className="flex-1">{item.title}</span>
+                        {item.isOptional && (
+                          <span className="text-[10px] font-semibold text-slate-500 shrink-0">Optional</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                  Repeat for
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={templateRepeatDays}
+                    onChange={(e) => setTemplateRepeatDays(Number(e.target.value) || 1)}
+                    className="input text-xs py-1 px-1.5 w-12 text-center"
+                  />
+                  day{templateRepeatDays === 1 ? "" : "s"}
+                </label>
+
+                {templatesError && <p className="text-xs text-red-400">{templatesError}</p>}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={addFromTemplate}
+                    disabled={!selectedTemplate || selectedTemplate.items.length === 0}
+                    className="btn-primary text-sm"
+                  >
+                    Add selected items
+                  </button>
+                  <button type="button" onClick={() => setShowTemplateDialog(false)} className="btn-secondary text-sm">
+                    Cancel
+                  </button>
+                </div>
               </>
             )}
 
             {!templatesLoading && manageMode && (
               <div className="space-y-4">
-                <div>
-                  <label className="label">New template name</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      className="input text-sm flex-1"
-                      placeholder="e.g. Cardiology"
-                      value={newTemplateName}
-                      onChange={(e) => setNewTemplateName(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={createTemplate}
-                      disabled={manageSaving || !newTemplateName.trim()}
-                      className="btn-secondary text-xs shrink-0"
-                    >
-                      Create
-                    </button>
-                  </div>
-                </div>
+                <p className="text-xs text-slate-500">
+                  Add assignments to a system once here, then they'll be ready to drop onto any student's
+                  day from the "Use Template" button.
+                </p>
 
                 {manageError && <p className="text-xs text-red-400">{manageError}</p>}
 
-                {(templates ?? []).length === 0 ? (
-                  <p className="text-xs text-slate-500">No templates yet - create one above.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {(templates ?? []).map((t) => (
+                <div className="space-y-3">
+                  {SYSTEM_OPTIONS.map((systemName) => {
+                    const t = findTemplateByName(systemName);
+                    return (
+                      <div key={systemName} className="border border-slate-800 rounded-md p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">{systemName}</p>
+                          {t && t.items.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => deleteTemplate(t.id, systemName)}
+                              className="text-xs text-red-400 hover:text-red-300"
+                            >
+                              Clear all
+                            </button>
+                          )}
+                        </div>
+
+                        {t && t.items.length > 0 && (
+                          <div className="space-y-1">
+                            {t.items.map((item) => (
+                              <div key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
+                                <span className="flex-1">{item.title}</span>
+                                <label className="flex items-center gap-1 text-slate-500 shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.isOptional}
+                                    onChange={(e) => toggleTemplateItemOptional(t.id, item.id, e.target.checked)}
+                                    className="w-3.5 h-3.5"
+                                  />
+                                  Optional
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteTemplateItem(t.id, item.id)}
+                                  className="text-red-400 hover:text-red-300 shrink-0"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            className="input text-xs py-1 px-2 flex-1"
+                            placeholder="Add an item (e.g. 40 Cardiology Questions)"
+                            value={newItemTitleBySystem[systemName] ?? ""}
+                            onChange={(e) =>
+                              setNewItemTitleBySystem((prev) => ({ ...prev, [systemName]: e.target.value }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                addItemToSystem(systemName);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => addItemToSystem(systemName)}
+                            disabled={manageSaving || !(newItemTitleBySystem[systemName] ?? "").trim()}
+                            className="btn-secondary text-xs shrink-0"
+                          >
+                            + Item
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {customTemplates.length > 0 && (
+                  <div className="space-y-3 pt-2 border-t border-slate-800">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                      Custom categories
+                    </p>
+                    {customTemplates.map((t) => (
                       <div key={t.id} className="border border-slate-800 rounded-md p-2.5 space-y-2">
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-semibold">{t.name}</p>
                           <button
                             type="button"
-                            onClick={() => deleteTemplate(t.id)}
+                            onClick={() => deleteTemplate(t.id, t.name)}
                             className="text-xs text-red-400 hover:text-red-300"
                           >
                             Delete template
@@ -999,22 +1099,22 @@ export default function MentorAssignmentsEditor({
                           <input
                             type="text"
                             className="input text-xs py-1 px-2 flex-1"
-                            placeholder="Add an item (e.g. 40 Cardiology Questions)"
-                            value={newItemTitleByTemplate[t.id] ?? ""}
+                            placeholder="Add an item"
+                            value={newItemTitleBySystem[t.name] ?? ""}
                             onChange={(e) =>
-                              setNewItemTitleByTemplate((prev) => ({ ...prev, [t.id]: e.target.value }))
+                              setNewItemTitleBySystem((prev) => ({ ...prev, [t.name]: e.target.value }))
                             }
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
-                                addTemplateItem(t.id);
+                                addItemToSystem(t.name);
                               }
                             }}
                           />
                           <button
                             type="button"
-                            onClick={() => addTemplateItem(t.id)}
-                            disabled={manageSaving || !(newItemTitleByTemplate[t.id] ?? "").trim()}
+                            onClick={() => addItemToSystem(t.name)}
+                            disabled={manageSaving || !(newItemTitleBySystem[t.name] ?? "").trim()}
                             className="btn-secondary text-xs shrink-0"
                           >
                             + Item
@@ -1025,15 +1125,35 @@ export default function MentorAssignmentsEditor({
                   </div>
                 )}
 
+                <div className="pt-2 border-t border-slate-800">
+                  <label className="label">Add a custom category</label>
+                  <p className="text-[11px] text-slate-500 mb-1.5">
+                    For something outside the 18 systems above, e.g. "NBME Review Week".
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="input text-sm flex-1"
+                      placeholder="Category name"
+                      value={customCategoryName}
+                      onChange={(e) => setCustomCategoryName(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={createCustomCategory}
+                      disabled={manageSaving || !customCategoryName.trim()}
+                      className="btn-secondary text-xs shrink-0"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-3 pt-1">
                   <button type="button" onClick={() => setManageMode(false)} className="btn-primary text-sm">
                     Done
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowTemplateDialog(false)}
-                    className="btn-secondary text-sm"
-                  >
+                  <button type="button" onClick={() => setShowTemplateDialog(false)} className="btn-secondary text-sm">
                     Close
                   </button>
                 </div>
