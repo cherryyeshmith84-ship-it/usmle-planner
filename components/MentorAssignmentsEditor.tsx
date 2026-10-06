@@ -66,6 +66,24 @@ interface DraftTask {
   repeatDays: number;
 }
 
+// A mentor's own reusable list of assignments for a system/topic (e.g.
+// "Cardiology" -> 40 UWorld Qs, Pathoma 2.1-2.4, Sketchy Cardio) - built
+// once in the "Manage templates" view below, then applied to any day for
+// any student instead of retyping the same titles every time. Entirely
+// mentor-scoped (mentor_planner_templates.mentor_id), never tied to one
+// particular student.
+interface TemplateItem {
+  id: string;
+  title: string;
+  isOptional: boolean;
+  sortOrder: number;
+}
+interface Template {
+  id: string;
+  name: string;
+  items: TemplateItem[];
+}
+
 function toDraft(t: PlanTask): DraftTask {
   return {
     key: t.id,
@@ -120,6 +138,17 @@ function addDaysIso(date: string, n: number): string {
  * days" set, re-copied it onto all those future days again too. Explicitly
  * re-syncing `drafts` from the database here closes that gap: a second
  * Save with no further edits now has nothing left to (re)insert.
+ *
+ * "+ Use Template" (mentor_planner_templates / mentor_planner_template_items,
+ * both RLS-scoped to this mentor by mentors.email = auth.jwt() email) lets a
+ * mentor build a reusable list once per system - e.g. a "Cardiology"
+ * template holding every assignment they'd normally retype for every
+ * student - and drop the whole list onto any day (for any of their
+ * students) in one click, instead of rebuilding it by hand each time. The
+ * same dialog also doubles as the template manager (create/rename/delete
+ * templates and their items) so there's no separate settings page to find.
+ * Templates are loaded lazily (only once the dialog is first opened) since
+ * they're mentor-wide, not specific to this student or day.
  */
 export default function MentorAssignmentsEditor({
   studentId,
@@ -160,6 +189,22 @@ export default function MentorAssignmentsEditor({
   const [dialogOptional, setDialogOptional] = useState(false);
   const [dialogRepeatDays, setDialogRepeatDays] = useState(1);
   const [dialogError, setDialogError] = useState<string | null>(null);
+
+  // "Use Template" dialog - see doc comment above for what this does.
+  // `templates === null` means "never loaded yet"; an empty array means
+  // "loaded, mentor just has none" - used to tell those two cases apart.
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [templates, setTemplates] = useState<Template[] | null>(null);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [templateItemChecks, setTemplateItemChecks] = useState<Record<string, boolean>>({});
+  const [templateRepeatDays, setTemplateRepeatDays] = useState(1);
+  const [manageMode, setManageMode] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [newItemTitleByTemplate, setNewItemTitleByTemplate] = useState<Record<string, string>>({});
+  const [manageSaving, setManageSaving] = useState(false);
+  const [manageError, setManageError] = useState<string | null>(null);
 
   function updateDraft(key: string, patch: Partial<DraftTask>) {
     if (isPastDay) return;
@@ -221,6 +266,194 @@ export default function MentorAssignmentsEditor({
     if (isPastDay) return;
     setSaveMessage(null);
     setDrafts((prev) => prev.filter((d) => d.key !== key));
+  }
+
+  async function loadTemplates() {
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    const supabase = createClient();
+    const { data: templateRows, error: templateError } = await supabase
+      .from("mentor_planner_templates")
+      .select("id, name")
+      .eq("mentor_id", mentorId)
+      .order("name", { ascending: true });
+    if (templateError) {
+      setTemplatesLoading(false);
+      setTemplatesError(templateError.message);
+      return;
+    }
+    const ids = (templateRows ?? []).map((t) => t.id as string);
+    let itemRows: { id: string; template_id: string; title: string; is_optional: boolean; sort_order: number }[] = [];
+    if (ids.length > 0) {
+      const { data, error: itemsError } = await supabase
+        .from("mentor_planner_template_items")
+        .select("id, template_id, title, is_optional, sort_order")
+        .in("template_id", ids)
+        .order("sort_order", { ascending: true });
+      if (itemsError) {
+        setTemplatesLoading(false);
+        setTemplatesError(itemsError.message);
+        return;
+      }
+      itemRows = data ?? [];
+    }
+    const grouped: Template[] = (templateRows ?? []).map((t) => ({
+      id: t.id as string,
+      name: t.name as string,
+      items: itemRows
+        .filter((i) => i.template_id === t.id)
+        .map((i) => ({ id: i.id, title: i.title, isOptional: i.is_optional, sortOrder: i.sort_order })),
+    }));
+    setTemplates(grouped);
+    setTemplatesLoading(false);
+    if (grouped.length > 0) {
+      setSelectedTemplateId(grouped[0].id);
+      setTemplateItemChecks(Object.fromEntries(grouped[0].items.map((i) => [i.id, true])));
+    }
+  }
+
+  function openTemplateDialog() {
+    if (isPastDay) return;
+    setSaveMessage(null);
+    setManageMode(false);
+    setTemplateRepeatDays(1);
+    setTemplatesError(null);
+    setShowTemplateDialog(true);
+    if (templates === null) {
+      loadTemplates();
+    } else if (templates.length > 0 && !selectedTemplateId) {
+      setSelectedTemplateId(templates[0].id);
+      setTemplateItemChecks(Object.fromEntries(templates[0].items.map((i) => [i.id, true])));
+    }
+  }
+
+  function selectTemplate(id: string) {
+    setSelectedTemplateId(id);
+    const t = (templates ?? []).find((x) => x.id === id);
+    setTemplateItemChecks(Object.fromEntries((t?.items ?? []).map((i) => [i.id, true])));
+  }
+
+  function addFromTemplate() {
+    const t = (templates ?? []).find((x) => x.id === selectedTemplateId);
+    if (!t) return;
+    const chosenItems = t.items.filter((i) => templateItemChecks[i.id]);
+    if (chosenItems.length === 0) {
+      setTemplatesError("Pick at least one item to add.");
+      return;
+    }
+    setSaveMessage(null);
+    setTemplatesError(null);
+    const repeatDays = Math.max(1, Math.min(90, Math.round(templateRepeatDays) || 1));
+    let nid = nextNewId;
+    const newDrafts: DraftTask[] = chosenItems.map((item) => {
+      const key = `new-${nid}`;
+      nid += 1;
+      return { key, id: null, title: item.title, isOptional: item.isOptional, completed: false, repeatDays };
+    });
+    setNextNewId(nid);
+    setDrafts((prev) => [...prev, ...newDrafts]);
+    setShowTemplateDialog(false);
+  }
+
+  async function createTemplate() {
+    const name = newTemplateName.trim();
+    if (!name) return;
+    setManageSaving(true);
+    setManageError(null);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("mentor_planner_templates")
+      .insert({ mentor_id: mentorId, name })
+      .select("id, name")
+      .single();
+    setManageSaving(false);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setNewTemplateName("");
+    setTemplates((prev) => [...(prev ?? []), { id: data.id, name: data.name, items: [] }]);
+    setSelectedTemplateId(data.id);
+  }
+
+  async function deleteTemplate(templateId: string) {
+    if (!window.confirm("Delete this template and all its items? This can't be undone.")) return;
+    setManageSaving(true);
+    setManageError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("mentor_planner_templates").delete().eq("id", templateId);
+    setManageSaving(false);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setTemplates((prev) => (prev ?? []).filter((t) => t.id !== templateId));
+    if (selectedTemplateId === templateId) setSelectedTemplateId("");
+  }
+
+  async function addTemplateItem(templateId: string) {
+    const title = (newItemTitleByTemplate[templateId] ?? "").trim();
+    if (!title) return;
+    setManageSaving(true);
+    setManageError(null);
+    const supabase = createClient();
+    const current = (templates ?? []).find((t) => t.id === templateId);
+    const sortOrder = current ? current.items.length : 0;
+    const { data, error } = await supabase
+      .from("mentor_planner_template_items")
+      .insert({ template_id: templateId, title, sort_order: sortOrder })
+      .select("id, title, is_optional, sort_order")
+      .single();
+    setManageSaving(false);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setNewItemTitleByTemplate((prev) => ({ ...prev, [templateId]: "" }));
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) =>
+        tpl.id === templateId
+          ? {
+              ...tpl,
+              items: [
+                ...tpl.items,
+                { id: data.id, title: data.title, isOptional: data.is_optional, sortOrder: data.sort_order },
+              ],
+            }
+          : tpl
+      )
+    );
+  }
+
+  async function deleteTemplateItem(templateId: string, itemId: string) {
+    setManageSaving(true);
+    setManageError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("mentor_planner_template_items").delete().eq("id", itemId);
+    setManageSaving(false);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) => (tpl.id === templateId ? { ...tpl, items: tpl.items.filter((i) => i.id !== itemId) } : tpl))
+    );
+  }
+
+  async function toggleTemplateItemOptional(templateId: string, itemId: string, value: boolean) {
+    const supabase = createClient();
+    const { error } = await supabase.from("mentor_planner_template_items").update({ is_optional: value }).eq("id", itemId);
+    if (error) {
+      setManageError(error.message);
+      return;
+    }
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) =>
+        tpl.id === templateId
+          ? { ...tpl, items: tpl.items.map((i) => (i.id === itemId ? { ...i, isOptional: value } : i)) }
+          : tpl
+      )
+    );
   }
 
   async function save() {
@@ -365,6 +598,8 @@ export default function MentorAssignmentsEditor({
     router.refresh();
   }
 
+  const selectedTemplate = (templates ?? []).find((t) => t.id === selectedTemplateId) ?? null;
+
   return (
     <div className="space-y-2">
       {drafts.length === 0 ? (
@@ -439,6 +674,9 @@ export default function MentorAssignmentsEditor({
             <button type="button" onClick={addAssignment} className="btn-secondary text-xs">
               + Add Custom Assignment
             </button>
+            <button type="button" onClick={openTemplateDialog} className="btn-secondary text-xs">
+              + Use Template
+            </button>
           </>
         )}
         {!isPastDay && (
@@ -457,7 +695,8 @@ export default function MentorAssignmentsEditor({
       ) : (
         <p className="text-[11px] text-slate-500 pt-0.5">
           Tip: set "Repeat for" on an assignment (e.g. 10) to apply it to today plus the next 9 days in one
-          save, instead of adding it separately on every day.
+          save, instead of adding it separately on every day. Or build a reusable "Use Template" list once
+          per system and drop it onto any student's day with one click.
         </p>
       )}
 
@@ -575,6 +814,231 @@ export default function MentorAssignmentsEditor({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showTemplateDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="card max-w-md w-full space-y-3 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">{manageMode ? "Manage templates" : "Use a template"}</p>
+              <button
+                type="button"
+                onClick={() => setManageMode((v) => !v)}
+                className="text-xs text-brand-400 font-semibold hover:text-brand-300"
+              >
+                {manageMode ? "Back to apply" : "Manage templates"}
+              </button>
+            </div>
+
+            {templatesLoading && <p className="text-xs text-slate-500">Loading templates...</p>}
+
+            {!templatesLoading && !manageMode && (
+              <>
+                {(templates ?? []).length === 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-500">
+                      You haven't created any templates yet. Build one (e.g. "Cardiology") once, then apply
+                      it to any student's day in one click.
+                    </p>
+                    <button type="button" onClick={() => setManageMode(true)} className="btn-secondary text-xs">
+                      + Create a template
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="label">Template</label>
+                      <select
+                        className="input text-sm"
+                        value={selectedTemplateId}
+                        onChange={(e) => selectTemplate(e.target.value)}
+                      >
+                        {(templates ?? []).map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.items.length} item{t.items.length === 1 ? "" : "s"})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedTemplate && selectedTemplate.items.length === 0 && (
+                      <p className="text-xs text-slate-500">
+                        This template has no items yet. Switch to "Manage templates" to add some.
+                      </p>
+                    )}
+
+                    {selectedTemplate && selectedTemplate.items.length > 0 && (
+                      <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-800 rounded-md p-2">
+                        {selectedTemplate.items.map((item) => (
+                          <label key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={!!templateItemChecks[item.id]}
+                              onChange={(e) =>
+                                setTemplateItemChecks((prev) => ({ ...prev, [item.id]: e.target.checked }))
+                              }
+                              className="w-3.5 h-3.5 shrink-0"
+                            />
+                            <span className="flex-1">{item.title}</span>
+                            {item.isOptional && (
+                              <span className="text-[10px] font-semibold text-slate-500 shrink-0">Optional</span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+                    <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                      Repeat for
+                      <input
+                        type="number"
+                        min={1}
+                        max={90}
+                        value={templateRepeatDays}
+                        onChange={(e) => setTemplateRepeatDays(Number(e.target.value) || 1)}
+                        className="input text-xs py-1 px-1.5 w-12 text-center"
+                      />
+                      day{templateRepeatDays === 1 ? "" : "s"}
+                    </label>
+
+                    {templatesError && <p className="text-xs text-red-400">{templatesError}</p>}
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={addFromTemplate}
+                        disabled={!selectedTemplate || selectedTemplate.items.length === 0}
+                        className="btn-primary text-sm"
+                      >
+                        Add selected items
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowTemplateDialog(false)}
+                        className="btn-secondary text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {!templatesLoading && manageMode && (
+              <div className="space-y-4">
+                <div>
+                  <label className="label">New template name</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="input text-sm flex-1"
+                      placeholder="e.g. Cardiology"
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={createTemplate}
+                      disabled={manageSaving || !newTemplateName.trim()}
+                      className="btn-secondary text-xs shrink-0"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {manageError && <p className="text-xs text-red-400">{manageError}</p>}
+
+                {(templates ?? []).length === 0 ? (
+                  <p className="text-xs text-slate-500">No templates yet - create one above.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {(templates ?? []).map((t) => (
+                      <div key={t.id} className="border border-slate-800 rounded-md p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">{t.name}</p>
+                          <button
+                            type="button"
+                            onClick={() => deleteTemplate(t.id)}
+                            className="text-xs text-red-400 hover:text-red-300"
+                          >
+                            Delete template
+                          </button>
+                        </div>
+
+                        {t.items.length > 0 && (
+                          <div className="space-y-1">
+                            {t.items.map((item) => (
+                              <div key={item.id} className="flex items-center gap-2 text-xs text-slate-300">
+                                <span className="flex-1">{item.title}</span>
+                                <label className="flex items-center gap-1 text-slate-500 shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.isOptional}
+                                    onChange={(e) => toggleTemplateItemOptional(t.id, item.id, e.target.checked)}
+                                    className="w-3.5 h-3.5"
+                                  />
+                                  Optional
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteTemplateItem(t.id, item.id)}
+                                  className="text-red-400 hover:text-red-300 shrink-0"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            className="input text-xs py-1 px-2 flex-1"
+                            placeholder="Add an item (e.g. 40 Cardiology Questions)"
+                            value={newItemTitleByTemplate[t.id] ?? ""}
+                            onChange={(e) =>
+                              setNewItemTitleByTemplate((prev) => ({ ...prev, [t.id]: e.target.value }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                addTemplateItem(t.id);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => addTemplateItem(t.id)}
+                            disabled={manageSaving || !(newItemTitleByTemplate[t.id] ?? "").trim()}
+                            className="btn-secondary text-xs shrink-0"
+                          >
+                            + Item
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-1">
+                  <button type="button" onClick={() => setManageMode(false)} className="btn-primary text-sm">
+                    Done
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplateDialog(false)}
+                    className="btn-secondary text-sm"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
