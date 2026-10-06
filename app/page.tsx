@@ -92,7 +92,10 @@ export default async function Home() {
             squeeze instead - a much less prominent place for it to show up
             than the two primary buttons in the header. */}
         <div className="flex items-center gap-3">
-          <Link href="/mentor/login" className="text-xs text-slate-500 hover:text-slate-300 hidden sm:inline whitespace-nowrap">
+          <Link
+            href="/mentor/login"
+            className="text-sm font-semibold text-slate-400 hover:text-slate-200 hidden sm:inline whitespace-nowrap"
+          >
             Mentor Login
           </Link>
           <Link href="/login" className="btn-secondary whitespace-nowrap shrink-0">Log In</Link>
