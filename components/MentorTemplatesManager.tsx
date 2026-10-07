@@ -34,14 +34,12 @@ const SYSTEM_OPTIONS = [
 interface TemplateItem {
   id: string;
   title: string;
-  detail: string | null;
   isOptional: boolean;
   sortOrder: number;
 }
 interface TemplateDay {
   id: string;
   dayNumber: number;
-  notes: string | null;
   items: TemplateItem[];
 }
 interface Template {
@@ -66,8 +64,25 @@ interface Template {
  * system, check items, apply starting the day you're viewing), with a
  * "Manage templates" link that comes straight to this page.
  *
+ * ONE plain text box per day by default - not a separate "day notes" field
+ * plus a structured "item title + detail" sub-form (what this page used to
+ * have). That split meant a mentor had to fill in two different things,
+ * and whatever they put in the notes box never actually became a real
+ * assignment when the template was applied (only items did) - writing
+ * "what should be done" there and nothing else silently produced an empty
+ * apply. Now there's no day-level notes field at all: a brand-new day
+ * shows exactly one blank box, and whatever's typed into it IS the day's
+ * (first) assignment the moment it's saved - no separate "Add" click
+ * required just to make that first line count. "+ Add another line" only
+ * shows up once a day already has at least one saved line, for the rare
+ * case a day needs more than one separately-checkable assignment (e.g.
+ * "40 UWorld questions" AND "Review Pathoma 2.1" as two distinct items a
+ * student can tick off independently) - clicking it reveals exactly one
+ * more blank box, which collapses back into the saved list the moment it's
+ * typed into and saved, ready to click again if a third is ever needed.
+ *
  * Same "always show all 18 systems, create nothing in the database until
- * the first day/item is actually saved" approach as before, plus a custom
+ * the first day/line is actually saved" approach as before, plus a custom
  * category section for anything outside the 18 (e.g. "NBME Review Week").
  */
 export default function MentorTemplatesManager({ mentorId }: { mentorId: string }) {
@@ -76,7 +91,14 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedSystemName, setSelectedSystemName] = useState<string>(SYSTEM_OPTIONS[0]);
   const [customCategoryName, setCustomCategoryName] = useState("");
-  const [itemDraftByDay, setItemDraftByDay] = useState<Record<string, { title: string; detail: string }>>({});
+  // The single in-progress blank box's text, keyed by "<system>::<dayNumber>"
+  // - used both for a brand-new day's first (only) box, and for the one
+  // extra box "+ Add another line" reveals on a day that already has items.
+  const [draftByDay, setDraftByDay] = useState<Record<string, string>>({});
+  // Whether the "+ Add another line" box is currently open for a day that
+  // already has at least one saved line - keyed the same way as draftByDay.
+  // Not needed for a brand-new day (its one box is always open).
+  const [addingLineFor, setAddingLineFor] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,11 +132,11 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
     }
 
     const templateIds = (templateRows ?? []).map((t) => t.id as string);
-    let dayRows: { id: string; template_id: string; day_number: number; notes: string | null }[] = [];
+    let dayRows: { id: string; template_id: string; day_number: number }[] = [];
     if (templateIds.length > 0) {
       const { data, error: dayError } = await supabase
         .from("mentor_planner_template_days")
-        .select("id, template_id, day_number, notes")
+        .select("id, template_id, day_number")
         .in("template_id", templateIds)
         .order("day_number", { ascending: true });
       if (dayError) {
@@ -126,11 +148,11 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
     }
 
     const dayIds = dayRows.map((d) => d.id);
-    let itemRows: { id: string; template_day_id: string; title: string; detail: string | null; is_optional: boolean; sort_order: number }[] = [];
+    let itemRows: { id: string; template_day_id: string; title: string; is_optional: boolean; sort_order: number }[] = [];
     if (dayIds.length > 0) {
       const { data, error: itemError } = await supabase
         .from("mentor_planner_template_items")
-        .select("id, template_day_id, title, detail, is_optional, sort_order")
+        .select("id, template_day_id, title, is_optional, sort_order")
         .in("template_day_id", dayIds)
         .order("sort_order", { ascending: true });
       if (itemError) {
@@ -149,10 +171,9 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
         .map((d) => ({
           id: d.id,
           dayNumber: d.day_number,
-          notes: d.notes,
           items: itemRows
             .filter((i) => i.template_day_id === d.id)
-            .map((i) => ({ id: i.id, title: i.title, detail: i.detail, isOptional: i.is_optional, sortOrder: i.sort_order })),
+            .map((i) => ({ id: i.id, title: i.title, isOptional: i.is_optional, sortOrder: i.sort_order })),
         })),
     }));
 
@@ -181,45 +202,25 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
     const { data, error: insertError } = await supabase
       .from("mentor_planner_template_days")
       .insert({ template_id: templateId, day_number: dayNumber })
-      .select("id, template_id, day_number, notes")
+      .select("id, template_id, day_number")
       .single();
     if (insertError) throw new Error(insertError.message);
     setTemplates((prev) =>
       (prev ?? []).map((tpl) =>
         tpl.id === templateId
-          ? { ...tpl, days: [...tpl.days, { id: data.id, dayNumber: data.day_number, notes: data.notes, items: [] }] }
+          ? { ...tpl, days: [...tpl.days, { id: data.id, dayNumber: data.day_number, items: [] }] }
           : tpl
       )
     );
     return data.id as string;
   }
 
-  async function saveDayNotes(name: string, dayId: string | null, dayNumber: number, notes: string) {
-    setSaving(true);
-    setError(null);
-    try {
-      const realDayId = await ensureDay(name, dayId, dayNumber);
-      const supabase = createClient();
-      const trimmed = notes.trim() || null;
-      const { error: updateError } = await supabase.from("mentor_planner_template_days").update({ notes: trimmed }).eq("id", realDayId);
-      if (updateError) throw new Error(updateError.message);
-      setTemplates((prev) =>
-        (prev ?? []).map((tpl) => ({
-          ...tpl,
-          days: tpl.days.map((d) => (d.id === realDayId ? { ...d, notes: trimmed } : d)),
-        }))
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save notes.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function addItemToDay(name: string, dayId: string | null, dayNumber: number) {
+  // Saves whatever's in a day's blank box as a new line the moment it has
+  // real text and loses focus - no separate "Add" button click needed for
+  // this to count (see the component doc comment for why).
+  async function saveLine(name: string, dayId: string | null, dayNumber: number) {
     const draftKey = `${name}::${dayNumber}`;
-    const draft = itemDraftByDay[draftKey] ?? { title: "", detail: "" };
-    const title = draft.title.trim();
+    const title = (draftByDay[draftKey] ?? "").trim();
     if (!title) return;
     setSaving(true);
     setError(null);
@@ -230,8 +231,8 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
       const supabase = createClient();
       const { data, error: insertError } = await supabase
         .from("mentor_planner_template_items")
-        .insert({ template_day_id: realDayId, title, detail: draft.detail.trim() || null, sort_order: sortOrder })
-        .select("id, title, detail, is_optional, sort_order")
+        .insert({ template_day_id: realDayId, title, sort_order: sortOrder })
+        .select("id, title, is_optional, sort_order")
         .single();
       if (insertError) throw new Error(insertError.message);
       setTemplates((prev) =>
@@ -239,23 +240,38 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
           ...tpl,
           days: tpl.days.map((d) =>
             d.id === realDayId
-              ? {
-                  ...d,
-                  items: [
-                    ...d.items,
-                    { id: data.id, title: data.title, detail: data.detail, isOptional: data.is_optional, sortOrder: data.sort_order },
-                  ],
-                }
+              ? { ...d, items: [...d.items, { id: data.id, title: data.title, isOptional: data.is_optional, sortOrder: data.sort_order }] }
               : d
           ),
         }))
       );
-      setItemDraftByDay((prev) => ({ ...prev, [draftKey]: { title: "", detail: "" } }));
+      setDraftByDay((prev) => ({ ...prev, [draftKey]: "" }));
+      setAddingLineFor((prev) => ({ ...prev, [draftKey]: false }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add item.");
+      setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function updateItemTitle(itemId: string, title: string) {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: updateError } = await supabase.from("mentor_planner_template_items").update({ title: trimmed }).eq("id", itemId);
+    setSaving(false);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    setTemplates((prev) =>
+      (prev ?? []).map((tpl) => ({
+        ...tpl,
+        days: tpl.days.map((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, title: trimmed } : i)) })),
+      }))
+    );
   }
 
   async function deleteTemplateItem(itemId: string) {
@@ -289,7 +305,7 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
   }
 
   async function deleteDay(dayId: string) {
-    if (!window.confirm("Delete this day and all its items? This can't be undone.")) return;
+    if (!window.confirm("Delete this day and everything in it? This can't be undone.")) return;
     setSaving(true);
     setError(null);
     const supabase = createClient();
@@ -303,7 +319,7 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
   }
 
   async function deleteTemplate(templateId: string, name: string) {
-    if (!window.confirm(`Delete the entire "${name}" template (every day and item in it)? This can't be undone.`)) return;
+    if (!window.confirm(`Delete the entire "${name}" template (every day in it)? This can't be undone.`)) return;
     setSaving(true);
     setError(null);
     const supabase = createClient();
@@ -344,9 +360,9 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
   const t = findTemplateByName(selectedSystemName);
   const days = t?.days ?? [];
   const nextDayNumber = days.length > 0 ? Math.max(...days.map((d) => d.dayNumber)) + 1 : 1;
-  const slots: { id: string | null; dayNumber: number; notes: string | null; items: TemplateItem[] }[] = [
+  const slots: { id: string | null; dayNumber: number; items: TemplateItem[] }[] = [
     ...days,
-    { id: null, dayNumber: nextDayNumber, notes: null, items: [] },
+    { id: null, dayNumber: nextDayNumber, items: [] },
   ];
 
   return (
@@ -397,8 +413,8 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
       <div className="space-y-3">
         {slots.map((d) => {
           const draftKey = `${selectedSystemName}::${d.dayNumber}`;
-          const draft = itemDraftByDay[draftKey] ?? { title: "", detail: "" };
           const isNew = d.id === null;
+          const showAddBox = d.items.length === 0 || addingLineFor[draftKey];
           return (
             <div key={d.dayNumber} className="card space-y-2">
               <div className="flex items-center justify-between">
@@ -417,31 +433,22 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
                 )}
               </div>
 
-              <div>
-                <label className="text-[11px] text-slate-500">What should be done this day</label>
-                <textarea
-                  key={`${d.id ?? "new"}-${d.notes ?? ""}`}
-                  defaultValue={d.notes ?? ""}
-                  onBlur={(e) => {
-                    if (e.target.value !== (d.notes ?? "")) {
-                      saveDayNotes(selectedSystemName, d.id, d.dayNumber, e.target.value);
-                    }
-                  }}
-                  rows={2}
-                  placeholder="e.g. Review Pathoma 2.1-2.4, watch Sketchy Heart Failure, light review day"
-                  className="input text-sm py-1.5 px-2 w-full resize-y"
-                />
-              </div>
-
               {d.items.length > 0 && (
                 <div className="space-y-1.5">
                   {d.items.map((item) => (
-                    <div key={item.id} className="flex items-start gap-2 text-sm text-slate-300 border-t border-slate-800/70 pt-1.5">
-                      <div className="flex-1">
-                        <p>{item.title}</p>
-                        {item.detail && <p className="text-xs text-slate-500">{item.detail}</p>}
-                      </div>
-                      <label className="flex items-center gap-1 text-xs text-slate-500 shrink-0">
+                    <div key={item.id} className="flex items-start gap-2">
+                      <textarea
+                        key={`${item.id}-${item.title}`}
+                        defaultValue={item.title}
+                        onBlur={(e) => {
+                          if (e.target.value.trim() && e.target.value !== item.title) {
+                            updateItemTitle(item.id, e.target.value);
+                          }
+                        }}
+                        rows={2}
+                        className="input text-sm py-1.5 px-2 flex-1 resize-y"
+                      />
+                      <label className="flex items-center gap-1 text-xs text-slate-500 shrink-0 pt-2">
                         <input
                           type="checkbox"
                           checked={item.isOptional}
@@ -453,7 +460,7 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
                       <button
                         type="button"
                         onClick={() => deleteTemplateItem(item.id)}
-                        className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                        className="text-xs text-red-400 hover:text-red-300 shrink-0 pt-2"
                       >
                         Remove
                       </button>
@@ -462,30 +469,31 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
                 </div>
               )}
 
-              <div className="space-y-1.5 pt-1">
-                <input
-                  type="text"
-                  className="input text-sm py-1.5 px-2 w-full"
-                  placeholder="Item title (e.g. 40 Cardiology Questions)"
-                  value={draft.title}
-                  onChange={(e) => setItemDraftByDay((prev) => ({ ...prev, [draftKey]: { ...draft, title: e.target.value } }))}
-                />
+              {showAddBox && (
                 <textarea
+                  key={`draft-${draftKey}`}
+                  value={draftByDay[draftKey] ?? ""}
+                  onChange={(e) => setDraftByDay((prev) => ({ ...prev, [draftKey]: e.target.value }))}
+                  onBlur={() => saveLine(selectedSystemName, d.id, d.dayNumber)}
+                  rows={2}
+                  placeholder={
+                    d.items.length === 0
+                      ? "What should be done this day - e.g. 40 Cardiology Questions, review Pathoma 2.1-2.4"
+                      : "Another assignment for this day"
+                  }
                   className="input text-sm py-1.5 px-2 w-full resize-y"
-                  placeholder="Extra detail for this item (optional)"
-                  rows={1}
-                  value={draft.detail}
-                  onChange={(e) => setItemDraftByDay((prev) => ({ ...prev, [draftKey]: { ...draft, detail: e.target.value } }))}
                 />
+              )}
+
+              {d.items.length > 0 && !addingLineFor[draftKey] && (
                 <button
                   type="button"
-                  onClick={() => addItemToDay(selectedSystemName, d.id, d.dayNumber)}
-                  disabled={saving || !draft.title.trim()}
-                  className="btn-secondary text-xs"
+                  onClick={() => setAddingLineFor((prev) => ({ ...prev, [draftKey]: true }))}
+                  className="text-xs text-brand-400 font-semibold hover:text-brand-300"
                 >
-                  + Add item to Day {d.dayNumber}
+                  + Add another line
                 </button>
-              </div>
+              )}
             </div>
           );
         })}
