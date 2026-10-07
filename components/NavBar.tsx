@@ -137,6 +137,13 @@ export default function NavBar({
       items: [
         mentorshipHome,
         { href: "/mentorship/students", label: "Students" },
+        // Mentor-wide, day-by-day assignment plans per system (see
+        // MentorTemplatesManager.tsx) - not tied to any one student, so it
+        // gets its own top-level link here rather than living only inside
+        // a specific student's day view. Labeled "Planner Templates" (not
+        // bare "Templates") to avoid reading like the separate, unrelated
+        // admin-only "Schedule templates" feature under /admin/templates.
+        { href: "/mentorship/templates", label: "Planner Templates" },
         ...rest,
         // Own self-service "waiting for a mentor" pool
         // (app/mentorship/waiting/page.tsx) - deliberately last in the
