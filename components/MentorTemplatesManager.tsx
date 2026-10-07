@@ -48,57 +48,66 @@ interface Template {
   days: TemplateDay[];
 }
 
+// Pure, in-memory editing state for whichever system is currently selected
+// - nothing here is written to the database until the mentor clicks Save
+// (see saveTemplate below). No `id` fields at all: a line is just its text,
+// a day is just its number and lines, matched up against the database only
+// at save time.
+interface DraftDay {
+  dayNumber: number;
+  lines: string[];
+}
+
+function toDraftDays(t: Template | null | undefined): DraftDay[] {
+  if (!t || t.days.length === 0) return [];
+  return [...t.days]
+    .sort((a, b) => a.dayNumber - b.dayNumber)
+    .map((d) => ({
+      dayNumber: d.dayNumber,
+      lines: [...d.items].sort((a, b) => a.sortOrder - b.sortOrder).map((i) => i.title),
+    }));
+}
+
 /**
  * Standalone "Planner Templates" page body (app/mentorship/templates/page.tsx)
- * - the mentor-wide home for building reusable, day-by-day assignment plans
- * per system (mentor_planner_templates -> mentor_planner_template_days ->
- * mentor_planner_template_items, all RLS-scoped to this mentor by
- * mentors.email = auth.jwt() email).
+ * - the mentor-wide home for building a reusable, day-by-day assignment plan
+ * per system (e.g. a 9-day Cardiovascular sequence: Day 1 some videos and
+ * question IDs, Day 2 more of the same, ...), which can then be dropped
+ * onto any student's calendar as a real multi-day plan from the "+ Use
+ * Template" button on their Study Planner day (MentorAssignmentsEditor.tsx).
  *
- * Used to live inline inside MentorAssignmentsEditor.tsx's "+ Use Template"
- * popup as a "Manage templates" mode, but templates were never actually
- * tied to any one student (mentor_id only) - managing them from inside one
- * specific student's day view was just a convenience, and made for a
- * cramped place to build out an 18-system, multi-day curriculum. Moved
- * here instead: MentorAssignmentsEditor's popup is apply-only now (pick a
- * system, check items, apply starting the day you're viewing), with a
- * "Manage templates" link that comes straight to this page.
+ * Editing here is all LOCAL/in-memory (the `draftDays` state) until the
+ * mentor explicitly clicks "Save [SYSTEM] template" - typing across
+ * several days in a row, adding extra lines, deleting a day, none of that
+ * touches the database by itself. This replaced an earlier version that
+ * auto-saved every box the instant it lost focus: that worked, but gave a
+ * mentor typing through 9 days in a row no clear, deliberate "I'm done,
+ * save this" moment, and - per explicit ask - needed a real Save control
+ * instead. Saving itself wipes and reinserts this system's days/items in
+ * one shot (mentor_planner_template_days/_items carry no completion state
+ * the way mentor_plan_tasks does, so there's nothing to lose by replacing
+ * everything at once instead of diffing row by row).
  *
- * ONE plain text box per day by default - not a separate "day notes" field
- * plus a structured "item title + detail" sub-form (what this page used to
- * have). That split meant a mentor had to fill in two different things,
- * and whatever they put in the notes box never actually became a real
- * assignment when the template was applied (only items did) - writing
- * "what should be done" there and nothing else silently produced an empty
- * apply. Now there's no day-level notes field at all: a brand-new day
- * shows exactly one blank box, and whatever's typed into it IS the day's
- * (first) assignment the moment it's saved - no separate "Add" click
- * required just to make that first line count. "+ Add another line" only
- * shows up once a day already has at least one saved line, for the rare
- * case a day needs more than one separately-checkable assignment (e.g.
- * "40 UWorld questions" AND "Review Pathoma 2.1" as two distinct items a
- * student can tick off independently) - clicking it reveals exactly one
- * more blank box, which collapses back into the saved list the moment it's
- * typed into and saved, ready to click again if a third is ever needed.
+ * One blank line per day by default, with a "+ Add another line" control
+ * to add more (e.g. one line for videos, a second for question IDs) - see
+ * updateLine/addLine below. A day is only actually kept once it has at
+ * least one non-blank line; an always-present trailing "Day N (new)" box
+ * past the last real day is how a mentor keeps extending the sequence
+ * (type into it and it's promoted into a real draft day automatically -
+ * see updateLine's "day doesn't exist yet" branch).
  *
- * Same "always show all 18 systems, create nothing in the database until
- * the first day/line is actually saved" approach as before, plus a custom
- * category section for anything outside the 18 (e.g. "NBME Review Week").
+ * Switching the System dropdown, or leaving the page, with unsaved changes
+ * prompts a plain confirm() rather than silently discarding them.
  */
 export default function MentorTemplatesManager({ mentorId }: { mentorId: string }) {
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedSystemName, setSelectedSystemName] = useState<string>(SYSTEM_OPTIONS[0]);
+  const [draftDays, setDraftDays] = useState<DraftDay[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [customCategoryName, setCustomCategoryName] = useState("");
-  // The single in-progress blank box's text, keyed by "<system>::<dayNumber>"
-  // - used both for a brand-new day's first (only) box, and for the one
-  // extra box "+ Add another line" reveals on a day that already has items.
-  const [draftByDay, setDraftByDay] = useState<Record<string, string>>({});
-  // Whether the "+ Add another line" box is currently open for a day that
-  // already has at least one saved line - keyed the same way as draftByDay.
-  // Not needed for a brand-new day (its one box is always open).
-  const [addingLineFor, setAddingLineFor] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,6 +115,20 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
     loadTemplates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mentorId]);
+
+  // Warn on an actual tab close/navigation-away, not just Next.js client
+  // routing (which doesn't fire beforeunload) - same limitation as the
+  // other "unsaved changes" warning elsewhere in the app
+  // (UWorldBlockTracker.tsx).
+  useEffect(() => {
+    function handler(e: BeforeUnloadEvent) {
+      if (!dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   function findTemplateByName(name: string): Template | null {
     return (templates ?? []).find((t) => t.name.toLowerCase() === name.toLowerCase()) ?? null;
@@ -179,6 +202,56 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
 
     setTemplates(grouped);
     setLoading(false);
+    setDraftDays(toDraftDays(grouped.find((t) => t.name.toLowerCase() === selectedSystemName.toLowerCase())));
+    setDirty(false);
+  }
+
+  function handleSystemChange(name: string) {
+    if (dirty && !window.confirm(`You have unsaved changes for ${selectedSystemName} - discard them?`)) {
+      return;
+    }
+    setSelectedSystemName(name);
+    setError(null);
+    setSaveStatus("idle");
+    setDraftDays(toDraftDays(findTemplateByName(name)));
+    setDirty(false);
+  }
+
+  function updateLine(dayNumber: number, lineIndex: number, text: string) {
+    setDirty(true);
+    setSaveStatus("idle");
+    setDraftDays((prev) => {
+      if (!prev.some((d) => d.dayNumber === dayNumber)) {
+        // The always-present trailing "Day N (new)" box - first keystroke
+        // promotes it into a real draft day.
+        return [...prev, { dayNumber, lines: [text] }].sort((a, b) => a.dayNumber - b.dayNumber);
+      }
+      return prev.map((d) =>
+        d.dayNumber === dayNumber ? { ...d, lines: d.lines.map((l, i) => (i === lineIndex ? text : l)) } : d
+      );
+    });
+  }
+
+  function addLine(dayNumber: number) {
+    setDirty(true);
+    setSaveStatus("idle");
+    setDraftDays((prev) => prev.map((d) => (d.dayNumber === dayNumber ? { ...d, lines: [...d.lines, ""] } : d)));
+  }
+
+  function removeLine(dayNumber: number, lineIndex: number) {
+    setDirty(true);
+    setSaveStatus("idle");
+    setDraftDays((prev) =>
+      prev
+        .map((d) => (d.dayNumber === dayNumber ? { ...d, lines: d.lines.filter((_, i) => i !== lineIndex) } : d))
+        .filter((d) => d.lines.length > 0)
+    );
+  }
+
+  function removeDay(dayNumber: number) {
+    setDirty(true);
+    setSaveStatus("idle");
+    setDraftDays((prev) => prev.filter((d) => d.dayNumber !== dayNumber));
   }
 
   async function ensureTemplateId(name: string): Promise<string> {
@@ -195,127 +268,79 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
     return data.id as string;
   }
 
-  async function ensureDay(name: string, dayId: string | null, dayNumber: number): Promise<string> {
-    if (dayId) return dayId;
-    const templateId = await ensureTemplateId(name);
-    const supabase = createClient();
-    const { data, error: insertError } = await supabase
-      .from("mentor_planner_template_days")
-      .insert({ template_id: templateId, day_number: dayNumber })
-      .select("id, template_id, day_number")
-      .single();
-    if (insertError) throw new Error(insertError.message);
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) =>
-        tpl.id === templateId
-          ? { ...tpl, days: [...tpl.days, { id: data.id, dayNumber: data.day_number, items: [] }] }
-          : tpl
-      )
-    );
-    return data.id as string;
-  }
-
-  // Saves whatever's in a day's blank box as a new line the moment it has
-  // real text and loses focus - no separate "Add" button click needed for
-  // this to count (see the component doc comment for why).
-  async function saveLine(name: string, dayId: string | null, dayNumber: number) {
-    const draftKey = `${name}::${dayNumber}`;
-    const title = (draftByDay[draftKey] ?? "").trim();
-    if (!title) return;
-    setSaving(true);
+  // Wipes this system's existing days (cascades items) and reinserts
+  // whatever's currently in `draftDays`, in one shot - see the component
+  // doc comment for why a full replace is safe here.
+  async function saveTemplate() {
+    setSaveStatus("saving");
     setError(null);
+    const supabase = createClient();
     try {
-      const realDayId = await ensureDay(name, dayId, dayNumber);
-      const existingDay = (templates ?? []).flatMap((t) => t.days).find((d) => d.id === realDayId);
-      const sortOrder = existingDay ? existingDay.items.length : 0;
-      const supabase = createClient();
-      const { data, error: insertError } = await supabase
-        .from("mentor_planner_template_items")
-        .insert({ template_day_id: realDayId, title, sort_order: sortOrder })
-        .select("id, title, is_optional, sort_order")
-        .single();
-      if (insertError) throw new Error(insertError.message);
-      setTemplates((prev) =>
-        (prev ?? []).map((tpl) => ({
-          ...tpl,
-          days: tpl.days.map((d) =>
-            d.id === realDayId
-              ? { ...d, items: [...d.items, { id: data.id, title: data.title, isOptional: data.is_optional, sortOrder: data.sort_order }] }
-              : d
-          ),
+      const templateId = await ensureTemplateId(selectedSystemName);
+
+      const { error: deleteError } = await supabase
+        .from("mentor_planner_template_days")
+        .delete()
+        .eq("template_id", templateId);
+      if (deleteError) throw new Error(deleteError.message);
+
+      const cleanedDays = draftDays
+        .map((d) => ({ dayNumber: d.dayNumber, lines: d.lines.map((l) => l.trim()).filter(Boolean) }))
+        .filter((d) => d.lines.length > 0)
+        .sort((a, b) => a.dayNumber - b.dayNumber);
+
+      if (cleanedDays.length === 0) {
+        setTemplates((prev) => (prev ?? []).map((t) => (t.id === templateId ? { ...t, days: [] } : t)));
+        setDraftDays([]);
+        setDirty(false);
+        setSaveStatus("saved");
+        return;
+      }
+
+      const { data: insertedDays, error: dayInsertError } = await supabase
+        .from("mentor_planner_template_days")
+        .insert(cleanedDays.map((d) => ({ template_id: templateId, day_number: d.dayNumber })))
+        .select("id, day_number");
+      if (dayInsertError) throw new Error(dayInsertError.message);
+
+      const itemsToInsert: { template_day_id: string; title: string; sort_order: number }[] = [];
+      for (const d of cleanedDays) {
+        const dayRow = (insertedDays ?? []).find((r) => r.day_number === d.dayNumber);
+        if (!dayRow) continue;
+        d.lines.forEach((line, i) => {
+          itemsToInsert.push({ template_day_id: dayRow.id, title: line, sort_order: i });
+        });
+      }
+
+      let insertedItems: { id: string; template_day_id: string; title: string; is_optional: boolean; sort_order: number }[] = [];
+      if (itemsToInsert.length > 0) {
+        const { data, error: itemInsertError } = await supabase
+          .from("mentor_planner_template_items")
+          .insert(itemsToInsert)
+          .select("id, template_day_id, title, is_optional, sort_order");
+        if (itemInsertError) throw new Error(itemInsertError.message);
+        insertedItems = data ?? [];
+      }
+
+      const freshDays: TemplateDay[] = (insertedDays ?? [])
+        .map((r) => ({
+          id: r.id as string,
+          dayNumber: r.day_number as number,
+          items: insertedItems
+            .filter((i) => i.template_day_id === r.id)
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map((i) => ({ id: i.id, title: i.title, isOptional: i.is_optional, sortOrder: i.sort_order })),
         }))
-      );
-      setDraftByDay((prev) => ({ ...prev, [draftKey]: "" }));
-      setAddingLineFor((prev) => ({ ...prev, [draftKey]: false }));
+        .sort((a, b) => a.dayNumber - b.dayNumber);
+
+      setTemplates((prev) => (prev ?? []).map((t) => (t.id === templateId ? { ...t, days: freshDays } : t)));
+      setDraftDays(toDraftDays({ id: templateId, name: selectedSystemName, days: freshDays }));
+      setDirty(false);
+      setSaveStatus("saved");
     } catch (err) {
+      setSaveStatus("idle");
       setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
-      setSaving(false);
     }
-  }
-
-  async function updateItemTitle(itemId: string, title: string) {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    setSaving(true);
-    setError(null);
-    const supabase = createClient();
-    const { error: updateError } = await supabase.from("mentor_planner_template_items").update({ title: trimmed }).eq("id", itemId);
-    setSaving(false);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) => ({
-        ...tpl,
-        days: tpl.days.map((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, title: trimmed } : i)) })),
-      }))
-    );
-  }
-
-  async function deleteTemplateItem(itemId: string) {
-    setSaving(true);
-    setError(null);
-    const supabase = createClient();
-    const { error: deleteError } = await supabase.from("mentor_planner_template_items").delete().eq("id", itemId);
-    setSaving(false);
-    if (deleteError) {
-      setError(deleteError.message);
-      return;
-    }
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) => ({ ...tpl, days: tpl.days.map((d) => ({ ...d, items: d.items.filter((i) => i.id !== itemId) })) }))
-    );
-  }
-
-  async function toggleTemplateItemOptional(itemId: string, value: boolean) {
-    const supabase = createClient();
-    const { error: updateError } = await supabase.from("mentor_planner_template_items").update({ is_optional: value }).eq("id", itemId);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    setTemplates((prev) =>
-      (prev ?? []).map((tpl) => ({
-        ...tpl,
-        days: tpl.days.map((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, isOptional: value } : i)) })),
-      }))
-    );
-  }
-
-  async function deleteDay(dayId: string) {
-    if (!window.confirm("Delete this day and everything in it? This can't be undone.")) return;
-    setSaving(true);
-    setError(null);
-    const supabase = createClient();
-    const { error: deleteError } = await supabase.from("mentor_planner_template_days").delete().eq("id", dayId);
-    setSaving(false);
-    if (deleteError) {
-      setError(deleteError.message);
-      return;
-    }
-    setTemplates((prev) => (prev ?? []).map((tpl) => ({ ...tpl, days: tpl.days.filter((d) => d.id !== dayId) })));
   }
 
   async function deleteTemplate(templateId: string, name: string) {
@@ -330,18 +355,26 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
       return;
     }
     setTemplates((prev) => (prev ?? []).filter((t) => t.id !== templateId));
-    if (selectedSystemName.toLowerCase() === name.toLowerCase()) setSelectedSystemName(SYSTEM_OPTIONS[0]);
+    if (selectedSystemName.toLowerCase() === name.toLowerCase()) {
+      setSelectedSystemName(SYSTEM_OPTIONS[0]);
+      setDraftDays(toDraftDays(null));
+      setDirty(false);
+    }
   }
 
   async function createCustomCategory() {
     const name = customCategoryName.trim();
     if (!name) return;
+    if (dirty && !window.confirm(`You have unsaved changes for ${selectedSystemName} - discard them?`)) return;
     setSaving(true);
     setError(null);
     try {
       await ensureTemplateId(name);
       setCustomCategoryName("");
       setSelectedSystemName(name);
+      setDraftDays([]);
+      setDirty(false);
+      setSaveStatus("idle");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create category.");
     } finally {
@@ -358,63 +391,66 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
   }
 
   const t = findTemplateByName(selectedSystemName);
-  const days = t?.days ?? [];
-  const nextDayNumber = days.length > 0 ? Math.max(...days.map((d) => d.dayNumber)) + 1 : 1;
-  const slots: { id: string | null; dayNumber: number; items: TemplateItem[] }[] = [
-    ...days,
-    { id: null, dayNumber: nextDayNumber, items: [] },
-  ];
+  const nextDayNumber = draftDays.length > 0 ? Math.max(...draftDays.map((d) => d.dayNumber)) + 1 : 1;
+  const displayDays: DraftDay[] = [...draftDays, { dayNumber: nextDayNumber, lines: [""] }];
 
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-xl font-bold mb-1">Planner Templates</h1>
         <p className="text-sm text-slate-400">
-          Build a reusable, day-by-day assignment plan once per system, then drop the whole sequence onto
-          any student's calendar from the "+ Use Template" button on their Study Planner day.
+          Build a reusable, day-by-day assignment plan once per system (e.g. 9 days of Cardiovascular - Day
+          1 some videos and question IDs, Day 2 more, and so on), then drop the whole sequence onto any
+          student's calendar as a real multi-day plan from the "+ Use Template" button on their Study
+          Planner day.
         </p>
       </div>
 
-      <div className="card">
-        <label className="label">System</label>
-        <select
-          className="input text-sm"
-          value={selectedSystemName}
-          onChange={(e) => setSelectedSystemName(e.target.value)}
-        >
-          <optgroup label="By system">
-            {SYSTEM_OPTIONS.map((s) => {
-              const st = findTemplateByName(s);
-              const itemCount = (st?.days ?? []).reduce((sum, d) => sum + d.items.length, 0);
-              return (
-                <option key={s} value={s}>
-                  {s} ({itemCount} item{itemCount === 1 ? "" : "s"})
-                </option>
-              );
-            })}
-          </optgroup>
-          {customTemplates.length > 0 && (
-            <optgroup label="Custom">
-              {customTemplates.map((ct) => {
-                const itemCount = ct.days.reduce((sum, d) => sum + d.items.length, 0);
+      <div className="card space-y-3">
+        <div>
+          <label className="label">System</label>
+          <select
+            className="input text-sm"
+            value={selectedSystemName}
+            onChange={(e) => handleSystemChange(e.target.value)}
+          >
+            <optgroup label="By system">
+              {SYSTEM_OPTIONS.map((s) => {
+                const st = findTemplateByName(s);
+                const dayCount = st?.days.length ?? 0;
                 return (
-                  <option key={ct.id} value={ct.name}>
-                    {ct.name} ({itemCount} item{itemCount === 1 ? "" : "s"})
+                  <option key={s} value={s}>
+                    {s} ({dayCount} day{dayCount === 1 ? "" : "s"})
                   </option>
                 );
               })}
             </optgroup>
-          )}
-        </select>
+            {customTemplates.length > 0 && (
+              <optgroup label="Custom">
+                {customTemplates.map((ct) => (
+                  <option key={ct.id} value={ct.name}>
+                    {ct.name} ({ct.days.length} day{ct.days.length === 1 ? "" : "s"})
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-3 pt-1 border-t border-slate-800">
+          <button type="button" onClick={saveTemplate} disabled={saveStatus === "saving" || !dirty} className="btn-primary text-sm">
+            {saveStatus === "saving" ? "Saving..." : `Save ${selectedSystemName} template`}
+          </button>
+          {dirty && saveStatus !== "saving" && <span className="text-xs text-amber-500">Unsaved changes</span>}
+          {!dirty && saveStatus === "saved" && <span className="text-xs text-green-500">Saved</span>}
+        </div>
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       <div className="space-y-3">
-        {slots.map((d) => {
-          const draftKey = `${selectedSystemName}::${d.dayNumber}`;
-          const isNew = d.id === null;
-          const showAddBox = d.items.length === 0 || addingLineFor[draftKey];
+        {displayDays.map((d) => {
+          const isNew = !draftDays.some((rd) => rd.dayNumber === d.dayNumber);
           return (
             <div key={d.dayNumber} className="card space-y-2">
               <div className="flex items-center justify-between">
@@ -425,7 +461,7 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
                 {!isNew && (
                   <button
                     type="button"
-                    onClick={() => deleteDay(d.id as string)}
+                    onClick={() => removeDay(d.dayNumber)}
                     className="text-xs text-red-400 hover:text-red-300"
                   >
                     Delete day
@@ -433,62 +469,37 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
                 )}
               </div>
 
-              {d.items.length > 0 && (
-                <div className="space-y-1.5">
-                  {d.items.map((item) => (
-                    <div key={item.id} className="flex items-start gap-2">
-                      <textarea
-                        key={`${item.id}-${item.title}`}
-                        defaultValue={item.title}
-                        onBlur={(e) => {
-                          if (e.target.value.trim() && e.target.value !== item.title) {
-                            updateItemTitle(item.id, e.target.value);
-                          }
-                        }}
-                        rows={2}
-                        className="input text-sm py-1.5 px-2 flex-1 resize-y"
-                      />
-                      <label className="flex items-center gap-1 text-xs text-slate-500 shrink-0 pt-2">
-                        <input
-                          type="checkbox"
-                          checked={item.isOptional}
-                          onChange={(e) => toggleTemplateItemOptional(item.id, e.target.checked)}
-                          className="w-3.5 h-3.5"
-                        />
-                        Optional
-                      </label>
+              <div className="space-y-1.5">
+                {d.lines.map((line, i) => (
+                  <div key={`${d.dayNumber}-${i}`} className="flex items-start gap-2">
+                    <textarea
+                      value={line}
+                      onChange={(e) => updateLine(d.dayNumber, i, e.target.value)}
+                      rows={2}
+                      placeholder={
+                        i === 0
+                          ? "What should be done this day - e.g. 40 Cardiology Questions, review Pathoma 2.1-2.4"
+                          : "Another assignment for this day"
+                      }
+                      className="input text-sm py-1.5 px-2 flex-1 resize-y"
+                    />
+                    {d.lines.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => deleteTemplateItem(item.id)}
+                        onClick={() => removeLine(d.dayNumber, i)}
                         className="text-xs text-red-400 hover:text-red-300 shrink-0 pt-2"
                       >
                         Remove
                       </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </div>
+                ))}
+              </div>
 
-              {showAddBox && (
-                <textarea
-                  key={`draft-${draftKey}`}
-                  value={draftByDay[draftKey] ?? ""}
-                  onChange={(e) => setDraftByDay((prev) => ({ ...prev, [draftKey]: e.target.value }))}
-                  onBlur={() => saveLine(selectedSystemName, d.id, d.dayNumber)}
-                  rows={2}
-                  placeholder={
-                    d.items.length === 0
-                      ? "What should be done this day - e.g. 40 Cardiology Questions, review Pathoma 2.1-2.4"
-                      : "Another assignment for this day"
-                  }
-                  className="input text-sm py-1.5 px-2 w-full resize-y"
-                />
-              )}
-
-              {d.items.length > 0 && !addingLineFor[draftKey] && (
+              {!isNew && (
                 <button
                   type="button"
-                  onClick={() => setAddingLineFor((prev) => ({ ...prev, [draftKey]: true }))}
+                  onClick={() => addLine(d.dayNumber)}
                   className="text-xs text-brand-400 font-semibold hover:text-brand-300"
                 >
                   + Add another line
@@ -497,6 +508,14 @@ export default function MentorTemplatesManager({ mentorId }: { mentorId: string 
             </div>
           );
         })}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={saveTemplate} disabled={saveStatus === "saving" || !dirty} className="btn-primary text-sm">
+          {saveStatus === "saving" ? "Saving..." : `Save ${selectedSystemName} template`}
+        </button>
+        {dirty && saveStatus !== "saving" && <span className="text-xs text-amber-500">Unsaved changes</span>}
+        {!dirty && saveStatus === "saved" && <span className="text-xs text-green-500">Saved</span>}
       </div>
 
       {t && !SYSTEM_OPTIONS.some((s) => s.toLowerCase() === selectedSystemName.toLowerCase()) && (
