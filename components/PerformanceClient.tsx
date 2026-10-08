@@ -16,7 +16,6 @@ import {
 import { compareContentBreakdowns, systemQuestionCounts, type ContentAreaStat } from "@/lib/questionLevelReports";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import ScoreReportUpload from "./ScoreReportUpload";
-import QuestionLevelReportUpload from "./QuestionLevelReportUpload";
 
 /** Finds the most recent OTHER question-level report before this one (by
  *  taken_date), for the "vs. your last question-level upload" comparison -
@@ -655,12 +654,11 @@ export default function PerformanceClient({
   return (
     <div className="space-y-6">
       <ScoreReportUpload userId={userId} />
-      <QuestionLevelReportUpload userId={userId} />
 
       {reports.length === 0 ? (
         <div className="card">
           <p className="text-sm text-slate-400">
-            Upload your first NBME, UWSA, Free 120, or UWorld self-assessment result above to start
+            Add your first NBME, UWSA, Free 120, or UWorld self-assessment result above to start
             tracking your weak and strong systems over time.
           </p>
         </div>
@@ -964,8 +962,8 @@ export default function PerformanceClient({
               <p className="text-sm font-semibold mb-1">Disciplines</p>
               <p className="text-xs text-slate-500">
                 No discipline data yet - fill in the "Discipline breakdown" section (Anatomy, Pathology,
-                Pharmacology, etc.) when you upload a score report, or let the AI read it off a report
-                that shows it, to see your weakest/strongest disciplines here.
+                Pharmacology, etc.) when you add a score report to see your weakest/strongest disciplines
+                here.
               </p>
             </div>
           ) : (
@@ -1138,9 +1136,9 @@ export default function PerformanceClient({
               </div>
               {regularDisciplineStrengths.length === 0 ? (
                 <p className="text-xs text-slate-500 mt-2">
-                  No discipline data yet - this comes from the "Discipline breakdown" section on the score
-                  report upload form (Anatomy, Pathology, Pharmacology, etc.). Fill that in (or let the AI
-                  read it off a report that shows it) and it'll start showing up here.
+                  No discipline data yet - this comes from the "Discipline breakdown" section when you add
+                  a score report (Anatomy, Pathology, Pharmacology, etc.). Fill that in and it'll start
+                  showing up here.
                 </p>
               ) : (
                 disciplineTableOpen && (
@@ -1282,7 +1280,10 @@ export default function PerformanceClient({
 
           {/* Question-Level Analysis - the topic-level progress table and
               the individual question-level report history now sit together
-              as one final section, matching the flow diagram's last step. */}
+              as one final section, matching the flow diagram's last step.
+              Reports here can only ever come from before the upload path
+              was removed - there's no way to add a new one anymore, but
+              existing ones still display normally. */}
           {questionLevelColumns.length > 0 && (
             <div className="card overflow-x-auto">
               <div className="flex items-center justify-between mb-1">
