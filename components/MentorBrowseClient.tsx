@@ -9,6 +9,23 @@ export type MentorCardData = Mentor & {
   availableThisWeek: boolean;
   avgRating: number | null;
   ratingCount: number;
+  // How many students currently have this mentor's email linked under
+  // their own Settings right now (same "My students" roster definition
+  // the mentor's own dashboard uses) - distinct from helpedCount above,
+  // which is a lifetime count of distinct students who've had a COMPLETED
+  // session with this mentor. A mentor can be actively mentoring several
+  // students who haven't had (or don't need) a booked session yet, which
+  // is exactly why "Helped 0 students" was showing even for mentors with a
+  // real, current roster. Optional/defaulted to 0 so any older caller that
+  // hasn't been updated to pass it yet doesn't break.
+  activeStudentCount?: number;
+  // How many of this mentor's session-feedback rows have an actual written
+  // comment (not just a star rating) - computed server-side in
+  // app/mentorship/page.tsx from mentor_session_feedback.comment. Shown as
+  // a plain count on the card regardless of whether it's zero, so the
+  // absence of reviews is visible rather than the whole line just not
+  // rendering (which is what ratingCount === 0 gating used to do).
+  commentCount?: number;
 };
 
 /**
@@ -55,6 +72,8 @@ export default function MentorBrowseClient({
           {mentors.map((m) => {
             const photoUrl = mentorPhotoUrl(m.photo_path, SUPABASE_URL);
             const languages = m.languages || [];
+            const activeStudentCount = m.activeStudentCount ?? 0;
+            const commentCount = m.commentCount ?? 0;
             return (
               <div key={m.id} className="card flex flex-col gap-3">
                 <div className="flex items-center gap-3">
@@ -81,7 +100,13 @@ export default function MentorBrowseClient({
                 {m.bio && <p className="text-xs text-slate-400 line-clamp-2">{m.bio}</p>}
 
                 <div className="text-xs text-slate-500 space-y-1">
-                  <p>Helped {m.helpedCount} student{m.helpedCount === 1 ? "" : "s"}</p>
+                  <p>
+                    Mentoring {activeStudentCount} student{activeStudentCount === 1 ? "" : "s"} now
+                    <span className="text-slate-600"> · Helped {m.helpedCount} total</span>
+                  </p>
+                  <p>
+                    {commentCount} comment{commentCount === 1 ? "" : "s"}
+                  </p>
                   {languages.length > 0 && <p>Speaks {languages.join(", ")}</p>}
                   {m.response_time_note && <p>Typically responds {m.response_time_note}</p>}
                 </div>
