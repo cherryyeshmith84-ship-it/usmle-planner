@@ -319,24 +319,27 @@ export default async function MentorshipPage() {
     );
   }
 
-  // Not a mentor - browse the directory. Compute two per-mentor summary
-  // stats up front with two batch queries (rather than one query per
-  // mentor): how many distinct students each mentor has already had a
-  // completed session with ("helped X students"), and whether each mentor
-  // has at least one open slot in the next 7 days ("Available this week").
-  // Mentorship's directory only ever shows Mentor/Both rows - a pure Tutor
-  // (role === "tutor") belongs on the separate /tutoring directory instead,
-  // even though they're stored in this same mentors table.
+  // Not a mentor - browse the directory. Compute three per-mentor summary
+  // stats up front with batch queries (rather than one query per mentor):
+  // how many distinct students each mentor has already had a completed
+  // session with ("helped X students"), whether each mentor has at least
+  // one open slot in the next 7 days ("Available this week"), and ratings/
+  // comments. Mentorship's directory only ever shows Mentor/Both rows - a
+  // pure Tutor (role === "tutor") belongs on the separate /tutoring
+  // directory instead, even though they're stored in this same mentors
+  // table.
   const mentorsForDirectory = mentors.filter((m) => mentorActsAs(m, "mentor"));
 
   const now = new Date().toISOString();
   const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const mentorIds = mentorsForDirectory.map((m) => m.id);
 
-  // These three summary queries are all independent of each other (each is
-  // its own batch lookup keyed off mentorIds), so - same fix as the mentor
-  // branch above - they run concurrently instead of one after another.
-  const [pastBookedRes, upcomingOpenRes, feedbackRes] =
+  // These four summary queries are all independent of each other (each is
+  // its own batch lookup keyed off mentorIds, or - activeStudentCountsRes -
+  // not scoped to mentorIds at all since it's a flat RPC call), so - same
+  // fix as the mentor branch above - they run concurrently instead of one
+  // after another.
+  const [pastBookedRes, upcomingOpenRes, feedbackRes, activeStudentCountsRes] =
     mentorIds.length > 0
       ? await Promise.all([
           // booked_by_profile:booked_by(email) joined in so a mentor's own
@@ -365,14 +368,27 @@ export default async function MentorshipPage() {
             .eq("is_booked", false)
             .gte("end_time", now)
             .lt("start_time", weekFromNow),
-          // One batch query for every mentor's ratings, rather than N+1. Needs
-          // the "Authenticated can view mentor feedback" RLS policy (see
-          // migration mentor_feedback_public_read_for_profiles) since feedback
-          // used to be readable only by the mentor themselves or the student
-          // who wrote it.
-          supabase.from("mentor_session_feedback").select("mentor_id, rating").in("mentor_id", mentorIds),
+          // One batch query for every mentor's ratings AND written comments,
+          // rather than N+1. Needs the "Authenticated can view mentor
+          // feedback" RLS policy (see migration
+          // mentor_feedback_public_read_for_profiles) since feedback used to
+          // be readable only by the mentor themselves or the student who
+          // wrote it. `comment` is now selected too (alongside rating) so the
+          // directory card can show how many of a mentor's reviews actually
+          // included a written comment, not just a star count.
+          supabase.from("mentor_session_feedback").select("mentor_id, rating, comment").in("mentor_id", mentorIds),
+          // How many students currently have each mentor's email linked
+          // under their own Settings right now - the "My students" roster
+          // definition, as an aggregate-only count. A plain student
+          // browsing this directory has no RLS access to read OTHER
+          // students' profiles.mentor_email directly (unlike a mentor
+          // reading their own roster above), so this goes through a
+          // SECURITY DEFINER function (mentor_active_student_counts, see
+          // migration add_mentor_active_student_counts_function) that
+          // returns only per-mentor counts, never any student PII.
+          supabase.rpc("mentor_active_student_counts"),
         ])
-      : [{ data: null }, { data: null }, { data: null }];
+      : [{ data: null }, { data: null }, { data: null }, { data: null }];
 
   // Same self-booking exclusion as the mentor-dashboard branch above - a
   // mentor (or another mentor account) testing their own booking flow
@@ -399,10 +415,19 @@ export default async function MentorshipPage() {
   }
 
   const ratingsByMentor = new Map<string, number[]>();
+  const commentCountByMentor = new Map<string, number>();
   for (const row of (feedbackRes.data ?? []) as any[]) {
     const arr = ratingsByMentor.get(row.mentor_id) ?? [];
     arr.push(row.rating);
     ratingsByMentor.set(row.mentor_id, arr);
+    if (row.comment && String(row.comment).trim().length > 0) {
+      commentCountByMentor.set(row.mentor_id, (commentCountByMentor.get(row.mentor_id) ?? 0) + 1);
+    }
+  }
+
+  const activeStudentCountByMentor = new Map<string, number>();
+  for (const row of (activeStudentCountsRes?.data ?? []) as { mentor_id: string; student_count: number }[]) {
+    activeStudentCountByMentor.set(row.mentor_id, Number(row.student_count));
   }
 
   const mentorCards = mentorsForDirectory.map((m) => {
@@ -413,6 +438,8 @@ export default async function MentorshipPage() {
       availableThisWeek: availableThisWeekMentorIds.has(m.id),
       avgRating: averageRating(ratings.map((rating) => ({ rating }))),
       ratingCount: ratings.length,
+      activeStudentCount: activeStudentCountByMentor.get(m.id) ?? 0,
+      commentCount: commentCountByMentor.get(m.id) ?? 0,
     };
   });
 
