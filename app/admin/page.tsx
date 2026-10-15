@@ -45,8 +45,16 @@ export default async function AdminHome() {
   // Mentors sign up through the same public form as students, so their
   // profiles row would otherwise show up mixed into this list - filter them
   // out here.
+  // People registered as "viewers" (Admin -> Viewers) also sign up through
+  // the same public form, so their profiles row is excluded here too - a
+  // viewer is never listed as a student. Admins still get the "New viewer
+  // signup" notification for them.
+  const viewerEmails = new Set(
+    ((viewersRes.data ?? []) as { email: string }[]).map((v) => v.email.toLowerCase())
+  );
   const allStudents = ((profilesRes.data ?? []) as Profile[]).filter(
-    (s) => !isMentorProfile(s.email, excludeMentorEmails)
+    (s) =>
+      !isMentorProfile(s.email, excludeMentorEmails) && !(s.email && viewerEmails.has(s.email.toLowerCase()))
   );
   const needsAttentionCheck = (s: Profile) =>
     (s.onboarding_completed && !s.assigned_template_id) || !!s.track_changed_pending;
