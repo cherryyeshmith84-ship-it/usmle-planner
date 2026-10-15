@@ -48,7 +48,17 @@ export default function RoleGuard({
   let blocked = false;
   if (role !== "student") {
     blocked = STUDENT_ONLY.some((p) => matches(pathname, p));
-    if (role === "admin" && !isMentor && matches(pathname, "/mentorship")) blocked = true;
+    // A plain admin is kept off the mentor/student-facing /mentorship area,
+    // EXCEPT a student's progress page (/mentorship/student/<id>), which is
+    // the same read-only progress view mentors get.
+    if (
+      role === "admin" &&
+      !isMentor &&
+      matches(pathname, "/mentorship") &&
+      !pathname.startsWith("/mentorship/student/")
+    ) {
+      blocked = true;
+    }
   }
 
   // A plain admin goes to /admin; a mentor (or an admin who is also a
