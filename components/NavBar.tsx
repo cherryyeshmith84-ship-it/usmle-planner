@@ -43,23 +43,19 @@ const GROUPS: NavGroup[] = [
       { href: "/mentorship/sessions", label: "Upcoming Sessions" },
       { href: "/planner", label: "Study Planner" },
       // "Analysis" (was "Performance") absorbs what used to be the
-      // standalone History page - detailed day-by-day history lives here
-      // now, not as its own nav item.
+      // standalone History page.
       { href: "/history", label: "Analysis" },
     ],
   },
 ];
 
 // Groups hidden from students until the admin flips the global publish
-// switch on. "Mentorship" (which now also holds Study Planner/Analysis) is
-// intentionally left out - that's always visible.
+// switch on. "Mentorship" is intentionally left out - always visible.
 const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
 
 function isActive(pathname: string, href: string) {
-  // Exact-match only for routes that now have their own sub-route (e.g.
-  // "/mentorship/sessions" nested under "/mentorship") - otherwise the
-  // parent nav item would light up alongside the child's on every one of
-  // its sub-pages, since a plain startsWith would match both.
+  // Exact-match only for routes that have their own sub-route (e.g.
+  // "/mentorship/sessions" nested under "/mentorship").
   if (href === "/dashboard" || href === "/mentorship") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -79,36 +75,23 @@ export default function NavBar({
   contentPublished = true,
 }: {
   isAdmin?: boolean;
-  // Optional - pages that haven't been updated to pass these yet just won't
-  // show the streak badge / real name in the profile block below.
   userName?: string | null;
   streak?: number;
-  // Whether the coach has published student content yet. Defaults to true
-  // so any caller that hasn't been updated to pass this (or admins, who
-  // should never be gated) still sees the full nav.
   contentPublished?: boolean;
 }) {
   const pathname = usePathname();
   const [isMentor, setIsMentor] = useState(false);
-  // Sidebar is a fixed 240px column, which works fine on desktop but would
-  // eat most of the screen on a phone - below the md breakpoint it now
-  // renders as an off-canvas drawer (closed by default) toggled by the
-  // hamburger button below, and auto-closes whenever the route changes so
-  // tapping a link doesn't leave the drawer open over the new page.
+  // Below the md breakpoint the sidebar is an off-canvas drawer (closed by
+  // default) toggled by the hamburger button, auto-closing on route change.
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  // Whether the signed-in user is an active mentor - checked client-side
-  // (rather than threading an isMentor prop through every single page that
-  // renders AppShell/NavBar, which would mean touching dozens of files) since
-  // NavBar is already "use client" and a browser-side read of the `mentors`
-  // table (the same one MentorBrowseClient reads for the public directory)
-  // is cheap and RLS-safe. Only used to decide whether to show "Students"/
-  // "Waiting" below - everything else a mentor can already reach is
-  // unaffected if this hasn't resolved yet on first paint.
+  // Whether the signed-in user is an active mentor - checked client-side so
+  // no isMentor prop has to be threaded through every page that renders
+  // AppShell/NavBar.
   useEffect(() => {
     let cancelled = false;
     async function checkMentor() {
@@ -138,24 +121,13 @@ export default function NavBar({
         mentorshipHome,
         { href: "/mentorship/students", label: "Students" },
         // Mentor-wide, day-by-day assignment plans per system (see
-        // MentorTemplatesManager.tsx) - not tied to any one student, so it
-        // gets its own top-level link here rather than living only inside
-        // a specific student's day view. Labeled "Planner Templates" (not
-        // bare "Templates") to avoid reading like the separate, unrelated
-        // admin-only "Schedule templates" feature under /admin/templates.
+        // MentorTemplatesManager.tsx).
         { href: "/mentorship/templates", label: "Planner Templates" },
         ...rest,
-        // Own self-service "waiting for a mentor" pool
-        // (app/mentorship/waiting/page.tsx) - deliberately last in the
-        // group, after Analysis, since it's a once-in-a-while lookup
-        // ("is anyone new waiting on me") rather than a day-to-day link
-        // like Students/Study Planner/Analysis above it.
+        // Self-service "waiting for a mentor" pool.
         { href: "/mentorship/waiting", label: "Waiting" },
-        // Students an ADMIN has granted this mentor read-only "viewer"
-        // access to, on top of their own assigned students above - kept as
-        // its own link (not merged into "Students") so it's always clear
-        // at a glance that anyone reached this way is someone else's
-        // student, not this mentor's own.
+        // Students an admin has granted this mentor read-only "viewer"
+        // access to.
         { href: "/mentorship/viewing", label: "Viewing" },
       ],
     };
@@ -173,10 +145,7 @@ export default function NavBar({
 
   return (
     <>
-      {/* Hamburger toggle - only rendered below the md breakpoint, since the
-          sidebar is always visible above it. Stays visible whether the
-          drawer is open or closed so there's always a way to get back to
-          it. */}
+      {/* Hamburger toggle - only rendered below the md breakpoint. */}
       <button
         type="button"
         onClick={() => setMobileOpen((v) => !v)}
@@ -186,7 +155,7 @@ export default function NavBar({
         {mobileOpen ? "✕" : "☰"}
       </button>
 
-      {/* Backdrop - tapping it closes the drawer, same as tapping a link. */}
+      {/* Backdrop - tapping it closes the drawer. */}
       {mobileOpen && (
         <div
           className="md:hidden fixed inset-0 bg-slate-950/50 z-40"
@@ -195,23 +164,15 @@ export default function NavBar({
       )}
 
       {/*
-        h-screen (not min-h-screen + sticky) - the old "min-h-screen sticky
-        top-0" relied on this aside staying pinned via CSS sticky while the
-        whole page scrolled around it, but the parent flex row stretching this
-        aside to match the (much taller) content column's height made that
-        unreliable in practice - the sidebar scrolled away with everything
-        else instead of staying put. Now AppShell makes only the content
-        column scroll, so this just needs to be exactly one viewport tall and
-        never move at all. The nav below still scrolls internally
-        (overflow-y-auto) if there are ever more links than fit.
-
-        Below md: fixed off-canvas drawer, slid in/out with mobileOpen via
-        translate-x (position:fixed takes it out of the flex row entirely, so
-        the content column fills the screen when the drawer is closed).
-        At/above md: back to the normal static, always-visible column.
+        Sidebar stays pinned while the page scrolls: at md and above it is
+        position:sticky; top:0 with self-start (so it is NOT stretched to the
+        height of the tall content column) and h-screen, so it is exactly one
+        viewport tall and never scrolls away. The nav inside still scrolls
+        internally (overflow-y-auto) if there are more links than fit.
+        Below md: fixed off-canvas drawer toggled by mobileOpen.
       */}
       <aside
-        className={`w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200 ${
+        className={`w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col fixed md:sticky md:top-0 md:self-start inset-y-0 left-0 z-40 transition-transform duration-200 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
@@ -245,10 +206,7 @@ export default function NavBar({
             </p>
             <div className="flex flex-col gap-1">
               {group.items.map((item) => (
-                // data-tour - lets OnboardingTour.tsx find and spotlight
-                // this exact link via a plain DOM query when it's the
-                // current tour step's target, without NavBar needing to
-                // know anything about the tour itself.
+                // data-tour lets OnboardingTour.tsx find and spotlight this link.
                 <Link key={item.href} href={item.href} data-tour={item.href} className={linkClass(item.href)}>
                   {item.label}
                 </Link>
