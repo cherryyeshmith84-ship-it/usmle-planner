@@ -145,6 +145,12 @@ export default async function AdminHome() {
                 : "Step 1"}
             </span>
             <Link
+              href={`/mentorship/student/${s.id}`}
+              className="text-xs font-semibold text-green-500 hover:text-green-400 whitespace-nowrap"
+            >
+              View progress &rarr;
+            </Link>
+            <Link
               href={`/admin/students/${s.id}`}
               className="text-xs text-brand-400 hover:text-brand-300 whitespace-nowrap"
             >
@@ -241,9 +247,17 @@ export default async function AdminHome() {
                         </span>
                       )}
                     </div>
-                    <Link href={`/admin/students/${s.id}`} className="text-xs text-brand-400 hover:text-brand-300">
-                      View profile &rarr;
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/mentorship/student/${s.id}`}
+                        className="text-xs font-semibold text-green-500 hover:text-green-400"
+                      >
+                        View progress &rarr;
+                      </Link>
+                      <Link href={`/admin/students/${s.id}`} className="text-xs text-brand-400 hover:text-brand-300">
+                        View profile &rarr;
+                      </Link>
+                    </div>
                   </div>
                   <p className="text-sm text-slate-400 mb-3">
                     {s.email}
