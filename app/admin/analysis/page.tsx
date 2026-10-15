@@ -3,6 +3,8 @@ import type { ScoreReport } from "@/lib/scoreReports";
 import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 import AdminNav from "@/components/AdminNav";
 import PerformanceClient from "@/components/PerformanceClient";
+import AdminScoreReportUpload from "@/components/AdminScoreReportUpload";
+import QuestionLevelReportUpload from "@/components/QuestionLevelReportUpload";
 import AdminAnalysisPicker, { type PickerStudent } from "@/components/AdminAnalysisPicker";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +93,10 @@ export default async function AdminAnalysisPage({ searchParams }: { searchParams
             <div className="mb-4">
               <h2 className="text-lg font-bold">{selected.name}</h2>
               <p className="text-sm text-slate-400">{selected.email}</p>
+            </div>
+            <div className="space-y-4 mb-6">
+              <AdminScoreReportUpload key={`sr-${selected.id}`} userId={selected.id} />
+              <QuestionLevelReportUpload key={`ql-${selected.id}`} userId={selected.id} />
             </div>
             {/* key forces a fresh state when switching between students */}
             <PerformanceClient key={selected.id} userId={selected.id} initialReports={reports} />
