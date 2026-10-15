@@ -19,6 +19,7 @@ const STUDENT_ONLY = [
   "/history",
   "/settings",
   "/mentorship/sessions",
+  "/lab-values",
 ];
 
 function matches(pathname: string, base: string) {
