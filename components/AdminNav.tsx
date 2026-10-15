@@ -24,6 +24,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/admin", label: "Students" },
       { href: "/admin/performance", label: "Performance" },
+      { href: "/admin/terms", label: "Terms acceptances" },
     ],
   },
   {
@@ -48,8 +49,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/mentors", label: "Mentors" },
       // Separate roster from Mentors above - a "viewer" is never a mentor,
-      // never has availability/sessions, and is added directly here rather
-      // than picked from the mentors list (see lib/viewers.ts and
+      // never has availability/sessions (see lib/viewers.ts and
       // ViewerAdminClient.tsx).
       { href: "/admin/viewers", label: "Viewers" },
     ],
@@ -67,9 +67,10 @@ function isActive(pathname: string, href: string) {
 
 export default function AdminNav() {
   const pathname = usePathname();
-  // Same off-canvas mobile drawer pattern as NavBar.tsx - see the comments
-  // there. Admin pages don't go through AppShell (each renders AdminNav
-  // directly), so this has to be fully self-contained here too.
+  // Same off-canvas mobile drawer pattern as NavBar.tsx. Admin pages don't
+  // go through AppShell (each renders AdminNav directly), so this is fully
+  // self-contained. There is intentionally no link back to the student
+  // dashboard - admins only see admin pages.
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -114,13 +115,9 @@ export default function AdminNav() {
           <span className="text-xs font-semibold bg-brand-900/40 text-brand-300 rounded-full px-2 py-1">
             Admin
           </span>
-          {/* New-student-signup notifications land here (see
-              app/auth/callback/route.ts) - admin pages have their own
-              sidebar (AdminNav) instead of the shared AppShell/TopHeader
-              every other page uses, so the bell needs to live here too.
-              align="left" keeps the dropdown from opening off the left
-              edge of the screen - see the comment on NotificationsBell's
-              align prop for why. */}
+          {/* New-signup notifications land here - admin pages have their own
+              sidebar instead of the shared AppShell/TopHeader, so the bell
+              lives here too. align="left" keeps the dropdown on screen. */}
           <NotificationsBell align="left" />
         </div>
       </div>
@@ -167,12 +164,6 @@ export default function AdminNav() {
       </nav>
 
       <div className="px-3 pb-6 pt-3 border-t border-slate-800">
-        <Link
-          href="/dashboard"
-          className="block text-sm font-medium px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800"
-        >
-          My dashboard
-        </Link>
         <form action="/auth/signout" method="post">
           <button className="w-full text-left text-sm font-medium px-3 py-2.5 rounded-lg text-slate-400 hover:bg-slate-800">
             Log out
@@ -181,18 +172,8 @@ export default function AdminNav() {
       </div>
       </aside>
 
-      {/* Reserves the sidebar's width in each admin page's "min-h-screen
-          flex" row so the always-fixed <aside> above doesn't overlap
-          <main>. Previously the aside used md:sticky and relied on
-          stretching to match main's height to stay "pinned" - that broke
-          the moment main's content got taller than one screen (a long
-          student list, for example): the stretched aside just scrolled
-          along with the page instead of staying put. Fixed positioning
-          takes the aside out of flow entirely so it's always pinned to the
-          viewport regardless of how tall main gets; this spacer (same w-60
-          shrink-0 the aside used to contribute) keeps main shifted over by
-          the right amount on desktop. Hidden on mobile since the aside
-          overlays there instead of sitting beside main. */}
+      {/* Reserves the sidebar's width in each admin page's flex row so the
+          always-fixed <aside> doesn't overlap <main>. Hidden on mobile. */}
       <div className="hidden md:block w-60 shrink-0" aria-hidden="true" />
     </>
   );
