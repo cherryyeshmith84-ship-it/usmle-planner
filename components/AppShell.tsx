@@ -3,36 +3,61 @@ import NavBar from "./NavBar";
 import TopHeader from "./TopHeader";
 import TimezoneSync from "./TimezoneSync";
 import Planner9pmPopup from "./Planner9pmPopup";
+import TermsGate from "./TermsGate";
+import { createClient } from "@/lib/supabase/server";
+import { TERMS_VERSION } from "@/lib/terms";
 
 /**
  * Shared page shell: sidebar (NavBar) + persistent top header, wrapping
- * whatever the page renders as its main content. Replaces the old pattern
- * where every page manually rendered `<div className="min-h-screen
- * flex"><NavBar/><main>...</main></div>` on its own - that worked but meant
- * there was nowhere shared to hang a top header, and each page repeated the
- * same boilerplate. Pages still render their own <main> as a child (so each
- * keeps its own max-width/padding), this just adds the sidebar + header
- * around it.
+ * whatever the page renders as its main content.
  *
- * TimezoneSync and Planner9pmPopup are both mounted here, unconditionally,
- * rather than on individual pages - that's what makes them work sitewide
- * (any signed-in page, not just Dashboard/Study Planner) with zero new
- * props threaded through every AppShell caller. Both render nothing
- * visible most of the time: TimezoneSync is a silent background sync, and
- * Planner9pmPopup only ever renders its modal after 9pm local time when
- * there's actually something to remind about (see each component's own
- * doc comment).
+ * TimezoneSync and Planner9pmPopup are mounted here so they work sitewide.
+ * contentPublished is forwarded to NavBar (gates Learn/Improve nav groups).
  *
- * contentPublished is forwarded straight through to NavBar, which uses it
- * to gate the Learn/Improve nav groups until the coach publishes content
- * (see NavBar.tsx's own GATED_GROUP_TITLES). This prop went missing from
- * AppShell for a stretch, which broke the production build for every page
- * that still passed it in (a TS "Property does not exist" error on
- * <AppShell ... contentPublished={...}> - e.g. app/assessments/page.tsx) -
- * restored here rather than stripping the prop from every caller, since
- * dozens of pages already pass it and NavBar still needs it.
+ * TERMS GATE: before rendering anything, checks that the signed-in STUDENT
+ * has accepted the current TERMS_VERSION (table terms_acceptances); if not,
+ * renders ONLY the blocking <TermsGate /> instead of the page. Admins,
+ * mentors and viewers are exempt. If the check errors, the page loads
+ * normally (fail-open) so a hiccup never locks everyone out.
  */
-export default function AppShell({
+async function studentMustAcceptTerms(): Promise<{ must: boolean; name: string | null }> {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { must: false, name: null };
+
+    const { data: accepted } = await supabase
+      .from("terms_acceptances")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("terms_version", TERMS_VERSION)
+      .maybeSingle();
+    if (accepted) return { must: false, name: null };
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin, full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profile?.is_admin) return { must: false, name: null };
+
+    if (user.email) {
+      const [mentorRes, viewerRes] = await Promise.all([
+        supabase.from("mentors").select("id").ilike("email", user.email).eq("active", true).maybeSingle(),
+        supabase.from("viewers").select("id").ilike("email", user.email).eq("active", true).maybeSingle(),
+      ]);
+      if (mentorRes.data || viewerRes.data) return { must: false, name: null };
+    }
+
+    return { must: true, name: (profile?.full_name as string | null) ?? null };
+  } catch {
+    return { must: false, name: null };
+  }
+}
+
+export default async function AppShell({
   isAdmin,
   userName,
   streak,
@@ -42,12 +67,14 @@ export default function AppShell({
   isAdmin?: boolean;
   userName?: string | null;
   streak?: number;
-  // Whether the coach has published student content yet. Optional/defaults
-  // to true inside NavBar itself, so a caller that doesn't pass this still
-  // sees the full nav (same fallback NavBar already had).
   contentPublished?: boolean;
   children: ReactNode;
 }) {
+  const gate = isAdmin ? { must: false, name: null } : await studentMustAcceptTerms();
+  if (gate.must) {
+    return <TermsGate userName={gate.name ?? userName} />;
+  }
+
   return (
     <div className="min-h-screen flex">
       <TimezoneSync />
