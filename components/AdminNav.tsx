@@ -23,6 +23,7 @@ const GROUPS: NavGroup[] = [
     title: "Overview",
     items: [
       { href: "/admin", label: "Students" },
+      { href: "/admin/analysis", label: "Analysis" },
       { href: "/admin/terms", label: "Terms acceptances" },
     ],
   },
