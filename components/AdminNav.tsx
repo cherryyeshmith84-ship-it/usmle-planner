@@ -23,7 +23,6 @@ const GROUPS: NavGroup[] = [
     title: "Overview",
     items: [
       { href: "/admin", label: "Students" },
-      { href: "/admin/performance", label: "Performance" },
       { href: "/admin/terms", label: "Terms acceptances" },
     ],
   },
@@ -53,10 +52,6 @@ const GROUPS: NavGroup[] = [
       // ViewerAdminClient.tsx).
       { href: "/admin/viewers", label: "Viewers" },
     ],
-  },
-  {
-    title: "Settings",
-    items: [{ href: "/admin/planner-config", label: "Planner Settings" }],
   },
 ];
 
