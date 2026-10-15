@@ -70,17 +70,22 @@ function initials(name: string | null | undefined) {
 
 export default function NavBar({
   isAdmin,
+  isMentor: isMentorProp,
   userName,
   streak,
   contentPublished = true,
 }: {
   isAdmin?: boolean;
+  // Passed in by AppShell (server-resolved). If missing, falls back to a
+  // client-side lookup below.
+  isMentor?: boolean;
   userName?: string | null;
   streak?: number;
   contentPublished?: boolean;
 }) {
   const pathname = usePathname();
-  const [isMentor, setIsMentor] = useState(false);
+  const [isMentorState, setIsMentorState] = useState(false);
+  const isMentor = isMentorProp ?? isMentorState;
   // Below the md breakpoint the sidebar is an off-canvas drawer (closed by
   // default) toggled by the hamburger button, auto-closing on route change.
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -93,6 +98,7 @@ export default function NavBar({
   // no isMentor prop has to be threaded through every page that renders
   // AppShell/NavBar.
   useEffect(() => {
+    if (isMentorProp !== undefined) return;
     let cancelled = false;
     async function checkMentor() {
       const supabase = createClient();
@@ -104,37 +110,37 @@ export default function NavBar({
       const match = (data ?? []).some(
         (m: { email: string }) => m.email.toLowerCase() === user.email!.toLowerCase()
       );
-      if (!cancelled) setIsMentor(match);
+      if (!cancelled) setIsMentorState(match);
     }
     checkMentor();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isMentorProp]);
 
-  const groupsWithMentorLinks = GROUPS.map((group) => {
-    if (group.title !== "Mentorship" || !isMentor) return group;
-    const [mentorshipHome, ...rest] = group.items;
-    return {
-      ...group,
-      items: [
-        mentorshipHome,
-        { href: "/mentorship/students", label: "Students" },
-        // Mentor-wide, day-by-day assignment plans per system (see
-        // MentorTemplatesManager.tsx).
-        { href: "/mentorship/templates", label: "Planner Templates" },
-        ...rest,
-        // Self-service "waiting for a mentor" pool.
-        { href: "/mentorship/waiting", label: "Waiting" },
-        // Students an admin has granted this mentor read-only "viewer"
-        // access to.
-        { href: "/mentorship/viewing", label: "Viewing" },
-      ],
-    };
-  });
-  const visibleGroups = groupsWithMentorLinks.filter(
-    (group) => isAdmin || contentPublished || !GATED_GROUP_TITLES.has(group.title)
-  );
+  // Role split: students get the full student nav; mentors get ONLY the
+  // mentor links; admins get ONLY the admin links (plus the mentor links if
+  // they are also a mentor). No student features for mentors/admins.
+  const isStudent = !isAdmin && !isMentor;
+  const mentorGroup: NavGroup = {
+    title: "Mentor",
+    items: [
+      { href: "/mentorship", label: "Mentorship" },
+      { href: "/mentorship/students", label: "Students" },
+      // Mentor-wide, day-by-day assignment plans per system (see
+      // MentorTemplatesManager.tsx).
+      { href: "/mentorship/templates", label: "Planner Templates" },
+      // Self-service "waiting for a mentor" pool.
+      { href: "/mentorship/waiting", label: "Waiting" },
+      // Students an admin has granted this mentor read-only access to.
+      { href: "/mentorship/viewing", label: "Viewing" },
+    ],
+  };
+  const visibleGroups: NavGroup[] = isStudent
+    ? GROUPS.filter((group) => contentPublished || !GATED_GROUP_TITLES.has(group.title))
+    : isMentor
+    ? [mentorGroup]
+    : [];
 
   function linkClass(href: string) {
     const active = isActive(pathname, href);
@@ -195,9 +201,11 @@ export default function NavBar({
       </div>
 
       <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
-        <Link href="/dashboard" data-tour="/dashboard" className={linkClass("/dashboard")}>
-          Home
-        </Link>
+        {isStudent && (
+          <Link href="/dashboard" data-tour="/dashboard" className={linkClass("/dashboard")}>
+            Home
+          </Link>
+        )}
 
         {visibleGroups.map((group) => (
           <div key={group.title}>
@@ -236,9 +244,11 @@ export default function NavBar({
       </nav>
 
       <div className="px-3 pb-6 pt-3 border-t border-slate-800">
-        <Link href="/settings" data-tour="/settings" className={linkClass("/settings")}>
-          Settings
-        </Link>
+        {isStudent && (
+          <Link href="/settings" data-tour="/settings" className={linkClass("/settings")}>
+            Settings
+          </Link>
+        )}
         <div className="flex items-center gap-2.5 px-3 py-2.5 mt-1">
           <span className="w-7 h-7 rounded-full bg-brand-900/50 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
             {initials(userName)}
