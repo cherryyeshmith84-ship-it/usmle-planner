@@ -229,9 +229,6 @@ export default function NavBar({
               Admin
             </p>
             <div className="flex flex-col gap-1">
-              <Link href="/lab-values" className={linkClass("/lab-values")}>
-                Lab Values
-              </Link>
               <Link
                 href="/admin"
                 className="text-sm font-medium px-3 py-2.5 rounded-lg text-brand-300 bg-brand-900/40 hover:bg-brand-900/40"
