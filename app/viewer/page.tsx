@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import { findViewerByEmail, type Viewer } from "@/lib/viewers";
 import { formatSlotDate } from "@/lib/mentors";
+import ViewerPhotoUpload from "@/components/ViewerPhotoUpload";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,8 @@ export const dynamic = "force-dynamic";
  * since that nav is built around Home/Learn/Improve/Mentorship, none of
  * which apply to someone who is neither a student nor a mentor. This is
  * the "separated dashboard" for viewership members: a minimal header (logo
- * + sign out) plus a flat list of whatever students an admin has granted
- * them (student_viewers, see migration
+ * + sign out) plus a profile-photo card and a flat list of whatever
+ * students an admin has granted them (student_viewers, see migration
  * create_viewers_and_student_viewers), each opening the same read-only
  * student profile view a viewer-mentor sees today
  * (app/mentorship/student/[studentId]/page.tsx) - nothing else is reachable
@@ -32,6 +33,10 @@ export default async function ViewerDashboardPage() {
   const myViewerRecord = findViewerByEmail(viewers, user.email);
   // Not a registered (or no longer active) viewer - nothing for them here.
   if (!myViewerRecord) redirect("/viewer/login?error=not_viewer");
+
+  const photoUrl = myViewerRecord.photo_path
+    ? supabase.storage.from("viewer-photos").getPublicUrl(myViewerRecord.photo_path).data.publicUrl
+    : null;
 
   const { data: grantsData } = await supabase
     .from("student_viewers")
@@ -62,6 +67,10 @@ export default async function ViewerDashboardPage() {
           </span>
         </div>
         <div className="flex items-center gap-4">
+          {photoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photoUrl} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-800" />
+          )}
           <span className="text-sm text-slate-400 hidden sm:inline">{myViewerRecord.name}</span>
           <form action="/auth/signout" method="post">
             <button className="text-sm font-medium text-slate-500 hover:text-slate-300">Sign out</button>
@@ -70,6 +79,8 @@ export default async function ViewerDashboardPage() {
       </header>
       <main className="flex-1 overflow-y-auto px-6 py-8">
         <div className="max-w-2xl mx-auto">
+          <ViewerPhotoUpload userId={user.id} name={myViewerRecord.name} initialPhotoUrl={photoUrl} />
+
           <h1 className="text-xl font-bold mb-1">Your students</h1>
           <p className="text-sm text-slate-400 mb-6">
             Read-only access an admin has given you. You can see each student's sessions, study planner,
