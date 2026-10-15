@@ -13,6 +13,9 @@ export interface Viewer {
   name: string;
   email: string;
   active: boolean;
+  // Path inside the public "viewer-photos" storage bucket (uploaded by the
+  // viewer themselves from their dashboard, see ViewerPhotoUpload.tsx).
+  photo_path?: string | null;
   created_by?: string | null;
   created_at?: string;
 }
