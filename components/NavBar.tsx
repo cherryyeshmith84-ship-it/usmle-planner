@@ -126,6 +126,8 @@ export default function NavBar({
     title: "Mentor",
     items: [
       { href: "/mentorship", label: "Mentorship" },
+      // Booked sessions, notes and student feedback live on this page.
+      { href: "/mentorship/sessions", label: "Upcoming Sessions" },
       { href: "/mentorship/students", label: "Students" },
       // Mentor-wide, day-by-day assignment plans per system (see
       // MentorTemplatesManager.tsx).
