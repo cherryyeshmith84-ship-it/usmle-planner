@@ -9,40 +9,19 @@ export type MentorCardData = Mentor & {
   availableThisWeek: boolean;
   avgRating: number | null;
   ratingCount: number;
-  // How many students currently have this mentor's email linked under
-  // their own Settings right now (same "My students" roster definition
-  // the mentor's own dashboard uses) - distinct from helpedCount above,
-  // which is a lifetime count of distinct students who've had a COMPLETED
-  // session with this mentor. A mentor can be actively mentoring several
-  // students who haven't had (or don't need) a booked session yet, which
-  // is exactly why "Helped 0 students" was showing even for mentors with a
-  // real, current roster. Optional/defaulted to 0 so any older caller that
-  // hasn't been updated to pass it yet doesn't break.
+  // Students currently linked to this mentor (their "My students" roster).
   activeStudentCount?: number;
-  // How many of this mentor's session-feedback rows have an actual written
-  // comment (not just a star rating) - computed server-side in
-  // app/mentorship/page.tsx from mentor_session_feedback.comment. Shown as
-  // a plain count on the card regardless of whether it's zero, so the
-  // absence of reviews is visible rather than the whole line just not
-  // rendering (which is what ratingCount === 0 gating used to do).
+  // Reviews that include a written comment.
   commentCount?: number;
+  // Set by the admin (Admin > Mentors > Students passed) - how many students
+  // passed Step 1 with this mentor. Comes straight from the mentors row.
+  students_passed?: number | null;
 };
 
 /**
- * Student-facing mentor directory - a grid of summary cards. Clicking
- * "View Profile" takes the student to a dedicated per-mentor page
- * (app/mentorship/mentor/[mentorId]/page.tsx + MentorProfileClient) where
- * the actual bio/help-areas/availability/booking flow lives. This component
- * used to also handle picking a mentor + booking inline; that's been split
- * out so the directory itself stays a simple, scannable list of cards.
- *
- * Also reused as-is for the Tutoring directory (app/tutoring/page.tsx) -
- * same cards, same booking flow (still /mentorship/mentor/[id], since a
- * "tutor" is just a mentors row with role tutor/both and booking doesn't
- * care about role at all), just fed a role-filtered list. showSessionsLink
- * defaults to true for Mentorship's own use; Tutoring passes false since it
- * already shows the student's upcoming tutoring sessions directly above
- * this directory on the same page, making that blurb redundant there.
+ * Student-facing mentor directory - a grid of summary cards. "View Profile"
+ * opens app/mentorship/mentor/[mentorId]. Also reused for the Tutoring
+ * directory (showSessionsLink=false there).
  */
 export default function MentorBrowseClient({
   mentors,
@@ -74,6 +53,7 @@ export default function MentorBrowseClient({
             const languages = m.languages || [];
             const activeStudentCount = m.activeStudentCount ?? 0;
             const commentCount = m.commentCount ?? 0;
+            const passed = Number(m.students_passed ?? 0);
             return (
               <div key={m.id} className="card flex flex-col gap-3">
                 <div className="flex items-center gap-3">
@@ -98,6 +78,12 @@ export default function MentorBrowseClient({
                 </div>
 
                 {m.bio && <p className="text-xs text-slate-400 line-clamp-2">{m.bio}</p>}
+
+                {passed > 0 && (
+                  <p className="text-xs font-semibold text-green-400">
+                    🎓 {passed} student{passed === 1 ? "" : "s"} passed with this mentor
+                  </p>
+                )}
 
                 <div className="text-xs text-slate-500 space-y-1">
                   <p>
