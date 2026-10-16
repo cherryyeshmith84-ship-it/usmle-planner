@@ -18,7 +18,6 @@ const STUDENT_ONLY = [
   "/planner",
   "/history",
   "/settings",
-  "/mentorship/sessions",
   "/lab-values",
 ];
 
