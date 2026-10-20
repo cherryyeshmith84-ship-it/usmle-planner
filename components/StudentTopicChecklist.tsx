@@ -6,10 +6,12 @@ import { createClient } from "@/lib/supabase/client";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 
 export type ChecklistResource = "uworld" | "boards_and_beyond" | "amboss" | "mehlman";
+type StoredResource = ChecklistResource | "self_assessments";
+type Category = "system" | "subject" | "assessment";
 
 export interface TopicChecklistRow {
-  resource: ChecklistResource;
-  category: "system" | "subject";
+  resource: StoredResource;
+  category: Category;
   topic: string;
   completed: boolean;
 }
@@ -21,39 +23,27 @@ const RESOURCES: { id: ChecklistResource; label: string }[] = [
   { id: "mehlman", label: "Mehlman" },
 ];
 
+// Self-assessment exams to tick off once taken. Independent of the resource
+// tabs above (stored under resource "self_assessments", category
+// "assessment"). Topic names are saved as-is, so don't rename them casually.
+const nbmeForms = Array.from({ length: 14 }, (_, i) => `NBME ${21 + i}`); // NBME 21-34
+const ASSESSMENT_GROUPS: { label: string; items: string[] }[] = [
+  { label: "NBME", items: nbmeForms },
+  { label: "UWorld Self-Assessments (UWSA)", items: ["UWSA 1", "UWSA 2", "UWSA 3"] },
+  { label: "Mehlman", items: ["Mehlman 1", "Mehlman 2"] },
+  { label: "Amboss", items: ["Amboss Self-Assessment"] },
+  { label: "Free 120", items: ["Free 120 - 2021", "Free 120 - 2022", "Free 120 - 2024", "Free 120 - 2026"] },
+];
+
 /**
- * "Systems & Disciplines" coverage checklist on a student's Overview tab -
- * lets a mentor mark off every organ system and every discipline/subject
- * as the student works through it, independent of score-report performance
- * (computeSystemStrengths/computeDisciplineStrengths on this same page show
- * how well they're DOING on a system; this tracks whether it's been
- * COVERED at all yet). Uses the exact same two lists
- * (STEP1_SYSTEMS/STEP1_SUBJECTS from lib/qbankTypes.ts) as score report
- * breakdowns and qbank question tagging elsewhere in the app, so a system
- * name here always matches the same system name everywhere else.
+ * "Systems & Disciplines Covered" checklist on a student's Overview tab, plus
+ * a "Self Assessments" checklist (NBME 21-34, UWSA 1-3, Mehlman 1-2, Amboss,
+ * Free 120 2021/2022/2024/2026). Systems/Disciplines are one checklist per
+ * resource tab; self-assessments are a single list shared across tabs.
  *
- * One independent checklist PER RESOURCE (UWorld / Boards and Beyond /
- * Amboss / Mehlman), switched via the tabs below - a student can be done
- * with Cardiovascular in UWorld but not have touched it yet in Amboss, so
- * "covered" only ever means "covered in the resource currently selected".
- * This used to be a single shared checklist; when it was split into four
- * (migration add_resource_to_student_topic_checklist), everything already
- * checked off became this student's "Boards and Beyond" progress, and
- * UWorld/Amboss/Mehlman all started blank - that's why an existing
- * long-time student might show real progress on one tab and nothing yet
- * on the other three, rather than it being a bug.
- *
- * Each checkbox writes straight to the database on click (upsert on the
- * (student_id, resource, category, topic) unique constraint) rather than
- * batching into a "Save" button - there's no draft state to lose here, so
- * an immediate save keeps it simple and matches how
- * MentorAvailabilityClient's slot Remove/edit actions work.
- *
- * Also rendered read-only on the student's own Analysis page (app/history/
- * page.tsx) with readOnly=true, so a student can see what their mentor has
- * marked covered without being able to change it themselves - mirrors the
- * RLS policy on student_topic_checklist, which only lets a student SELECT
- * their own rows, not write them (only their mentor or an admin can).
+ * Each checkbox writes straight to student_topic_checklist on click (upsert
+ * on student_id, resource, category, topic). Also rendered read-only on the
+ * student's own Analysis page (readOnly=true).
  */
 export default function StudentTopicChecklist({
   studentId,
@@ -62,7 +52,6 @@ export default function StudentTopicChecklist({
   readOnly = false,
 }: {
   studentId: string;
-  // Only needed when readOnly is false, since it's only used on writes.
   mentorId?: string;
   initialRows: TopicChecklistRow[];
   readOnly?: boolean;
@@ -78,17 +67,14 @@ export default function StudentTopicChecklist({
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  function key(resource: ChecklistResource, category: "system" | "subject", topic: string) {
+  function key(resource: StoredResource, category: Category, topic: string) {
     return `${resource}:${category}:${topic}`;
   }
 
-  async function toggle(category: "system" | "subject", topic: string) {
+  async function toggle(resource: StoredResource, category: Category, topic: string) {
     if (readOnly || !mentorId) return;
-    const resource = activeResource;
     const k = key(resource, category, topic);
     const wasCompleted = completed.has(k);
-    // Optimistic - flips instantly instead of waiting on the round trip,
-    // then rolls back below if the save actually fails.
     setCompleted((prev) => {
       const next = new Set(prev);
       if (wasCompleted) next.delete(k);
@@ -113,7 +99,6 @@ export default function StudentTopicChecklist({
     setSavingKey(null);
     if (upsertError) {
       setError(upsertError.message);
-      // Roll back the optimistic flip.
       setCompleted((prev) => {
         const next = new Set(prev);
         if (wasCompleted) next.add(k);
@@ -122,13 +107,29 @@ export default function StudentTopicChecklist({
       });
       return;
     }
-    // Without this, Next's client-side router cache keeps serving the RSC
-    // snapshot from whenever this page was last fetched - so navigating
-    // away and back (or the student's own read-only copy) could show stale
-    // checkmarks even though the database write above already succeeded.
-    // The local optimistic state above already made this click feel
-    // instant; this just makes sure the next navigation picks up the truth.
     router.refresh();
+  }
+
+  function renderBoxes(resource: StoredResource, category: Category, topics: readonly string[]) {
+    return (
+      <div className="grid sm:grid-cols-2 gap-1.5">
+        {topics.map((topic) => {
+          const k = key(resource, category, topic);
+          return (
+            <label key={topic} className={`flex items-center gap-2 text-sm ${readOnly ? "" : "cursor-pointer"}`}>
+              <input
+                type="checkbox"
+                checked={completed.has(k)}
+                disabled={readOnly || savingKey === k}
+                onChange={() => toggle(resource, category, topic)}
+                className="w-4 h-4 shrink-0"
+              />
+              <span className={completed.has(k) ? "text-slate-300" : "text-slate-400"}>{topic}</span>
+            </label>
+          );
+        })}
+      </div>
+    );
   }
 
   function renderGroup(label: string, category: "system" | "subject", topics: readonly string[]) {
@@ -138,29 +139,13 @@ export default function StudentTopicChecklist({
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
           {label} <span className="normal-case text-slate-600">({doneCount}/{topics.length} covered)</span>
         </p>
-        <div className="grid sm:grid-cols-2 gap-1.5">
-          {topics.map((topic) => {
-            const k = key(activeResource, category, topic);
-            return (
-              <label
-                key={topic}
-                className={`flex items-center gap-2 text-sm ${readOnly ? "" : "cursor-pointer"}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={completed.has(k)}
-                  disabled={readOnly || savingKey === k}
-                  onChange={() => toggle(category, topic)}
-                  className="w-4 h-4 shrink-0"
-                />
-                <span className={completed.has(k) ? "text-slate-300" : "text-slate-400"}>{topic}</span>
-              </label>
-            );
-          })}
-        </div>
+        {renderBoxes(activeResource, category, topics)}
       </div>
     );
   }
+
+  const allAssessments = ASSESSMENT_GROUPS.flatMap((g) => g.items);
+  const assessmentsDone = allAssessments.filter((t) => completed.has(key("self_assessments", "assessment", t))).length;
 
   return (
     <div className="card space-y-5">
@@ -173,8 +158,6 @@ export default function StudentTopicChecklist({
         </p>
       </div>
 
-      {/* Resource tabs - each is its own independent checklist, not a
-          filter over one shared set of checkmarks. */}
       <div className="flex flex-wrap gap-1.5 border-b border-slate-800 -mb-1 pb-3">
         {RESOURCES.map((r) => {
           const isActive = r.id === activeResource;
@@ -198,6 +181,28 @@ export default function StudentTopicChecklist({
       {error && <p className="text-xs text-red-400">{error}</p>}
       {renderGroup("Systems", "system", STEP1_SYSTEMS)}
       {renderGroup("Disciplines", "subject", STEP1_SUBJECTS)}
+
+      <div className="border-t border-slate-800 pt-5 space-y-4">
+        <div>
+          <p className="text-sm font-semibold">
+            Self Assessments{" "}
+            <span className="text-xs font-normal text-slate-600">
+              ({assessmentsDone}/{allAssessments.length} taken)
+            </span>
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            {readOnly
+              ? "Self-assessments your mentor has marked as taken."
+              : "Tick each self-assessment once the student has taken it."}
+          </p>
+        </div>
+        {ASSESSMENT_GROUPS.map((g) => (
+          <div key={g.label}>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{g.label}</p>
+            {renderBoxes("self_assessments", "assessment", g.items)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
