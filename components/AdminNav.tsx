@@ -24,6 +24,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/admin", label: "Students" },
       { href: "/admin/analysis", label: "Analysis" },
+      { href: "/admin/planner-import", label: "Planner import" },
       { href: "/admin/terms", label: "Terms acceptances" },
     ],
   },
