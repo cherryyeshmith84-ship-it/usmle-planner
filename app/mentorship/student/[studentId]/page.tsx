@@ -154,6 +154,16 @@ export default async function StudentProgressPage({ params }: { params: { studen
     const { data: linked } = await supabase.from("mentors").select("id, email").ilike("email", student.mentor_email);
     adminMentorId = ((linked ?? []) as { id: string; email: string }[])[0]?.id ?? null;
   }
+  // No mentor linked: use the inactive "Admin (planner)" placeholder mentor so
+  // admins can still assign tasks.
+  if (isAdmin && !canEdit && !adminMentorId) {
+    const { data: ph } = await supabase
+      .from("mentors")
+      .select("id")
+      .eq("email", "admin-planner@mastergrid.invalid")
+      .maybeSingle();
+    adminMentorId = (ph as { id: string } | null)?.id ?? null;
+  }
   const adminPlannerEdit = isAdmin && !canEdit && !!adminMentorId;
   const plannerCanEdit = canEdit || adminPlannerEdit;
   const plannerMentorId: string | null = canEdit ? myMentorRecord!.id : adminPlannerEdit ? adminMentorId : null;
@@ -407,7 +417,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <div className="card text-sm space-y-1">
           {adminPlannerEdit ? (
             <p className="text-slate-300">
-              You&apos;re editing this planner as admin. Tasks are filed under the student&apos;s mentor.
+              You&apos;re editing this planner as admin.
+              {student.mentor_email ? " Tasks are filed under the student's mentor." : " This student has no mentor, so tasks are filed under Admin."}
             </p>
           ) : (
             <p className="text-amber-400">
