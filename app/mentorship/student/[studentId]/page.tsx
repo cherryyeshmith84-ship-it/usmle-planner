@@ -65,35 +65,14 @@ function scoreBadgeClass(pct: number | null) {
  * with canEdit + mentorId passed in so it becomes a full add/edit/remove
  * Assignments editor instead of a read-only checklist).
  *
- * Split into tabs (Overview / Sessions / Study Planner / Analysis /
- * Messages) via MentorStudentTabs.tsx instead of one long scrolling page -
- * mirrors the same grouping a student sees for themselves in the sidebar
- * (Mentorship / Upcoming Sessions / Study Planner / Analysis), just scoped
- * to this one student and reached as in-page tabs since a mentor is
- * switching between sections for the SAME student rather than navigating
- * their own account. Sessions and Messages only make sense for this
- * student's actual mentor, so those two tabs are omitted entirely for an
- * admin browsing without a mentor relationship, for a read-only "viewer"
- * mentor, and for a pure (non-mentor) viewer (see canEdit below).
- *
- * This page is shared by THREE kinds of read access, on top of the primary
- * mentor's full edit access: an admin, a "viewer mentor" (an existing
- * mentor an admin gave read-only access to someone else's student - see
- * ViewerMentorsEditor.tsx), and a pure "viewer" (someone who isn't a
- * mentor at all - see lib/viewers.ts and StudentViewersEditor.tsx). All
- * three see the exact same read-only tabs; isPureViewer below only changes
- * which page shell wraps them and where "Back" sends them, since a pure
- * viewer has no reason to see the full student/mentor AppShell nav
- * (Home/Learn/Improve/Mentorship don't apply to them at all).
- *
- * RLS (is_mentor_of_student - see migrations mentor_read_student_progress
- * and mentor_write_student_planner_entries - OR is_viewer_mentor_of_student
- * / is_viewer_of_student, see migrations create_mentor_student_viewers and
- * create_viewers_and_student_viewers) is what actually enforces that a
- * mentor or viewer can only load a student they have a real relationship
- * OR an admin-granted viewer/grant relationship with, and that only a REAL
- * mentor relationship can write anything - this page's own checks below
- * are just a friendlier 404/read-only UI on top of that.
+ * ADMINS can plan too: an admin who is not the student's mentor gets the
+ * same planner editing (start date, self-assign toggle, Assignments,
+ * templates, repeat) - the tasks are filed under the student's linked
+ * mentor (profiles.mentor_email -> mentors). If the student has no mentor
+ * linked yet, the planner stays read-only with a note. The mentor-private
+ * tabs (Sessions, Messages, meeting link, personal notes, study plan) stay
+ * mentor-only. RLS already allows admins to write mentor_plan_tasks,
+ * mentor_daily_notes and student_planner_settings.
  */
 export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
   const supabase = createClient();
@@ -108,28 +87,19 @@ export default async function StudentProgressPage({ params }: { params: { studen
     .eq("id", user.id)
     .single();
   const profile = profileData as Pick<Profile, "is_admin" | "full_name"> | null;
-  const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
+  const isAdmin = !!profile?.is_admin;
+  const contentPublished = isAdmin ? true : await getContentPublished(supabase);
 
   const { data: mentorsData } = await supabase.from("mentors").select("*").eq("active", true);
   const mentors = (mentorsData ?? []) as Mentor[];
   const myMentorRecord = findMentorByEmail(mentors, user.email);
 
-  // Whether the signed-in email belongs to the separate, non-mentor
-  // "viewer" roster at all (lib/viewers.ts) - checked before the
-  // per-student grant below so a viewer with no grant for THIS student can
-  // still be sent back to their own /viewer dashboard instead of the
-  // generic /mentorship redirect a totally unrelated account would get.
   let myViewerRecord: Viewer | null = null;
-  if (!myMentorRecord && !profile?.is_admin) {
+  if (!myMentorRecord && !isAdmin) {
     const { data: viewersData } = await supabase.from("viewers").select("*").eq("active", true);
     myViewerRecord = findViewerByEmail((viewersData ?? []) as Viewer[], user.email);
   }
 
-  // Whether an admin has actually granted this specific viewer access to
-  // THIS specific student (student_viewers) - being on the viewers roster
-  // at all isn't enough on its own, same as being an active mentor isn't
-  // enough to read a student they have no relationship with (RLS enforces
-  // this regardless; this is just what decides the page's own UI branch).
   let isPureViewer = false;
   if (myViewerRecord) {
     const { data: grantRow } = await supabase
@@ -141,23 +111,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
     isPureViewer = !!grantRow;
   }
 
-  // Only mentors, admins, and pure viewers with an actual grant for this
-  // student have any reason to land here. A viewer account with no grant
-  // for this particular student goes back to their own dashboard; anyone
-  // else (a random student, say) goes back to /mentorship same as before.
-  if (!myMentorRecord && !profile?.is_admin && !isPureViewer) {
+  if (!myMentorRecord && !isAdmin && !isPureViewer) {
     redirect(myViewerRecord ? "/viewer" : "/mentorship");
   }
 
-  // Whether this mentor is the student's REAL mentor (current mentor_email,
-  // or a historical relationship via a past booking/message - see
-  // is_mentor_of_student's own doc comment) as opposed to only having
-  // read-only "viewer" access an admin granted via mentor_student_viewers.
-  // Both cases let the profile query below succeed (two separate RLS
-  // SELECT policies on profiles), so this RPC call is the only way to tell
-  // them apart - without it, a viewer-only mentor would see every edit
-  // control below (notes, meeting link, planner, study plan) and only find
-  // out writes silently fail once they actually tried to save.
   const { data: isRealMentorData } = myMentorRecord
     ? await supabase.rpc("is_mentor_of_student", { target_student_id: params.studentId })
     : { data: false };
@@ -166,15 +123,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const { data: studentData } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, email, avatar_url, status_update, status_updated_at, exam_track, subject_name, prep_stage, exam_date, daily_hour_goal, resources, completed_so_far, weak_areas, strong_areas, goals_notes"
+      "id, full_name, email, avatar_url, status_update, status_updated_at, exam_track, subject_name, prep_stage, exam_date, daily_hour_goal, resources, completed_so_far, weak_areas, strong_areas, goals_notes, mentor_email"
     )
     .eq("id", params.studentId)
     .maybeSingle();
-  // RLS on profiles only returns a row here if this mentor/viewer actually
-  // has a relationship (real, viewer-mentor, or pure-viewer grant) with
-  // this student, or the viewer is an admin - no row means either the
-  // student doesn't exist or there's no relationship at all, and either
-  // way a 404 is the right, non-leaky response.
   if (!studentData) notFound();
   const student = studentData as Pick<
     Profile,
@@ -194,7 +146,17 @@ export default async function StudentProgressPage({ params }: { params: { studen
     | "weak_areas"
     | "strong_areas"
     | "goals_notes"
-  >;
+  > & { mentor_email?: string | null };
+
+  // Admin planner editing: file the tasks under the student's linked mentor.
+  let adminMentorId: string | null = null;
+  if (isAdmin && !canEdit && student.mentor_email) {
+    const { data: linked } = await supabase.from("mentors").select("id, email").ilike("email", student.mentor_email);
+    adminMentorId = ((linked ?? []) as { id: string; email: string }[])[0]?.id ?? null;
+  }
+  const adminPlannerEdit = isAdmin && !canEdit && !!adminMentorId;
+  const plannerCanEdit = canEdit || adminPlannerEdit;
+  const plannerMentorId: string | null = canEdit ? myMentorRecord!.id : adminPlannerEdit ? adminMentorId : null;
 
   const [
     scoreReportsRes,
@@ -217,24 +179,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
       .select("*")
       .eq("user_id", params.studentId)
       .order("taken_date", { ascending: false }),
-    // Both the shared global defaults (student_id null) AND this student's
-    // own customized columns (if their mentor has set any up) - not
-    // filtered to active=true here since MentorPlannerColumnsEditor also
-    // needs to manage hidden ones. resolvePlannerColumns below picks which
-    // set actually applies, then it's filtered to active for display.
     supabase.from("planner_columns").select("*").or(`student_id.is.null,student_id.eq.${params.studentId}`),
-    // No date limit here (unlike the old read-only summary table) - the
-    // editable grid below computes its own visible date range and needs
-    // the full history to know what's actually been logged.
     supabase.from("planner_entries").select("*").eq("user_id", params.studentId),
-    // The next five queries are all scoped to THIS signed-in mentor's own
-    // relationship with this student (sessions they personally booked,
-    // their own session notes/study plan/meeting link/private note) - a
-    // read-only viewer (mentor or pure viewer) has none of these with a
-    // student they're not actually assigned to, so there's nothing to
-    // fetch for them. Gated on canEdit (not just myMentorRecord) so a
-    // viewer's page load doesn't even attempt these mentor-private
-    // lookups.
     canEdit
       ? supabase
           .from("mentor_slots")
@@ -254,15 +200,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
     canEdit
       ? supabase.from("mentor_study_plans").select("*").eq("student_id", params.studentId).maybeSingle()
       : Promise.resolve({ data: null }),
-    // Scoped to THIS mentor specifically, not just the student - the table
-    // only ever holds one row per student (student_id is the primary key),
-    // so if this student previously had a different mentor who set a link,
-    // that row is still sitting there with the old mentor_id until
-    // overwritten. Without the mentor_id filter here, a new mentor opening
-    // this page would see the old mentor's stale link as if it were their
-    // own. Filtering it out entirely (rather than showing it) means the new
-    // mentor sees no link yet and adds their own, which then correctly
-    // overwrites the row via MeetingLinkEditor's upsert.
     canEdit
       ? supabase
           .from("mentor_meeting_links")
@@ -271,9 +208,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
           .eq("mentor_id", myMentorRecord!.id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
-    // Same per-(mentor, student) scoping as the meeting link above - see
-    // StudentNotesEditor.tsx's doc comment for why the mentor_id filter
-    // matters here too.
     canEdit
       ? supabase
           .from("mentor_student_notes")
@@ -284,8 +218,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
       : Promise.resolve({ data: null }),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
-    // allow_self_assigned_tasks alongside start_date, so the Study Planner
-    // tab below can show the mentor-only SelfAssignedTasksToggle switch.
     supabase
       .from("student_planner_settings")
       .select("start_date, allow_self_assigned_tasks")
@@ -293,10 +225,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
       .maybeSingle(),
     supabase.from("uworld_blocks").select("*").eq("user_id", params.studentId),
     supabase.from("study_resources").select("*").eq("active", true).order("sort_order", { ascending: true }),
-    // resource added alongside category/topic so the checklist can be
-    // split into 4 independent per-resource tabs (UWorld / Boards and
-    // Beyond / Amboss / Mehlman) in StudentTopicChecklist.tsx - see
-    // migration add_resource_to_student_topic_checklist.
     supabase
       .from("student_topic_checklist")
       .select("resource, category, topic, completed")
@@ -326,27 +254,17 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
   const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
 
-  // Full comparison tables (not just the top-5 weakest above) - a mentor
-  // planning a session needs to see every system/discipline across every
-  // report, the same depth the student themselves sees on their own
-  // Analysis page, not just a quick-glance summary.
   const regularReports = scoreReports.filter((r) => r.exam_type !== "question_level");
   const comparisonReports = [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
   const allSystemStrengths = computeSystemStrengths(regularReports);
   const allDisciplineStrengths = computeDisciplineStrengths(regularReports);
 
-  // Self-reported day-to-day qbank performance (Question Bank Blocks,
-  // logged from the Study Planner calendar below) - separate from the
-  // uploaded score reports above, broken out per system per bank.
   const qbankBreakdown = computeQBankSystemBreakdown(uworldBlocks);
 
   // --- Tab contents -------------------------------------------------------
 
   const overviewContent = (
     <div className="space-y-8">
-      {/* Status - the student's own free-text update, from Settings or
-          their Home dashboard (components/StatusUpdateCard.tsx). Not shown
-          at all if they've never set one, rather than an empty card. */}
       {student.status_update && (
         <div className="card">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Status</p>
@@ -359,8 +277,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </div>
       )}
 
-      {/* Intake - what this student filled in on "Tell us about your prep"
-          during onboarding (app/onboarding/OnboardingForm.tsx). */}
       <div className="card grid sm:grid-cols-2 gap-4">
         <div>
           <p className="label">Track</p>
@@ -420,10 +336,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </div>
       )}
 
-      {/* Systems & Disciplines coverage checklist - edit-only, so it only
-          renders when the viewer actually has REAL (not viewer-only) mentor
-          access to this student (same gating MeetingLinkEditor below
-          uses). */}
       {canEdit && (
         <StudentTopicChecklist
           studentId={params.studentId}
@@ -432,14 +344,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         />
       )}
 
-      {/* Notes - a standing, mentor-only note about this student, shown
-          above the Meeting link card below. See StudentNotesEditor.tsx for
-          how this differs from the per-day Mentor Notes on the Study
-          Planner calendar and from per-session notes. Edit-only - a
-          read-only viewer never sees this, same as they never see
-          mentor_daily_notes (see the RLS policies in migrations
-          create_mentor_student_viewers and
-          create_viewers_and_student_viewers). */}
       {canEdit && (
         <StudentNotesEditor
           studentId={params.studentId}
@@ -450,8 +354,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         />
       )}
 
-      {/* Meeting link - permanent per-(mentor, student) room, different
-          students of the same mentor can have different links. Edit-only. */}
       {canEdit && (
         <MeetingLinkEditor
           studentId={params.studentId}
@@ -501,9 +403,27 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const studyPlannerContent = (
     <div className="space-y-8">
-      {/* Planner schedule - where this student's plan starts, and whether
-          they can add their own Assignments. Edit-only. */}
-      {canEdit && (
+      {isAdmin && !canEdit && (
+        <div className="card text-sm space-y-1">
+          {adminPlannerEdit ? (
+            <p className="text-slate-300">
+              You&apos;re editing this planner as admin. Tasks are filed under the student&apos;s mentor.
+            </p>
+          ) : (
+            <p className="text-amber-400">
+              This student has no mentor linked yet, so the planner is read-only here. Link a mentor first
+              (Admin &rarr; Students), then reopen this page.
+            </p>
+          )}
+          <p>
+            <Link href="/admin/planner-import" className="text-brand-400 hover:text-brand-300 font-semibold">
+              Import a whole plan from Excel &rarr;
+            </Link>
+          </p>
+        </div>
+      )}
+
+      {plannerCanEdit && (
         <div className="space-y-4">
           <h2 className="text-lg font-bold mb-3">Planner schedule</h2>
           <PlannerStartDateControl studentId={params.studentId} initialStartDate={plannerStartDate} />
@@ -511,10 +431,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </div>
       )}
 
-      {/* Study planner - the same calendar the student sees on their own
-          /planner. Click a day to add/edit Assignments, log UWorld blocks,
-          and read/write Mentor Notes - editable only when the viewer has
-          REAL (not viewer-only) mentor access to this student. */}
       <div>
         <PlannerCalendar
           targetUserId={params.studentId}
@@ -525,8 +441,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
           studyResources={studyResources}
           mainColumns={mainPlannerColumns(plannerColumns)}
           columns={plannerColumns}
-          canEdit={canEdit}
-          mentorId={myMentorRecord?.id ?? null}
+          canEdit={plannerCanEdit}
+          mentorId={plannerMentorId}
           startDate={plannerStartDate}
           todayIso={easternDateStringNow()}
         />
@@ -684,9 +600,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <QBankSystemBreakdown cells={qbankBreakdown} />
       </div>
 
-      {/* Study plan - only when the viewer has REAL mentor access; overrides
-          the default AI-generated study plan the student otherwise sees on
-          their own Analysis page. */}
       {canEdit && (
         <div>
           <h2 className="text-lg font-bold mb-3">Study plan</h2>
@@ -700,7 +613,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </div>
       )}
 
-      {/* Score reports */}
       {scoreReports.length > 0 && (
         <div>
           <h2 className="text-lg font-bold mb-3">Score reports</h2>
@@ -722,11 +634,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
     />
   ) : null;
 
-  // Sessions and Messages only make sense for this student's REAL mentor -
-  // a read-only viewer (mentor or pure viewer) never booked sessions or
-  // messaged this student, so both tabs are left out entirely for them
-  // (same as they already were for admins browsing without any mentor
-  // relationship at all).
   const tabs: StudentTabDef[] = [
     { id: "overview", label: "Overview", content: overviewContent },
     ...(canEdit ? [{ id: "sessions", label: "Sessions", content: sessionsContent }] : []),
@@ -735,12 +642,10 @@ export default async function StudentProgressPage({ params }: { params: { studen
     ...(canEdit ? [{ id: "messages", label: "Messages", content: messagesContent }] : []),
   ];
 
-  // A pure viewer came from their own /viewer dashboard and has no reason
-  // to ever see /mentorship/*. A viewer-only mentor came from "Students you
-  // can view", not "Your students" - sending "Back" to a list they don't
-  // have (or that just wouldn't include this student) would be a dead end.
   const backHref = isPureViewer
     ? "/viewer"
+    : isAdmin && !canEdit
+    ? "/admin"
     : myMentorRecord && !canEdit
     ? "/mentorship/viewing"
     : "/mentorship/students";
@@ -768,6 +673,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
       <p className="text-sm text-slate-400 mb-6">
         {canEdit
           ? "Click a tab to switch sections, or click any day on the Study Planner calendar to add or edit Assignments, log UWorld blocks, and leave Mentor Notes. Score reports are still upload-only by the student."
+          : adminPlannerEdit
+          ? "Admin view - you can add and edit this student's study planner on the Study Planner tab. Everything else is read-only."
           : "Read-only view - only this student's mentor can edit their planner, and only they can upload score reports."}
       </p>
 
@@ -775,12 +682,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
     </main>
   );
 
-  // A pure (non-mentor) viewer never gets the shared AppShell/NavBar - that
-  // nav is built entirely around Home/Learn/Improve/Mentorship, none of
-  // which apply to someone who isn't a student or a mentor (see
-  // app/viewer/page.tsx's own doc comment for the same reasoning). A
-  // minimal standalone header keeps their "separated dashboard" true
-  // everywhere they can go, not just on their own landing page.
   if (isPureViewer) {
     return (
       <div className="min-h-screen flex flex-col">
