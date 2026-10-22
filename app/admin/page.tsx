@@ -8,6 +8,7 @@ import MentorAssignSelect from "@/components/MentorAssignSelect";
 import WaitingVisibilityToggle from "@/components/WaitingVisibilityToggle";
 import ViewerMentorsEditor from "@/components/ViewerMentorsEditor";
 import StudentViewersEditor from "@/components/StudentViewersEditor";
+import StudentSearch from "@/components/StudentSearch";
 import { isMentorProfile, mentorEmailSet } from "@/lib/mentors";
 
 export const dynamic = "force-dynamic";
@@ -27,14 +28,8 @@ export default async function AdminHome() {
   const [profilesRes, templatesRes, mentorsRes, viewersGrantsRes, viewersRes, contentPublished] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", user.id).order("created_at", { ascending: false }),
     supabase.from("schedule_templates").select("id, name"),
-    // Every mentor row, active or not - active-only filtering happens below
-    // for the assignment dropdown specifically, but exclusion from the
-    // Students list applies to any registered mentor account regardless of
-    // active status.
     supabase.from("mentors").select("id, name, email, active").order("name"),
-    // Every existing "extra viewer" grant, all students at once.
     supabase.from("mentor_student_viewers").select("student_id, mentor_id"),
-    // The non-mentor "viewers" roster (see lib/viewers.ts and /admin/viewers).
     supabase.from("viewers").select("id, name, email, active").order("name"),
     getContentPublished(supabase),
   ]);
@@ -42,13 +37,6 @@ export default async function AdminHome() {
   const allMentorRows = (mentorsRes.data ?? []) as { id: string; name: string; email: string; active: boolean }[];
   const excludeMentorEmails = mentorEmailSet(allMentorRows);
 
-  // Mentors sign up through the same public form as students, so their
-  // profiles row would otherwise show up mixed into this list - filter them
-  // out here.
-  // People registered as "viewers" (Admin -> Viewers) also sign up through
-  // the same public form, so their profiles row is excluded here too - a
-  // viewer is never listed as a student. Admins still get the "New viewer
-  // signup" notification for them.
   const viewerEmails = new Set(
     ((viewersRes.data ?? []) as { email: string }[]).map((v) => v.email.toLowerCase())
   );
@@ -68,8 +56,10 @@ export default async function AdminHome() {
   const mentorNameFor = (s: Profile) =>
     s.mentor_email ? mentorNameByEmail.get(s.mentor_email.toLowerCase()) ?? s.mentor_email : null;
 
-  // student_id -> [mentor_id, ...] map of who's been granted read-only
-  // viewer access to each student.
+  // Text the search box matches against.
+  const searchText = (s: Profile) =>
+    [s.full_name, s.email, mentorNameFor(s), s.mentor_email].filter(Boolean).join(" ");
+
   const viewerMentorIdsByStudent = new Map<string, string[]>();
   for (const row of (viewersGrantsRes.data ?? []) as { student_id: string; mentor_id: string }[]) {
     const arr = viewerMentorIdsByStudent.get(row.student_id) ?? [];
@@ -81,7 +71,6 @@ export default async function AdminHome() {
     (v) => v.active
   );
 
-  // Non-mentor viewer grants, same student_id -> [id, ...] shape.
   const { data: studentViewerGrants } = await supabase.from("student_viewers").select("student_id, viewer_id");
   const viewerIdsByStudent = new Map<string, string[]>();
   for (const row of (studentViewerGrants ?? []) as { student_id: string; viewer_id: string }[]) {
@@ -90,16 +79,8 @@ export default async function AdminHome() {
     viewerIdsByStudent.set(row.student_id, arr);
   }
 
-  // Applicants who haven't been paired with a mentor yet - NEWEST signup
-  // first, so someone who just registered is always at the very top. Includes
-  // students hidden from the mentor-facing Waiting list (waiting_hidden) -
-  // hiding only affects what mentors see, never this admin view.
   const waitingForMentor = allStudents.filter((s) => !s.mentor_email).sort(byNewest);
 
-  // Students list order: everyone still waiting for a mentor first (newest
-  // first), then every mentored student grouped under their mentor - one
-  // block per mentor (alphabetical by mentor name), newest student first
-  // within each block, so e.g. all of one mentor's students sit together.
   const mentoredByKey = new Map<string, { title: string; students: Profile[] }>();
   for (const s of allStudents.filter((st) => st.mentor_email)) {
     const key = (s.mentor_email as string).toLowerCase();
@@ -121,9 +102,12 @@ export default async function AdminHome() {
     const needsPlanFlag = s.onboarding_completed && !s.assigned_template_id;
     const needsAttention = needsPlanFlag || !!s.track_changed_pending;
     return (
-      // A plain <div>, not a <Link> - only the explicit "View profile" link
-      // navigates, so the assign control below never triggers navigation.
-      <div key={s.id} className={`card transition ${needsAttention ? "border-amber-700" : ""}`}>
+      <div
+        key={s.id}
+        data-student-card={searchText(s)}
+        data-student-id={s.id}
+        className={`card transition ${needsAttention ? "border-amber-700" : ""}`}
+      >
         <div className="flex items-center justify-between mb-1 gap-3 flex-wrap">
           <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
           <div className="flex items-center gap-2">
@@ -172,13 +156,10 @@ export default async function AdminHome() {
               <span className="text-amber-400">No mentor yet</span>
             )}
           </p>
-          {/* Assign/remove control - picking "No mentor" and clicking Assign
-              clears mentor_email, which is how an admin un-assigns someone. */}
           {activeMentors.length > 0 && (
             <MentorAssignSelect studentId={s.id} mentors={activeMentors} currentMentorEmail={s.mentor_email ?? null} />
           )}
         </div>
-        {/* Extra mentors who can VIEW (read-only) this student. */}
         {activeMentors.length > 0 && (
           <div className="mt-2">
             <ViewerMentorsEditor
@@ -189,7 +170,6 @@ export default async function AdminHome() {
             />
           </div>
         )}
-        {/* Non-mentor "viewers" with read-only access to this student. */}
         {activeViewers.length > 0 && (
           <div className="mt-2">
             <StudentViewersEditor
@@ -218,10 +198,10 @@ export default async function AdminHome() {
           <PublishToggle initialPublished={contentPublished} />
         </div>
 
-        {/* Applicants with no mentor yet - newest application first.
-            Deliberately NOT wrapped in a <Link>, since each row has its own
-            interactive assign control. */}
-        <div className="mb-8">
+        {/* Search - filters every student card below by name, email or mentor. */}
+        <StudentSearch />
+
+        <div className="mb-8" data-student-section>
           <h2 className="text-lg font-bold mb-1">
             Waiting for a mentor ({waitingForMentor.length})
           </h2>
@@ -237,7 +217,7 @@ export default async function AdminHome() {
           ) : (
             <div className="space-y-3">
               {waitingForMentor.map((s) => (
-                <div key={s.id} className="card">
+                <div key={s.id} className="card" data-student-card={searchText(s)} data-student-id={s.id}>
                   <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold">{s.full_name || s.email || "Unnamed student"}</h3>
@@ -300,7 +280,7 @@ export default async function AdminHome() {
 
         <div className="space-y-8">
           {studentGroups.map((group) => (
-            <section key={group.key}>
+            <section key={group.key} data-student-section>
               <h2
                 className={`text-sm font-bold uppercase tracking-wide mb-3 ${
                   group.waiting ? "text-amber-400" : "text-brand-300"
