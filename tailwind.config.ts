@@ -4,6 +4,17 @@ const config: Config = {
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    // lib/ holds class names too (e.g. DAY_STATUS_COLOR in
+    // lib/plannerCalendar.ts) - without scanning it, a class used ONLY there
+    // (bg-red-800 for "Missed" days) never gets generated and renders unstyled.
+    "./lib/**/*.{js,ts,jsx,tsx}",
+  ],
+  // Belt and braces: the planner calendar's day-status colors must always exist.
+  safelist: [
+    "bg-green-800", "text-green-300",
+    "bg-amber-800", "text-amber-300",
+    "bg-red-800", "text-red-300",
+    "bg-slate-800", "bg-slate-900",
   ],
   theme: {
     extend: {
