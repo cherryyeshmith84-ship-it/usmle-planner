@@ -42,6 +42,8 @@ const GROUPS: NavGroup[] = [
       { href: "/mentorship", label: "Mentorship" },
       { href: "/mentorship/sessions", label: "Upcoming Sessions" },
       { href: "/planner", label: "Study Planner" },
+      // The student's own copy of what their mentor sees on the Overview tab.
+      { href: "/overview", label: "My Overview" },
       // "Analysis" (was "Performance") absorbs what used to be the
       // standalone History page.
       { href: "/history", label: "Analysis" },
