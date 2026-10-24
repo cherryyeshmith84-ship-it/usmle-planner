@@ -79,8 +79,8 @@ one breakdown table - do not stop after the first number you find. Work
 through the ENTIRE document top to bottom before answering.
 ${multiFileNote}
 
-There are exactly 14 systems you need to check for (listed below, numbered).
-For EACH of the 14, look everywhere in the document for a matching row,
+There are exactly 15 systems you need to check for (listed below, numbered).
+For EACH of the 15, look everywhere in the document for a matching row,
 bar, or percentage before deciding it isn't there. Some reports label these
 "System", others label very similar categories under "Organ System" or
 similar - use whichever table breaks performance down by organ
@@ -91,10 +91,13 @@ matching system below rather than leaving it blank - only skip a system if
 you are confident, after checking the whole document, that no related
 number appears anywhere.
 
-The 14 systems (map any similar/abbreviated label you see - e.g. "Cardio",
+The 15 systems (map any similar/abbreviated label you see - e.g. "Cardio",
 "Cardiology" -> #4; "Renal", "Genitourinary" -> #12; "Repro" -> whichever of
 #6/#9 the context indicates; "GI" -> #7; "MSK", "Derm" -> #11; "Heme/Onc",
-"Blood" -> #3; "Psych", "Behavioral Science", "Neuro" -> #1:
+"Blood" -> #3; "Neuro", "Nervous System", "Special Senses" -> #1; "Psych",
+"Psychiatry", "Behavioral Science", "Behavioral Health" -> #15. NOTE: NBME's
+official row "Behavioral Health & Nervous Systems/Special Senses" is one
+combined row - put its value in BOTH #1 and #15:
 ${systemListText}
 
 Two systems are almost always present in NBME/UWSA/UWorld breakdowns but get
@@ -129,10 +132,8 @@ guess - use these mappings exactly):
     & Urinary System AND, split between #6 Female Reproductive System &
     Breast / #9 Male Reproductive System (UWorld combines all three into
     one score; reusing it for each is the best available estimate)
-  "Nervous System & Special Sensory" and "Behavioral & Mental Disorders" ->
-    average these two UWorld rows together into #1 Behavioral Health &
-    Nervous Systems/Special Senses (NBME's #1 combines what UWorld reports
-    separately)
+  "Nervous System & Special Sensory" -> #1 Nervous System & Special Senses
+  "Behavioral & Mental Disorders" -> #15 Psychiatry
   "Musculoskeletal, Skin & Connective" -> #11 Musculoskeletal/Skin &
     Subcutaneous Tissue
   "Endocrine & Metabolic Disorders" -> #5 Endocrine System
@@ -191,7 +192,7 @@ table at all, return discipline_breakdown as {} rather than guessing.
 
 IMPORTANT - use the exact spelling and punctuation shown in the numbered
 lists above for every key in system_breakdown/discipline_breakdown (e.g.
-"Behavioral Health & Nervous Systems/Special Senses" with no space before
+"Biostatistics & Epidemiology/Population Health" with no space before
 or after the "/", exactly as printed above) - keys that don't match exactly
 are silently dropped before they ever reach the student. The numbers in
 front of each item (e.g. "4." in "4. Cardiovascular System") are ONLY there
@@ -230,16 +231,7 @@ field as null (system_breakdown and discipline_breakdown as {}).
   // "AI request failed" errors here (not just occasional high demand).
   // Defaulting to the current GA model instead, matching
   // generate-practice-question's route, which already had this right.
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
-  // Tried once, only after the primary model's own retries below are
-  // exhausted and it's STILL 503 - "model overloaded" comes from a
-  // per-model shared capacity pool being saturated (a known, recurring
-  // issue specifically on the lighter/cheaper "flash-lite" tier, since it's
-  // the default so many apps reach for), not from anything wrong with the
-  // request itself, so a different model in the same family is very likely
-  // to have spare capacity even while flash-lite's pool is full. Same
-  // fallback used in the sibling question-level report route.
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.1-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
   function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -305,20 +297,37 @@ field as null (system_breakdown and discipline_breakdown as {}).
   function coerceBreakdown(raw: unknown, canonicalList: readonly string[]): Record<string, number> {
     if (!raw || typeof raw !== "object") return {};
     const byNormalized = new Map(canonicalList.map((c) => [normalizeLabel(c), c] as const));
+    // NBME's official combined row maps to the Nervous System entry now that
+    // Psychiatry is its own system (a duplicate Psychiatry value is added
+    // below when the combined row is present).
+    const legacyCombined = normalizeLabel("Behavioral Health & Nervous Systems/Special Senses");
+    if (canonicalList.includes("Nervous System & Special Senses")) {
+      byNormalized.set(legacyCombined, "Nervous System & Special Senses");
+    }
     const out: Record<string, number> = {};
     for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
       const n = coerceNumber(v);
       if (n === null) continue;
       const canonical = byNormalized.get(normalizeLabel(k));
       if (canonical) out[canonical] = Math.max(0, Math.min(100, Math.round(n)));
+      // Combined NBME row also covers Psychiatry unless a separate value exists.
+      if (normalizeLabel(k) === legacyCombined && canonicalList.includes("Psychiatry") && out["Psychiatry"] === undefined) {
+        out["Psychiatry"] = Math.max(0, Math.min(100, Math.round(n)));
+      }
     }
     return out;
   }
 
-  async function callGemini(model: string, retries: number): Promise<{ res: Response | null; lastErrText: string }> {
+  try {
+    // Gemini occasionally returns 503 "model is currently experiencing high
+    // demand" - Google's own message says this is usually temporary, so
+    // retry a couple of times with a short, increasing delay before giving
+    // up. This matters more now that a report can be one of several files
+    // processed back-to-back in the same upload batch, where hitting one
+    // transient overload used to force a manual re-upload of that file.
     let res: Response | null = null;
     let lastErrText = "";
-    for (let attempt = 0; attempt < retries; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
@@ -344,30 +353,7 @@ field as null (system_breakdown and discipline_breakdown as {}).
       );
       if (res.ok || res.status !== 503) break;
       lastErrText = await res.text();
-      if (attempt < retries - 1) await sleep(1500 * (attempt + 1)); // 1.5s, then 3s
-    }
-    return { res, lastErrText };
-  }
-
-  try {
-    // Gemini occasionally returns 503 "model is currently experiencing high
-    // demand" - Google's own message says this is usually temporary, so
-    // retry a couple of times with a short, increasing delay before giving
-    // up. This matters more now that a report can be one of several files
-    // processed back-to-back in the same upload batch, where hitting one
-    // transient overload used to force a manual re-upload of that file.
-    let { res, lastErrText } = await callGemini(primaryModel, 3);
-
-    // Primary model's own retries are exhausted and it's STILL 503 - one
-    // more attempt on a different model instead of giving up immediately,
-    // since that's usually enough to get past a saturated single-model
-    // capacity pool (see comment on fallbackModel above).
-    if (res && res.status === 503 && fallbackModel !== primaryModel) {
-      const fallback = await callGemini(fallbackModel, 1);
-      if (fallback.res) {
-        res = fallback.res;
-        lastErrText = fallback.lastErrText || lastErrText;
-      }
+      if (attempt < 2) await sleep(1500 * (attempt + 1)); // 1.5s, then 3s
     }
 
     if (!res) {
@@ -378,7 +364,7 @@ field as null (system_breakdown and discipline_breakdown as {}).
       const errText = res.status === 503 ? lastErrText : await res.text();
       const hint =
         res.status === 503
-          ? " The AI model is overloaded right now even after retrying on a backup model - this is on Google's end and usually clears up within a few minutes, so try this file again shortly. If it keeps happening for more than 10-15 minutes, it's likely a wider Gemini outage rather than anything wrong with your file."
+          ? " The AI model is overloaded right now even after retrying - this is on Google's end and usually clears up within a few minutes, so try this file again shortly."
           : "";
       return NextResponse.json(
         { error: `AI request failed: ${errText.slice(0, 300)}${hint}` },
