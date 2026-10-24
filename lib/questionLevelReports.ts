@@ -46,8 +46,14 @@ export function mapToStep1System(rawLabel: string): Step1System | null {
   const s = rawLabel.toLowerCase();
   const isFemale = s.includes("female");
 
-  if (s.includes("behavioral health") || s.includes("nervous system")) {
-    return "Behavioral Health & Nervous Systems/Special Senses";
+  // NBME's combined "Behavioral Health & Nervous Systems/Special Senses"
+  // folds into Nervous System; a purely behavioral/psychiatric label is
+  // Psychiatry.
+  if (s.includes("nervous system") || s.includes("special senses")) {
+    return "Nervous System & Special Senses";
+  }
+  if (s.includes("behavioral health") || s.includes("psychiatr") || s.includes("psych")) {
+    return "Psychiatry";
   }
   if (s.includes("biostat") || s.includes("epidemiology") || s.includes("population health") || s.includes("lit interp")) {
     return "Biostatistics & Epidemiology/Population Health";
