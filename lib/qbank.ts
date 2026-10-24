@@ -1,496 +1,190 @@
-import { parsePastedQuestion } from "./assessments";
-import {
-  DIFFICULTY_LEVELS,
-  ERROR_TYPES,
-  QUESTION_TYPES,
-  STEP1_SUBJECTS,
-  STEP1_SYSTEMS,
-  type QBankQuestion,
-  type QBankTestSession,
-  type QuestionDifficulty,
-  type QuestionStatus,
-} from "./qbankTypes";
+// USMLE Step 1 discipline (subject) and organ system categories - the same
+// breakdown the real exam and UWorld use. A question can be tagged with more
+// than one subject and more than one system.
 
-export function newQBankId() {
-  return Math.random().toString(36).slice(2, 10);
-}
+export const STEP1_SUBJECTS = [
+  "Anatomy",
+  "Behavioral Health",
+  "Biochemistry & Nutrition",
+  "Biostatistics & Epidemiology",
+  "Embryology",
+  "Genetics",
+  "Histology & Cell Biology",
+  "Immunology",
+  "Microbiology",
+  "Molecular Biology",
+  "Pathology",
+  "Pathophysiology",
+  "Pharmacology",
+  "Physiology",
+  "Social Sciences (Ethics/Legal/Communication)",
+] as const;
 
-export function blankQBankChoice() {
-  return { id: newQBankId(), text: "" };
-}
+export const STEP1_SYSTEMS = [
+  "Behavioral Health & Nervous Systems/Special Senses",
+  "Biostatistics & Epidemiology/Population Health",
+  "Blood & Lymphoreticular System",
+  "Cardiovascular System",
+  "Endocrine System",
+  "Female Reproductive System & Breast",
+  "Gastrointestinal System",
+  "General Principles of Foundational Science",
+  "Male Reproductive System",
+  "Multisystem Processes & Disorders",
+  "Musculoskeletal, Skin & Subcutaneous Tissue",
+  "Psychiatry",
+  "Renal & Urinary System",
+  "Respiratory System",
+  "Social Sciences (Ethics/Legal/Communication)",
+] as const;
 
-export function blankQBankQuestion(): Omit<QBankQuestion, "id"> {
-  return {
-    question: "",
-    choices: [blankQBankChoice(), blankQBankChoice(), blankQBankChoice(), blankQBankChoice()],
-    correct_choice_id: "",
-    explanation: "",
-    subjects: [],
-    systems: [],
-    meta: {},
-  };
-}
+export type Step1Subject = (typeof STEP1_SUBJECTS)[number];
+export type Step1System = (typeof STEP1_SYSTEMS)[number];
 
-/**
- * For every question in the pool, works out its status for this student:
- * - "unused": never appeared in a submitted test
- * - "correct" / "incorrect": based on the most recent submitted test that
- *   included it (whichever came later wins, so retaking updates the status)
- * - "omitted": appeared in a submitted test but was left blank
- *
- * "Marked" is tracked separately (a question can be marked AND correct at
- * the same time), so it's returned as its own map.
- */
-export function computeQuestionStatuses(
-  questions: QBankQuestion[],
-  sessions: QBankTestSession[],
-  markedIds: Set<string>
-): { statuses: Record<string, QuestionStatus>; marked: Record<string, boolean> } {
-  const statuses: Record<string, QuestionStatus> = {};
-  for (const q of questions) statuses[q.id] = "unused";
+// Fixed dropdown options for the "Error DNA" fields on a wrong choice, and
+// for the overall question's type - kept as plain string enums (not a
+// separate lookup table/library) for this first pass of the editor.
+export const ERROR_TYPES = [
+  "Knowledge gap",
+  "Mechanism confusion",
+  "Diagnosis confusion",
+  "Process-sequence confusion",
+  "Location/compartment confusion",
+  "Image recognition failure",
+  "Question interpretation error",
+  "Second-order reasoning failure",
+  "Therapeutic-effect anchoring",
+  "Calculation error",
+] as const;
+export type ErrorType = (typeof ERROR_TYPES)[number];
 
-  // Only submitted sessions count toward status - an in-progress session
-  // shouldn't mark its questions as "used" until it's actually finished.
-  const submitted = sessions
-    .filter((s) => !!s.submitted_at)
-    .sort((a, b) => new Date(a.submitted_at!).getTime() - new Date(b.submitted_at!).getTime());
+export const QUESTION_TYPES = [
+  "Diagnosis",
+  "Pathophysiology",
+  "Mechanism of action",
+  "Next best step",
+  "Adverse effect",
+  "Risk factor",
+  "Anatomy",
+  "Histology recognition",
+  "Drug mechanism",
+  "Drug toxicity",
+  "Experimental interpretation",
+] as const;
+export type QBankQuestionType = (typeof QUESTION_TYPES)[number];
 
-  for (const session of submitted) {
-    for (const qid of session.question_ids) {
-      const answer = session.answers?.[qid];
-      const question = questions.find((q) => q.id === qid);
-      if (!question) continue;
-      if (!answer) {
-        statuses[qid] = "omitted";
-      } else {
-        statuses[qid] = answer === question.correct_choice_id ? "correct" : "incorrect";
-      }
-    }
-  }
+export const DIFFICULTY_LEVELS = ["easy", "moderate", "hard", "killer"] as const;
+export type QuestionDifficulty = (typeof DIFFICULTY_LEVELS)[number];
 
-  const marked: Record<string, boolean> = {};
-  for (const id of markedIds) marked[id] = true;
+// Admin publish workflow - separate from QuestionStatus below, which is a
+// per-student "have I done this one" status, not an authoring state.
+export type QuestionAdminStatus = "draft" | "under_review" | "published";
 
-  return { statuses, marked };
-}
-
-export interface StatusCounts {
-  unused: number;
-  correct: number;
-  incorrect: number;
-  omitted: number;
-  marked: number;
-}
-
-export function countByStatus(
-  questions: QBankQuestion[],
-  statuses: Record<string, QuestionStatus>,
-  marked: Record<string, boolean>
-): StatusCounts {
-  const counts: StatusCounts = { unused: 0, correct: 0, incorrect: 0, omitted: 0, marked: 0 };
-  for (const q of questions) {
-    const s = statuses[q.id] ?? "unused";
-    counts[s]++;
-    if (marked[q.id]) counts.marked++;
-  }
-  return counts;
-}
-
-export function countByTag(questions: QBankQuestion[], field: "subjects" | "systems"): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const q of questions) {
-    for (const tag of q[field]) {
-      counts[tag] = (counts[tag] ?? 0) + 1;
-    }
-  }
-  return counts;
-}
-
-/** Fisher-Yates shuffle - doesn't mutate the input array. */
-export function shuffle<T>(arr: T[]): T[] {
-  const out = [...arr];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-export function filterPool(options: {
-  questions: QBankQuestion[];
-  statuses: Record<string, QuestionStatus>;
-  marked: Record<string, boolean>;
-  statusFilter: string[]; // subset of "unused" | "correct" | "incorrect" | "omitted" | "marked"
-  subjects: string[];
-  systems: string[];
-}): QBankQuestion[] {
-  const { questions, statuses, marked, statusFilter, subjects, systems } = options;
-  return questions.filter((q) => {
-    if (statusFilter.length > 0) {
-      const s = statuses[q.id] ?? "unused";
-      const matchesStatus =
-        statusFilter.includes(s) || (statusFilter.includes("marked") && marked[q.id]);
-      if (!matchesStatus) return false;
-    }
-    if (subjects.length > 0 && !q.subjects.some((s) => subjects.includes(s))) return false;
-    if (systems.length > 0 && !q.systems.some((s) => systems.includes(s))) return false;
-    return true;
-  });
-}
-
-export interface ChoiceStatRow {
-  choice_id: string;
-  choice_count: number;
-}
-
-/**
- * Turns the raw per-choice answer counts returned by the qbank_choice_stats
- * Supabase function into percentages of the total number of students who
- * answered - used to show a UWorld-style "42%" next to each choice.
- */
-export function choiceStatsToPercents(rows: ChoiceStatRow[]): {
-  percents: Record<string, number>;
-  counts: Record<string, number>;
-  total: number;
-} {
-  const counts: Record<string, number> = {};
-  let total = 0;
-  for (const row of rows) {
-    if (!row.choice_id) continue;
-    counts[row.choice_id] = row.choice_count;
-    total += row.choice_count;
-  }
-  const percents: Record<string, number> = {};
-  for (const cid of Object.keys(counts)) {
-    percents[cid] = total > 0 ? Math.round((counts[cid] / total) * 100) : 0;
-  }
-  return { percents, counts, total };
-}
-
-/**
- * Splits one choice's text into table cells for a table-style answer choice
- * (see QBankQuestionMeta.answer_table_columns) - cells are separated by "|"
- * in the same order as the columns. Pads with "" if the choice has fewer
- * cells than columns (e.g. it was written before a column was added), and
- * ignores any extra cells beyond the number of columns.
- */
-export function splitAnswerTableRow(text: string, columns: string[]): string[] {
-  const cells = text.split("|").map((c) => c.trim());
-  return columns.map((_, i) => cells[i] ?? "");
-}
-
-// ---------------------------------------------------------------------------
-// Full authored-question template parser
-// ---------------------------------------------------------------------------
-
-/**
- * Finds each given label's line in `text` (independently, so labels can be
- * searched in any order - the result is assembled by where each one actually
- * falls in the source, not the order given here) and returns the text
- * between each label and whichever other found label comes next by position.
- * Labels that aren't found are simply absent from the result. Anything
- * before the first found label comes back under the empty-string key.
- */
-function splitByLabels(text: string, labels: { key: string; regex: RegExp }[]): Record<string, string> {
-  const found: { key: string; start: number; end: number }[] = [];
-  for (const { key, regex } of labels) {
-    const m = regex.exec(text);
-    if (m) found.push({ key, start: m.index, end: m.index + m[0].length });
-  }
-  found.sort((a, b) => a.start - b.start);
-  const result: Record<string, string> = {};
-  if (found.length === 0) {
-    result[""] = text.trim();
-    return result;
-  }
-  result[""] = text.slice(0, found[0].start).trim();
-  for (let i = 0; i < found.length; i++) {
-    const next = found[i + 1];
-    result[found[i].key] = text.slice(found[i].end, next ? next.start : text.length).trim();
-  }
-  return result;
-}
-
-// Hyphen, en dash, or em dash - admins paste this template from different
-// sources (docs, chat apps) that render the "A — Close distractor" separator
-// differently.
-const DASH = "[-–—]";
-
-/**
- * Splits a stem from its answer choices two ways: first the classic
- * lettered/numbered format ("A. text" / "1) text"), and if that finds
- * nothing, a fallback for a bare list of choices with no marker at all -
- * one option per line, straight under the vignette (e.g. a plain list of
- * drug names). The fallback finds the boundary at the LAST "?" in the text,
- * since the vignette's closing question is a reliable divider between the
- * stem and the option list regardless of how the rest is formatted.
- */
-function parseStemAndChoicesFlexible(preamble: string): { question: string; choices: string[] } | null {
-  const lettered = parsePastedQuestion(preamble);
-  if (lettered) return lettered;
-
-  const qIdx = preamble.lastIndexOf("?");
-  if (qIdx === -1) return null;
-  const question = preamble.slice(0, qIdx + 1).trim();
-  const choices = preamble
-    .slice(qIdx + 1)
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (!question || choices.length < 2) return null;
-  return { question, choices };
-}
-
-export interface ParsedQBankChoice {
+export interface QBankChoice {
+  id: string;
   text: string;
+  // Only meaningful for choices that are NOT the correct answer.
+  // "near" = a close, plausible distractor (tests fine discrimination).
+  // "far"/unset = an unrelated, easily-ruled-out distractor.
   distance?: "near" | "far";
-  rationale?: string;
-  error_note?: string;
-  error_type?: string;
-  confused_with?: string;
-  weak_concept?: string;
-  key_concept?: string;
+  // Optional image shown alongside this specific choice - e.g. an EKG strip
+  // or histology slide that IS the answer choice, not just the question.
+  image_url?: string | null;
+  // Optional short explanation for just this choice (e.g. "A is incorrect
+  // because..."), shown in the explanation section right next to this
+  // choice's letter and image - not buried in one big shared paragraph.
+  rationale?: string | null;
+  // "Error DNA" fields - only meaningful on wrong choices. A short mnemonic
+  // note (e.g. "Acarbose -> carbs, Orlistat -> fats") plus tagging used to
+  // spot patterns in what a student tends to confuse.
+  error_note?: string | null;
+  error_type?: ErrorType | string | null;
+  confused_with?: string | null;
+  weak_concept?: string | null;
+  // Correct-choice-only field - the one-line "why this is right" takeaway.
+  key_concept?: string | null;
 }
 
-export interface ParsedQBankTemplate {
+// Extra Question Editor fields, kept in one flexible jsonb blob on the
+// question row (see supabase/schema_v18_qbank_meta.sql) so adding more of
+// these later doesn't need another database migration.
+export interface QBankQuestionMeta {
+  educational_objective?: string;
+  key_takeaway?: string;
+  exam_trap?: string;
+  topic?: string;
+  subtopic?: string;
+  primary_concept?: string;
+  // References concept_library.id. Set whenever Primary concept is chosen
+  // via the Question Editor's Concept Library dropdown (added so Primary
+  // concept can only ever be one of a fixed, deduped set of concepts -
+  // free-typed values can no longer create near-duplicates). Older
+  // questions tagged before this existed may have primary_concept set with
+  // no matching id - that's expected and still works everywhere that reads
+  // primary_concept as a string.
+  primary_concept_id?: string;
+  secondary_concepts?: string[];
+  difficulty?: QuestionDifficulty;
+  question_type?: QBankQuestionType | string;
+  status?: QuestionAdminStatus;
+  // Optional table-style answer choices - e.g. a multi-parameter matching
+  // question where each option is a row of values across named columns
+  // ("Blood Pressure | Creatinine | Serum K+") instead of one plain
+  // sentence. When set, each choice's `text` is interpreted as pipe- ("|")
+  // separated cell values in this column order and rendered as a table
+  // with these names as headers, instead of a plain answer-choice list.
+  answer_table_columns?: string[];
+}
+
+export interface QBankQuestion {
+  id: string;
   question: string;
-  choices: ParsedQBankChoice[];
-  correctIndex: number; // -1 if it couldn't be determined
-  educationalObjective: string;
+  // Optional image shown alongside the question stem - e.g. a lab-value
+  // table, X-ray, ECG, or histology slide that doesn't work as plain text.
+  question_image_url?: string | null;
+  choices: QBankChoice[];
+  correct_choice_id: string;
   explanation: string;
-  keyTakeaway: string;
-  examTrap: string;
+  // Optional image shown alongside the explanation (after the student
+  // answers), same idea as question_image_url.
+  explanation_image_url?: string | null;
   subjects: string[];
   systems: string[];
-  topic: string;
-  subtopic: string;
-  primaryConcept: string;
-  secondaryConcepts: string[];
-  difficulty: QuestionDifficulty | "";
-  questionType: string;
-  // Column headers for a table-style answer choice, parsed from an
-  // "Answer Table Columns: A, B, C" line. Empty array if not present.
-  answerTableColumns: string[];
+  meta?: QBankQuestionMeta | null;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
-/**
- * Parses the full authored-question template (vignette + lettered choices +
- * correct answer + distractor classification + educational objective + main
- * explanation + key takeaway + exam trap + per-choice explanations with
- * Error DNA fields + subjects/systems checklists + classification block)
- * into every field the Question Editor form has - so an admin can paste one
- * fully-written question and have the whole form fill itself in, instead of
- * retyping each piece by hand into its own box.
- *
- * Degrades gracefully: any section not present in the paste is just left
- * blank rather than failing the whole parse, as long as the question stem
- * and at least 2 lettered choices are found (same minimum bar as the plain
- * parsePastedQuestion helper this builds on).
- */
-export function parseFullQBankQuestionTemplate(raw: string): ParsedQBankTemplate | null {
-  // "Answer Table Columns: A, B, C" is an inline "Label: value" line (the
-  // value sits after a colon on the SAME line), unlike every other label
-  // below which is handled by splitByLabels and expects the label alone on
-  // its own line with the value in the block underneath - so it's pulled
-  // out here first, and stripped from the text before the rest of the
-  // block-based parsing runs so it doesn't get swallowed into the stem or
-  // whichever block precedes it.
-  let answerTableColumns: string[] = [];
-  const tableColumnsMatch = raw.match(/^\s*Answer Table Columns\s*:\s*(.+)$/im);
-  const rawWithoutTableColumns = tableColumnsMatch
-    ? raw.slice(0, tableColumnsMatch.index!) + raw.slice(tableColumnsMatch.index! + tableColumnsMatch[0].length)
-    : raw;
-  if (tableColumnsMatch) {
-    answerTableColumns = tableColumnsMatch[1]
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
+export type ExamModeOption = "test" | "tutor";
 
-  const top = splitByLabels(rawWithoutTableColumns, [
-    { key: "correctAnswer", regex: /^\s*Correct answer\s*:?\s*$/im },
-    { key: "distractorClassification", regex: /^\s*\d*\.?\s*Distractor Classification\s*$/im },
-    { key: "questionImage", regex: /^\s*\d*\.?\s*Question Image\s*$/im },
-    { key: "educationalObjective", regex: /^\s*\d*\.?\s*Educational Objective\s*$/im },
-    { key: "mainExplanation", regex: /^\s*\d*\.?\s*Main Explanation\s*$/im },
-    { key: "explanationImage", regex: /^\s*\d*\.?\s*Explanation Image\s*$/im },
-    { key: "keyTakeaway", regex: /^\s*\d*\.?\s*Key Takeaway\s*$/im },
-    { key: "examTrap", regex: /^\s*\d*\.?\s*Exam Trap\s*$/im },
-    { key: "perChoiceExplanations", regex: /^\s*\d*\.?\s*Per-Choice Explanations\s*$/im },
-    { key: "subjects", regex: /^\s*\d*\.?\s*Subjects\b.*$/im },
-    { key: "systems", regex: /^\s*\d*\.?\s*Systems\b.*$/im },
-    { key: "classification", regex: /^\s*\d*\.?\s*Classification\s*$/im },
-  ]);
+export interface QBankTestSession {
+  id: string;
+  user_id: string;
+  mode: ExamModeOption;
+  question_ids: string[];
+  questions_per_block: number;
+  subjects: string[];
+  systems: string[];
+  status_filter: string[];
+  answers: Record<string, string>;
+  question_seconds?: Record<string, number>;
+  score_correct: number | null;
+  score_total: number | null;
+  started_at: string;
+  submitted_at: string | null;
+  // Resume-in-progress fields - let a refresh/reload pick back up exactly
+  // where the student left off instead of restarting the test.
+  current_block?: number;
+  current_question_index?: number;
+  revealed?: Record<string, boolean>;
+  tutor_elapsed_seconds?: number;
+  in_progress?: boolean;
+}
 
-  const stemAndChoices = parseStemAndChoicesFlexible(top[""] ?? raw);
-  if (!stemAndChoices) return null;
+export type QuestionStatus = "unused" | "correct" | "incorrect" | "omitted";
 
-  const letters = stemAndChoices.choices.map((_, i) => String.fromCharCode(65 + i));
-
-  // Correct answer letter - prefer the explicit "Correct answer" block,
-  // fall back to whichever letter the Distractor Classification block
-  // marks as "Correct" if that block is missing or unreadable.
-  let correctLetter: string | null = null;
-  const correctAnswerMatch = (top.correctAnswer ?? "").match(/^\s*\(?([A-Za-z])\)?[.)]/);
-  if (correctAnswerMatch) correctLetter = correctAnswerMatch[1].toUpperCase();
-
-  // Handles both "A — Close distractor" and a bulleted "* A. Cabergoline —
-  // Close distractor" (repeating the choice text before the dash) - the
-  // classification is always whatever comes after the LAST dash on the line.
-  const distractorMap = new Map<string, string>();
-  const distractorRegex = new RegExp(`^\\s*[*•]?\\s*\\(?([A-Za-z])\\)?[.)]?[^\\n]*${DASH}\\s*([^\\n]+)$`, "gm");
-  let dm: RegExpExecArray | null;
-  while ((dm = distractorRegex.exec(top.distractorClassification ?? ""))) {
-    distractorMap.set(dm[1].toUpperCase(), dm[2].trim());
-  }
-  if (!correctLetter) {
-    for (const [letter, label] of distractorMap.entries()) {
-      if (/correct/i.test(label) && !/incorrect/i.test(label)) {
-        correctLetter = letter;
-        break;
-      }
-    }
-  }
-
-  // Per-choice explanation blocks, keyed by letter. Tries "Choice A — text"
-  // headers first; if none are found, falls back to a bare "A. text" header
-  // (no "Choice" word, no dash) - the other format seen in these pastes.
-  const perChoiceText = top.perChoiceExplanations ?? "";
-  const headers: { letter: string; start: number; end: number }[] = [];
-  let cm: RegExpExecArray | null;
-  const choiceHeaderRegex = new RegExp(`^\\s*Choice\\s+([A-Za-z])\\s*${DASH}.*$`, "gim");
-  while ((cm = choiceHeaderRegex.exec(perChoiceText))) {
-    headers.push({ letter: cm[1].toUpperCase(), start: cm.index, end: cm.index + cm[0].length });
-  }
-  if (headers.length === 0) {
-    const bareHeaderRegex = /^\s*\(?([A-Za-z])\)?[.)]\s+\S.*$/gm;
-    while ((cm = bareHeaderRegex.exec(perChoiceText))) {
-      headers.push({ letter: cm[1].toUpperCase(), start: cm.index, end: cm.index + cm[0].length });
-    }
-  }
-  const choiceBlocks = new Map<string, string>();
-  for (let i = 0; i < headers.length; i++) {
-    const next = headers[i + 1];
-    choiceBlocks.set(headers[i].letter, perChoiceText.slice(headers[i].end, next ? next.start : perChoiceText.length));
-  }
-
-  let correctIndex = correctLetter ? letters.indexOf(correctLetter) : -1;
-  if (correctIndex === -1) {
-    // Last-resort fallback: a per-choice block whose first line explicitly
-    // says "Correct" without "Incorrect".
-    for (const letter of letters) {
-      const firstLine = (choiceBlocks.get(letter) ?? "").trim().split(/\r?\n/)[0] ?? "";
-      if (/correct/i.test(firstLine) && !/incorrect/i.test(firstLine)) {
-        correctIndex = letters.indexOf(letter);
-        break;
-      }
-    }
-  }
-
-  // Each label can appear either alone on its own line with the value below
-  // ("Error Note\n<value>") or inline with a colon ("Error note: <value>") -
-  // no trailing "$" anchor here so the match only consumes the label itself
-  // (plus an optional colon and the whitespace/newline after it), leaving
-  // the value - wherever it starts - as everything up to the next label.
-  const choiceSubLabels = [
-    { key: "imageForChoice", regex: /^\s*Image for choice\b[^\n:]*:?\s*/im },
-    { key: "errorNote", regex: /^\s*Error note\s*:?\s*/im },
-    { key: "errorType", regex: /^\s*Error type\s*:?\s*/im },
-    { key: "confusedWith", regex: /^\s*Confused with\s*:?\s*/im },
-    { key: "weakConcept", regex: /^\s*Weak concept\s*:?\s*/im },
-  ];
-
-  const choices: ParsedQBankChoice[] = stemAndChoices.choices.map((text, i) => {
-    const letter = letters[i];
-    const isCorrect = i === correctIndex;
-    const block = choiceBlocks.get(letter) ?? "";
-    const sub = splitByLabels(block, choiceSubLabels);
-    // Strip the leading "❌ Incorrect - ..." / "✅ Correct" marker line off
-    // the rationale, however the emoji happened to survive copy/paste.
-    const rationale = (sub[""] ?? "").replace(/^[^\n]*?\b(Incorrect|Correct)\b[^\n]*\n?/i, "").trim();
-
-    const classification = distractorMap.get(letter) ?? "";
-    const distance: "near" | "far" | undefined = /close/i.test(classification)
-      ? "near"
-      : /far/i.test(classification)
-      ? "far"
-      : undefined;
-
-    const errorNoteText = sub.errorNote ?? "";
-    const errorTypeText = sub.errorType ?? "";
-
-    if (isCorrect) {
-      return {
-        text,
-        rationale: rationale || undefined,
-        // The template puts the correct choice's one-line takeaway under
-        // "Error Note" too (to keep every choice block the same shape) -
-        // the form's field for the correct choice is "Key concept", so
-        // that's where it belongs.
-        key_concept: errorNoteText || undefined,
-      };
-    }
-
-    return {
-      text,
-      distance,
-      rationale: rationale || undefined,
-      error_note: errorNoteText || undefined,
-      error_type: ERROR_TYPES.find((t) => t.toLowerCase() === errorTypeText.toLowerCase()) || undefined,
-      confused_with: sub.confusedWith || undefined,
-      weak_concept: sub.weakConcept || undefined,
-    };
-  });
-
-  const classificationText = top.classification ?? "";
-  function field(label: string): string {
-    const m = classificationText.match(new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, "im"));
-    return m ? m[1].trim() : "";
-  }
-  const topic = field("Topic");
-  const subtopic = field("Subtopic");
-  const primaryConcept = field("Primary Concept");
-  const secondaryConceptsRaw = field("Secondary Concepts");
-  const secondaryConcepts = secondaryConceptsRaw
-    ? secondaryConceptsRaw.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-  const difficultyRaw = field("Difficulty").toLowerCase();
-  const difficulty = (DIFFICULTY_LEVELS as readonly string[]).includes(difficultyRaw)
-    ? (difficultyRaw as QuestionDifficulty)
-    : "";
-  const questionTypeRaw = field("Question Type");
-  const questionType = QUESTION_TYPES.find((t) => t.toLowerCase() === questionTypeRaw.toLowerCase()) || questionTypeRaw;
-
-  function checkedTags(text: string, known: readonly string[]): string[] {
-    const out: string[] = [];
-    const regex = /^\s*[☑✅✔][ \t]*(.+)$/gm; // checked box / checkmark glyphs
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(text))) {
-      const rawTag = m[1].trim();
-      const match = known.find((k) => k.toLowerCase() === rawTag.toLowerCase());
-      if (match && !out.includes(match)) out.push(match);
-    }
-    return out;
-  }
-  const subjects = checkedTags(top.subjects ?? "", STEP1_SUBJECTS);
-  const systems = checkedTags(top.systems ?? "", STEP1_SYSTEMS);
-
-  return {
-    question: stemAndChoices.question,
-    choices,
-    correctIndex,
-    educationalObjective: top.educationalObjective ?? "",
-    explanation: top.mainExplanation ?? "",
-    keyTakeaway: top.keyTakeaway ?? "",
-    examTrap: top.examTrap ?? "",
-    subjects,
-    systems,
-    topic,
-    subtopic,
-    primaryConcept,
-    secondaryConcepts,
-    difficulty,
-    questionType,
-    answerTableColumns,
-  };
+export interface QuestionStatusInfo {
+  status: QuestionStatus;
+  marked: boolean;
 }
