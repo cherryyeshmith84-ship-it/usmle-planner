@@ -33,7 +33,7 @@ function fmtDate(d: string) {
 
 function LineChart({ points, color }: { points: Point[]; color: string }) {
   const W = 720;
-  const H = 260;
+  const H = 460;
   const L = 44;
   const R = 16;
   const T = 14;
@@ -63,9 +63,9 @@ function LineChart({ points, color }: { points: Point[]; color: string }) {
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img">
-        {[0, 20, 40, 60, 80, 100].map((v) => (
+        {Array.from({ length: 21 }, (_, i) => i * 5).map((v) => (
           <g key={v}>
-            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="#334155" strokeWidth={0.6} strokeDasharray={v === 0 ? "" : "3 3"} />
+            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="#334155" strokeWidth={v % 10 === 0 ? 0.7 : 0.4} strokeDasharray={v === 0 ? "" : "3 3"} />
             <text x={L - 6} y={y(v) + 3} textAnchor="end" fontSize={10} fill="#94a3b8">
               {v}%
             </text>
