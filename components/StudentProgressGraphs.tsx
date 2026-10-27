@@ -192,8 +192,9 @@ export default function StudentProgressGraphs({
   const systemRows = useMemo(() => {
     const groups = new Map<string, GraphBlock[]>();
     for (const b of bankBlocks) {
-      const s = (b.system || "").trim();
+      let s = (b.system || "").trim();
       if (!s) continue;
+      if (s.toLowerCase().startsWith("random")) s = "Random (mixed systems)";
       if (!groups.has(s)) groups.set(s, []);
       groups.get(s)!.push(b);
     }
