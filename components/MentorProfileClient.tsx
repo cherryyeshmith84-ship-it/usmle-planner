@@ -32,9 +32,11 @@ export default function MentorProfileClient({
   currentUserId,
   avgRating,
   reviews,
+  reviewerNames,
   isExistingStudent,
   meetingLink,
 }: {
+  reviewerNames?: Record<string, string>;
   mentor: Mentor;
   openSlots: MentorSlot[];
   helpedCount: number;
@@ -217,6 +219,10 @@ export default function MentorProfileClient({
                       {"☆".repeat(5 - r.rating)}
                     </p>
                     <p className="text-sm text-slate-300">&ldquo;{r.comment}&rdquo;</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      - {reviewerNames?.[r.student_id] || "Student"} &middot;{" "}
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </p>
                   </div>
                 ))}
             </div>
