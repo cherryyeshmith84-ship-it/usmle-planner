@@ -38,11 +38,21 @@ const ASSESSMENT_GROUPS: { label: string; items: string[] }[] = [
 /** Works out which self-assessment checklist item an uploaded score report
  *  belongs to (e.g. "NBME Form 32" -> "NBME 32", "Free 120 2024" ->
  *  "Free 120 - 2024"). Returns null when it can't tell. */
-function matchAssessmentTopic(name: string, takenDate: string | null): string | null {
+function matchAssessmentTopic(name: string, examType: string | null, takenDate: string | null): string | null {
   const n = name.toLowerCase();
   let m: RegExpMatchArray | null;
   if ((m = n.match(/cbse\D*(\d+)/))) return `__cbse:${Number(m[1])}`;
   if ((m = n.match(/nbme\D*(\d{1,2})/))) return `NBME ${Number(m[1])}`;
+  // Reports uploaded as type NBME (or named just "form 25") without the word
+  // "NBME" in the name. A 4-digit "2025" is read as a typo of form 25.
+  if (examType === "nbme" || /\bform\b/.test(n)) {
+    const f = n.match(/(\d{2,4})/)?.[1];
+    if (f) {
+      let num = Number(f);
+      if (num >= 2000 && num <= 2099) num = num - 2000;
+      if (num >= 21 && num <= 34) return `NBME ${num}`;
+    }
+  }
   if ((m = n.match(/uwsa\D*(\d)/)) || (m = n.match(/uworld self[- ]assessment\D*(\d)/))) return `UWSA ${m[1]}`;
   if ((m = n.match(/mehlman\D*(\d)/))) return `Mehlman ${m[1]}`;
   if (n.includes("amboss")) return "Amboss Self-Assessment";
@@ -121,14 +131,14 @@ export default function StudentTopicChecklist({
       if (!cancelled) setCbse((data ?? []) as CbseAttempt[]);
       const { data: reports } = await supabase
         .from("score_reports")
-        .select("exam_name, overall_percent, taken_date")
+        .select("exam_name, exam_type, overall_percent, taken_date")
         .eq("user_id", studentId)
         .order("taken_date", { ascending: true });
       if (!cancelled) {
         const map: Record<string, number> = {};
-        for (const r of (reports ?? []) as { exam_name: string; overall_percent: number | null; taken_date: string | null }[]) {
+        for (const r of (reports ?? []) as { exam_name: string; exam_type: string | null; overall_percent: number | null; taken_date: string | null }[]) {
           if (r.overall_percent === null || r.overall_percent === undefined) continue;
-          const topic = matchAssessmentTopic(r.exam_name ?? "", r.taken_date);
+          const topic = matchAssessmentTopic(r.exam_name ?? "", r.exam_type, r.taken_date);
           if (topic) map[topic] = r.overall_percent; // oldest first, so the latest wins
         }
         setScores(map);
