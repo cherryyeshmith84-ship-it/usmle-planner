@@ -18,13 +18,13 @@ import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MeetingLinkEditor from "@/components/MeetingLinkEditor";
 import StudentNotesEditor from "@/components/StudentNotesEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
-import AssignToPlanButton from "@/components/AssignToPlanButton";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import SelfAssignedTasksToggle from "@/components/SelfAssignedTasksToggle";
 import PlannerCalendar from "@/components/PlannerCalendar";
 import MentorChatPanel from "@/components/MentorChatPanel";
 import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
+import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 
@@ -34,19 +34,6 @@ const STAGE_LABEL: Record<string, string> = {
   beginning: "Just starting",
   middle: "In the middle",
   end: "Final stretch",
-};
-
-const TREND_LABEL: Record<string, string> = {
-  improving: "↑ Improving",
-  declining: "↓ Declining",
-  flat: "→ Flat",
-  unknown: "",
-};
-const TREND_STYLE: Record<string, string> = {
-  improving: "text-green-400",
-  declining: "text-red-400",
-  flat: "text-slate-400",
-  unknown: "text-slate-500",
 };
 
 function scoreBadgeClass(pct: number | null) {
@@ -261,15 +248,15 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const studyResources = (resourcesRes.data ?? []) as StudyResource[];
   const topicChecklistRows = (topicChecklistRes.data ?? []) as TopicChecklistRow[];
 
-  const systemStrengths = computeSystemStrengths(scoreReports).slice(0, 5);
-  const disciplineStrengths = computeDisciplineStrengths(scoreReports).slice(0, 5);
-
   const regularReports = scoreReports.filter((r) => r.exam_type !== "question_level");
   const comparisonReports = [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
   const allSystemStrengths = computeSystemStrengths(regularReports);
   const allDisciplineStrengths = computeDisciplineStrengths(regularReports);
 
   const qbankBreakdown = computeQBankSystemBreakdown(uworldBlocks);
+
+  const graphReports = regularReports as unknown as GraphReport[];
+  const graphBlocks = uworldBlocks as unknown as GraphBlock[];
 
   // --- Tab contents -------------------------------------------------------
 
@@ -464,68 +451,12 @@ export default async function StudentProgressPage({ params }: { params: { studen
   const analysisContent = (
     <div className="space-y-8">
       <div>
-        {scoreReports.length === 0 ? (
-          <p className="text-sm text-slate-500">No score reports uploaded yet.</p>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="card">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Weakest systems</p>
-              <div className="space-y-1.5">
-                {systemStrengths.map((s) => (
-                  <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
-                    <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
-                    <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
-                      <span className="text-slate-400">
-                        {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
-                      </span>
-                      {canEdit && (
-                        <AssignToPlanButton
-                          studentId={params.studentId}
-                          mentorId={myMentorRecord!.id}
-                          title={`Review ${s.system}`}
-                          detail={`Weak system - ${s.averagePercent}% average${
-                            s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
-                          }`}
-                        />
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="card">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                Weakest disciplines
-              </p>
-              <div className="space-y-1.5">
-                {disciplineStrengths.length === 0 ? (
-                  <p className="text-sm text-slate-500">No discipline breakdown available.</p>
-                ) : (
-                  disciplineStrengths.map((s) => (
-                    <div key={s.system} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="flex-1 min-w-0 leading-snug">{s.system}</span>
-                      <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
-                        <span className="text-slate-400">
-                          {s.averagePercent}% <span className={TREND_STYLE[s.trend]}>{TREND_LABEL[s.trend]}</span>
-                        </span>
-                        {canEdit && (
-                          <AssignToPlanButton
-                            studentId={params.studentId}
-                            mentorId={myMentorRecord!.id}
-                            title={`Review ${s.system}`}
-                            detail={`Weak discipline - ${s.averagePercent}% average${
-                              s.trend !== "unknown" ? `, ${TREND_LABEL[s.trend].toLowerCase()}` : ""
-                            }`}
-                          />
-                        )}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        <h2 className="text-lg font-bold mb-3">Progress graphs</h2>
+        <StudentProgressGraphs reports={graphReports} blocks={graphBlocks} />
+      </div>
+
+      <div>
+        {scoreReports.length === 0 && <p className="text-sm text-slate-500">No score reports uploaded yet.</p>}
 
         {comparisonReports.length > 1 && (
           <div className="card overflow-x-auto mt-4">
