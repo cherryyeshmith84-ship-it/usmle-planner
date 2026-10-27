@@ -34,16 +34,18 @@ const ASSESSMENT_GROUPS: { label: string; items: string[] }[] = [
   { label: "Amboss", items: ["Amboss Self-Assessment"] },
   { label: "Free 120", items: ["Free 120 - 2021", "Free 120 - 2022", "Free 120 - 2024", "Free 120 - 2026"] },
 ];
+const PRESET_ASSESSMENTS = new Set(ASSESSMENT_GROUPS.flatMap((g) => g.items));
 
 /**
  * "Systems & Disciplines Covered" checklist on a student's Overview tab, plus
  * a "Self Assessments" checklist (NBME 21-34, UWSA 1-3, Mehlman 1-2, Amboss,
- * Free 120 2021/2022/2024/2026). Systems/Disciplines are one checklist per
- * resource tab; self-assessments are a single list shared across tabs.
+ * Free 120 2021/2022/2024/2026, and a CBSE section the mentor fills with
+ * custom entries). Systems/Disciplines are one checklist per resource tab;
+ * self-assessments are a single list shared across tabs.
  *
  * Each checkbox writes straight to student_topic_checklist on click (upsert
  * on student_id, resource, category, topic). Also rendered read-only on the
- * student's own Analysis page (readOnly=true).
+ * student's own pages (readOnly=true).
  */
 export default function StudentTopicChecklist({
   studentId,
@@ -66,6 +68,20 @@ export default function StudentTopicChecklist({
   );
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // CBSE custom entries: any self-assessment row that isn't one of the
+  // preset exams above. Seeded from saved rows, grows as the mentor adds.
+  const [customCbse, setCustomCbse] = useState<string[]>(() => {
+    const seen: string[] = [];
+    for (const r of initialRows) {
+      if (r.resource === "self_assessments" && r.category === "assessment" && !PRESET_ASSESSMENTS.has(r.topic)) {
+        if (!seen.includes(r.topic)) seen.push(r.topic);
+      }
+    }
+    return seen;
+  });
+  const [newCbse, setNewCbse] = useState("");
+  const [adding, setAdding] = useState(false);
 
   function key(resource: StoredResource, category: Category, topic: string) {
     return `${resource}:${category}:${topic}`;
@@ -110,6 +126,39 @@ export default function StudentTopicChecklist({
     router.refresh();
   }
 
+  // Adds a custom CBSE entry as a new (unchecked) checklist item.
+  async function addCbse() {
+    const name = newCbse.trim();
+    if (!name || readOnly || !mentorId) return;
+    if (PRESET_ASSESSMENTS.has(name) || customCbse.includes(name)) {
+      setError("That entry already exists.");
+      return;
+    }
+    setAdding(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: insertError } = await supabase.from("student_topic_checklist").upsert(
+      {
+        student_id: studentId,
+        mentor_id: mentorId,
+        resource: "self_assessments",
+        category: "assessment",
+        topic: name,
+        completed: false,
+        completed_at: null,
+      },
+      { onConflict: "student_id,resource,category,topic" }
+    );
+    setAdding(false);
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+    setCustomCbse((prev) => [...prev, name]);
+    setNewCbse("");
+    router.refresh();
+  }
+
   function renderBoxes(resource: StoredResource, category: Category, topics: readonly string[]) {
     return (
       <div className="grid sm:grid-cols-2 gap-1.5">
@@ -144,7 +193,7 @@ export default function StudentTopicChecklist({
     );
   }
 
-  const allAssessments = ASSESSMENT_GROUPS.flatMap((g) => g.items);
+  const allAssessments = [...ASSESSMENT_GROUPS.flatMap((g) => g.items), ...customCbse];
   const assessmentsDone = allAssessments.filter((t) => completed.has(key("self_assessments", "assessment", t))).length;
 
   return (
@@ -202,6 +251,40 @@ export default function StudentTopicChecklist({
             {renderBoxes("self_assessments", "assessment", g.items)}
           </div>
         ))}
+
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">CBSE</p>
+          {customCbse.length > 0 ? (
+            renderBoxes("self_assessments", "assessment", customCbse)
+          ) : (
+            <p className="text-xs text-slate-600">No CBSE entries yet.</p>
+          )}
+          {!readOnly && mentorId && (
+            <div className="flex items-center gap-2 mt-3">
+              <input
+                type="text"
+                value={newCbse}
+                onChange={(e) => setNewCbse(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCbse();
+                  }
+                }}
+                placeholder="Custom, e.g. CBSE 1"
+                className="input text-sm py-1.5 flex-1 max-w-xs"
+              />
+              <button
+                type="button"
+                onClick={addCbse}
+                disabled={adding || !newCbse.trim()}
+                className="btn-secondary text-xs"
+              >
+                {adding ? "Adding..." : "Add"}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
