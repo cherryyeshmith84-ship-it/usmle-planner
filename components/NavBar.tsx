@@ -1,268 +1,452 @@
-"use client";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import type { Profile } from "@/lib/types";
+import type { Mentor, MentorSlot } from "@/lib/mentors";
+import { findMentorByEmail, getSlotStatus } from "@/lib/mentors";
+import { getContentPublished } from "@/lib/platformSettings";
+import type { PlannerColumn, PlannerEntry } from "@/lib/plannerColumns";
+import { resolvePlannerColumns, mainPlannerColumns } from "@/lib/plannerColumns";
+import { isBoxFilled } from "@/lib/planProgress";
+import type { UWorldBlock } from "@/lib/uworldBlocks";
+import { groupBlocksByDate } from "@/lib/uworldBlocks";
+import type { PlanTask } from "@/lib/planTasks";
+import { computeTaskProgress, groupTasksByDate, sortTasks } from "@/lib/planTasks";
+import type { MentorDailyNote } from "@/lib/mentorDailyNotes";
+import type { ScoreReport } from "@/lib/scoreReports";
+import { computeImmediateExamReview, computeSystemStrengths } from "@/lib/scoreReports";
+import { computeWeeklyProgress } from "@/lib/weeklyProgress";
+import { computeTodayStatus } from "@/lib/plannerStatus";
+import { computeStreaks } from "@/lib/streaks";
+import { computeSchedulePaceDays } from "@/lib/plannerCalendar";
+import { computeCatchUpPlan, computeMoveAheadSuggestion, computeSkippedCategories } from "@/lib/adaptivePlanner";
+import { easternDateStringNow, timeOfDayGreeting } from "@/lib/timezone";
+import {
+  computeAiReminder,
+  computeRecentActivity,
+  computeMotivationMessage,
+  latestNoteWithContent,
+  nextUpcomingCheckin,
+} from "@/lib/homeInsights";
+import { nextUpcomingHighlight } from "@/lib/mentorDailyNotes";
+import AppShell from "@/components/AppShell";
+import PlannerStatusHeader from "@/components/PlannerStatusHeader";
+import WeeklyProgress from "@/components/WeeklyProgress";
+import StudentNotesEditor from "@/components/StudentNotesEditor";
+import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
+import {
+  WelcomeCard,
+  TodaysPlanCard,
+  LatestAnalysisCard,
+  UpcomingMentorshipCard,
+  MentorNoteCard,
+  AiReminderCard,
+  QuickActionsCard,
+  StudyStreakCard,
+  NextMilestoneCard,
+  RecentActivityCard,
+  ImportantDayCard,
+} from "@/components/HomeDashboardCards";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+export const dynamic = "force-dynamic";
 
-interface NavItem {
-  href: string;
-  label: string;
+// Pure UTC date-string arithmetic - never touches the browser/server's local
+// timezone (see the matching comment in PlannerGridClient.tsx's addDays for
+// why the old "parse local, round-trip through toISOString" version broke
+// for anyone in a timezone ahead of UTC).
+function isoAddDays(date: string, n: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
-interface NavGroup {
-  title: string;
-  items: NavItem[];
+// Whole calendar days from `from` to `to` (positive if `to` is later) - same
+// UTC-only approach as isoAddDays above, so it's not thrown off by a
+// timezone offset that happens to straddle midnight.
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const fromUtc = Date.UTC(fy, fm - 1, fd);
+  const toUtc = Date.UTC(ty, tm - 1, td);
+  return Math.round((toUtc - fromUtc) / (1000 * 60 * 60 * 24));
 }
 
-const GROUPS: NavGroup[] = [
-  {
-    title: "Learn",
-    items: [
-      { href: "/qbank", label: "Question Bank" },
-      { href: "/assessments", label: "Self Assessments" },
-    ],
-  },
-  {
-    title: "Improve",
-    items: [
-      { href: "/master-grid", label: "Master Grid" },
-      { href: "/anki", label: "Anki" },
-      { href: "/error-notes", label: "Error Notes" },
-      { href: "/visual-lab", label: "Visual Lab" },
-    ],
-  },
-  {
-    title: "Mentorship",
-    items: [
-      // Same link for everyone - app/mentorship/page.tsx decides server-side
-      // whether the signed-in email belongs to a mentor (shows their
-      // availability manager) or a student (shows the mentor directory).
-      { href: "/mentorship", label: "Mentorship" },
-      { href: "/mentorship/sessions", label: "Upcoming Sessions" },
-      { href: "/planner", label: "Study Planner" },
-      // The student's own copy of what their mentor sees on the Overview tab.
-      { href: "/overview", label: "My Overview" },
-      // "Analysis" (was "Performance") absorbs what used to be the
-      // standalone History page.
-      { href: "/history", label: "Analysis" },
-    ],
-  },
-];
+type Booking = MentorSlot & {
+  mentors: Pick<Mentor, "id" | "name" | "photo_path"> | null;
+};
 
-// Groups hidden from students until the admin flips the global publish
-// switch on. "Mentorship" is intentionally left out - always visible.
-const GATED_GROUP_TITLES = new Set(["Learn", "Improve"]);
+/**
+ * Home dashboard - answers "what do I need to do today?" instead of just
+ * linking off to Study Planner / Analysis (the old bare version, still in
+ * DashboardClient.tsx but no longer used from here - safe to leave in place
+ * unused). Every card is built from data that already exists elsewhere in
+ * the app (planner_entries, mentor_plan_tasks, mentor_daily_notes,
+ * score_reports, mentor_slots) - nothing new to fill in, no new tables
+ * except this page's own derived reads. See lib/streaks.ts and
+ * lib/homeInsights.ts for the two genuinely new pieces of logic (streak
+ * counting and the small rule-based reminder/status/activity helpers).
+ */
+export default async function DashboardPage() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-function isActive(pathname: string, href: string) {
-  // Exact-match only for routes that have their own sub-route (e.g.
-  // "/mentorship/sessions" nested under "/mentorship").
-  if (href === "/dashboard" || href === "/mentorship") return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
 
-function initials(name: string | null | undefined) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
-  return (first + last).toUpperCase() || "?";
-}
+  const profile = profileData as Profile | null;
 
-export default function NavBar({
-  isAdmin,
-  isMentor: isMentorProp,
-  userName,
-  streak,
-  contentPublished = true,
-}: {
-  isAdmin?: boolean;
-  // Passed in by AppShell (server-resolved). If missing, falls back to a
-  // client-side lookup below.
-  isMentor?: boolean;
-  userName?: string | null;
-  streak?: number;
-  contentPublished?: boolean;
-}) {
-  const pathname = usePathname();
-  const [isMentorState, setIsMentorState] = useState(false);
-  const isMentor = isMentorProp ?? isMentorState;
-  // Below the md breakpoint the sidebar is an off-canvas drawer (closed by
-  // default) toggled by the hamburger button, auto-closing on route change.
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
-
-  // Whether the signed-in user is an active mentor - checked client-side so
-  // no isMentor prop has to be threaded through every page that renders
-  // AppShell/NavBar.
-  useEffect(() => {
-    if (isMentorProp !== undefined) return;
-    let cancelled = false;
-    async function checkMentor() {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.email) return;
-      const { data } = await supabase.from("mentors").select("email").eq("active", true);
-      const match = (data ?? []).some(
-        (m: { email: string }) => m.email.toLowerCase() === user.email!.toLowerCase()
-      );
-      if (!cancelled) setIsMentorState(match);
-    }
-    checkMentor();
-    return () => {
-      cancelled = true;
-    };
-  }, [isMentorProp]);
-
-  // Role split: students get the full student nav; mentors get ONLY the
-  // mentor links; admins get ONLY the admin links (plus the mentor links if
-  // they are also a mentor). No student features for mentors/admins.
-  const isStudent = !isAdmin && !isMentor;
-  const mentorGroup: NavGroup = {
-    title: "Mentor",
-    items: [
-      { href: "/mentorship", label: "Mentorship" },
-      // Booked sessions, notes and student feedback live on this page.
-      { href: "/mentorship/sessions", label: "Upcoming Sessions" },
-      { href: "/mentorship/students", label: "Students" },
-      // Mentor-wide, day-by-day assignment plans per system (see
-      // MentorTemplatesManager.tsx).
-      { href: "/mentorship/templates", label: "Planner Templates" },
-      // Self-service "waiting for a mentor" pool.
-      { href: "/mentorship/waiting", label: "Waiting" },
-      // Students an admin has granted this mentor read-only access to.
-      { href: "/mentorship/viewing", label: "Viewing" },
-    ],
-  };
-  const visibleGroups: NavGroup[] = isStudent
-    ? GROUPS.filter((group) => contentPublished || !GATED_GROUP_TITLES.has(group.title))
-    : isMentor
-    ? [mentorGroup]
-    : [];
-
-  function linkClass(href: string) {
-    const active = isActive(pathname, href);
-    return `text-sm font-medium px-3 py-2.5 rounded-lg transition ${
-      active ? "bg-brand-900/40 text-brand-300" : "text-slate-300 hover:bg-slate-800"
-    }`;
+  // Same mentor bypass as onboarding - a mentor landing on /dashboard
+  // (e.g. an old bookmark) should end up on their availability page, not
+  // the student onboarding wizard or this student dashboard.
+  const { data: mentorRows } = await supabase.from("mentors").select("*").eq("active", true);
+  const mentors = (mentorRows ?? []) as Mentor[];
+  if (findMentorByEmail(mentors, user.email)) {
+    redirect("/mentorship");
   }
 
+  if (!profile?.onboarding_completed) {
+    redirect("/onboarding");
+  }
+
+  const contentPublished = profile.is_admin ? true : await getContentPublished(supabase);
+
+  // Eastern Time, not the server's UTC clock - otherwise "today" can
+  // silently roll over to tomorrow's date hours early for anyone in a
+  // timezone ahead of UTC (see the same fix applied across the planner).
+  const today = easternDateStringNow();
+  const yesterday = isoAddDays(today, -1);
+
+  const [
+    entriesRes,
+    blocksRes,
+    planTasksRes,
+    dailyNotesRes,
+    scoreReportsRes,
+    bookingsRes,
+    meetingLinkRes,
+    plannerSettingsRes,
+    columnsRes,
+  ] = await Promise.all([
+      supabase.from("planner_entries").select("*").eq("user_id", user.id),
+      supabase.from("uworld_blocks").select("*").eq("user_id", user.id),
+      supabase.from("mentor_plan_tasks").select("*").eq("student_id", user.id),
+      supabase.from("mentor_daily_notes").select("*").eq("student_id", user.id),
+      supabase.from("score_reports").select("*").eq("user_id", user.id).order("taken_date", { ascending: false }),
+      supabase.from("mentor_slots").select("*, mentors(id, name, photo_path)").eq("booked_by", user.id),
+      // This student's own permanent meeting link (mentor_meeting_links) -
+      // not read off the mentor row, since different students of the same
+      // mentor can have different links. Selecting mentor_id too (not just
+      // meeting_link) so it can be checked against nextBooking's mentor
+      // below - the table only ever holds one row per student, so if this
+      // student switched mentors, this row may still belong to the OLD one
+      // until their new mentor sets a fresh link.
+      supabase.from("mentor_meeting_links").select("mentor_id, meeting_link").eq("student_id", user.id).maybeSingle(),
+      supabase.from("student_planner_settings").select("start_date").eq("student_id", user.id).maybeSingle(),
+      // Same global-defaults-plus-this-student's-own-customization query as
+      // /planner - needed here too now that the header's pace/motivation
+      // numbers and the missed-day prompt read the flat grid as well as
+      // Assignments (see mainPlannerColumns in lib/plannerColumns.ts).
+      supabase
+        .from("planner_columns")
+        .select("*")
+        .or(`student_id.is.null,student_id.eq.${user.id}`)
+        .order("sort_order", { ascending: true }),
+    ]);
+
+  const entries = (entriesRes.data ?? []) as PlannerEntry[];
+  const blocks = (blocksRes.data ?? []) as UWorldBlock[];
+  const planTasks = (planTasksRes.data ?? []) as PlanTask[];
+  const dailyNotes = (dailyNotesRes.data ?? []) as MentorDailyNote[];
+  const scoreReports = (scoreReportsRes.data ?? []) as ScoreReport[];
+  const bookings = (bookingsRes.data ?? []) as Booking[];
+  const meetingLinkRow = meetingLinkRes.data as { mentor_id: string; meeting_link: string } | null;
+  const plannerStartDate = (plannerSettingsRes.data as { start_date: string } | null)?.start_date ?? null;
+  // Full resolved+active columns (Mood, Today's Biggest Issue, Resources
+  // Used, Student Notes, ...) - not just the flat-grid subset - needed so
+  // computeTodayStatus/computeSchedulePaceDays can check whether this
+  // student's journal sections are actually filled in, the same way the
+  // Study Planner calendar does (see lib/plannerCalendar.ts).
+  const resolvedColumns = resolvePlannerColumns((columnsRes.data ?? []) as PlannerColumn[], user.id).filter(
+    (c) => c.active
+  );
+  const activeMainColumns = mainPlannerColumns(resolvedColumns);
+  const blocksByDate = groupBlocksByDate(blocks);
+  const entryByDate: Record<string, PlannerEntry> = {};
+  for (const e of entries) entryByDate[e.log_date] = e;
+
+  const todaysEntry = entries.find((e) => e.log_date === today);
+  const yesterdayEntry = entries.find((e) => e.log_date === yesterday);
+  const yesterdayBlocks = blocks.filter((b) => b.log_date === yesterday);
+  const todaysTasks = sortTasks(planTasks.filter((t) => t.task_date === today));
+
+  const weeklySummary = computeWeeklyProgress(entries, blocks, planTasks, today);
+  const todayStatus = computeTodayStatus(entries, blocks, planTasks, today, resolvedColumns);
+  const streaks = computeStreaks(
+    [...entries.map((e) => e.log_date), ...blocks.map((b) => b.log_date)],
+    today
+  );
+
+  const examReview = computeImmediateExamReview(scoreReports);
+  const regularReports = scoreReports.filter((r) => r.exam_type !== "question_level");
+  const strengths = computeSystemStrengths(regularReports);
+  const weakest = strengths[0] ?? null;
+  const strongest = strengths.length > 0 ? strengths[strengths.length - 1] : null;
+
+  const nonCancelledBookings = bookings.filter((b) => !b.cancelled_at);
+  const upcomingBookings = nonCancelledBookings
+    .filter((b) => getSlotStatus(b) === "upcoming")
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const nextBooking = upcomingBookings[0] ?? null;
+  const mostRecentBooking = [...nonCancelledBookings].sort((a, b) => b.start_time.localeCompare(a.start_time))[0] ?? null;
+
+  // Only trust the fetched meeting-link row if it actually belongs to the
+  // mentor of the upcoming session being shown - otherwise it's a leftover
+  // from a mentor this student no longer has an upcoming session with (see
+  // meetingLinkRow comment above), and showing it would point them at the
+  // wrong room.
+  const myMeetingLink =
+    meetingLinkRow && nextBooking?.mentors?.id === meetingLinkRow.mentor_id ? meetingLinkRow.meeting_link : null;
+
+  const mentorFromEmail = findMentorByEmail(mentors, profile.mentor_email);
+  const currentMentorName = mentorFromEmail?.name ?? nextBooking?.mentors?.name ?? mostRecentBooking?.mentors?.name ?? null;
+
+  const latestNote = latestNoteWithContent(dailyNotes);
+  const noteMentorName = latestNote
+    ? mentors.find((m) => m.id === latestNote.mentor_id)?.name ?? currentMentorName
+    : null;
+  const nextCheckin = nextUpcomingCheckin(dailyNotes, today);
+  const nextHighlight = nextUpcomingHighlight(dailyNotes, today);
+
+  const reminderMessage = computeAiReminder({ todayStatus, weekly: weeklySummary, yesterdayEntry, yesterdayBlocks });
+
+  const questionsCompletedYesterday =
+    yesterdayBlocks.length > 0
+      ? yesterdayBlocks.reduce((sum, b) => sum + (b.questions ?? 0), 0)
+      : Number(yesterdayEntry?.field_values?.["q_solved"] ?? 0) || 0;
+  const scoreReportUploadedYesterday = scoreReports.some((r) => (r.created_at ?? "").slice(0, 10) === yesterday);
+  const mentorReviewedYesterday = dailyNotes.some((n) => (n.reviewed_at ?? "").slice(0, 10) === yesterday);
+  const newAssignmentYesterday = planTasks.some((t) => (t.created_at ?? "").slice(0, 10) === yesterday);
+  const recentActivity = computeRecentActivity({
+    questionsCompletedYesterday,
+    scoreReportUploadedYesterday,
+    mentorReviewedYesterday,
+    newAssignmentYesterday,
+  });
+
+  const plannedSystemRaw = todaysEntry?.field_values?.["planned_system"];
+  const plannedSystem = typeof plannedSystemRaw === "string" && plannedSystemRaw.trim() ? plannedSystemRaw : null;
+
+  // Dashboard header (Study Planner v2) - greeting, exam countdown, streak,
+  // today's progress, and a rough "ahead/behind schedule" pace signal. Pace
+  // now accounts for BOTH mentor_plan_tasks ("Assignments") and the flat
+  // grid (planner_entries) - it used to only look at Assignments, which
+  // meant a mentor who exclusively fills in Planned System/First Aid
+  // Pages/etc. would always show a flat 0-day pace no matter how far ahead
+  // or behind their student actually was. See lib/plannerCalendar.ts.
+  const firstName = (profile.full_name || user.email || "there").trim().split(/\s+/)[0];
+  const examLabel = profile.exam_track === "subject" ? `Subject${profile.subject_name ? `: ${profile.subject_name}` : ""}` : "Step 1";
+  const daysRemaining = profile.exam_date ? daysBetween(today, profile.exam_date) : null;
+  const statusLabel = todayStatus.studyCompleted
+    ? "Today's plan complete"
+    : todayStatus.hasEntry
+    ? "In progress today"
+    : "Not started today yet";
+  const statusTone: "good" | "warning" | "neutral" = todayStatus.studyCompleted
+    ? "good"
+    : todayStatus.hasEntry
+    ? "warning"
+    : "neutral";
+  const tasksByDate = groupTasksByDate(planTasks);
+  const pace = computeSchedulePaceDays(
+    tasksByDate,
+    plannerStartDate,
+    today,
+    entryByDate,
+    activeMainColumns,
+    resolvedColumns,
+    blocksByDate
+  );
+  const todayTaskProgress = computeTaskProgress(todaysTasks);
+  const todayGridValues = todaysEntry?.field_values ?? {};
+  const todayGridFullyDone =
+    activeMainColumns.length > 0 && activeMainColumns.every((col) => isBoxFilled(col, todayGridValues[col.key]));
+  const todayFullyComplete =
+    (todayTaskProgress.totalCount > 0 && todayTaskProgress.completedCount === todayTaskProgress.totalCount) ||
+    todayGridFullyDone;
+  const motivationMessage = computeMotivationMessage(todayFullyComplete, pace);
+
+  // Missed-day prompt (Study Planner v2, phase 3) - deliberately stays
+  // Assignments-only (not merged with the flat grid like pace/the calendar
+  // are): the reschedule route can only move mentor_plan_tasks rows, so
+  // showing this for a grid-only missed day would offer buttons that don't
+  // actually do anything for that day.
+  const yesterdayTasks = tasksByDate[yesterday] ?? [];
+  const yesterdayMissedCount = yesterdayTasks.filter((t) => !t.completed).length;
+  const showMissedDayPrompt = yesterdayTasks.length > 0 && yesterdayMissedCount > 0;
+
+  // Adaptive engine (Study Planner v2, phase 4) - "suggest, student
+  // confirms" for anything touching the student's own plan; the
+  // skipped-subject flag is the one exception, since it only notifies the
+  // mentor and doesn't change the student's data (see AdaptiveInsights.tsx).
+  const catchUpPlan = computeCatchUpPlan(tasksByDate, today, pace, daysRemaining);
+  const moveAheadSuggestion = computeMoveAheadSuggestion(pace, today, tasksByDate);
+  const skippedCategories = computeSkippedCategories(planTasks, today);
+
+  // "My Overview" content (prep details, mentor's note, systems/disciplines/
+  // self-assessment checklist) now lives at the bottom of Home. RLS already
+  // lets a student SELECT their own rows in these tables.
+  const [noteRes, checklistRes] = await Promise.all([
+    supabase.from("mentor_student_notes").select("note, updated_at").eq("student_id", user.id).maybeSingle(),
+    supabase.from("student_topic_checklist").select("resource, category, topic, completed").eq("student_id", user.id),
+  ]);
+  const mentorNote = noteRes.data as { note: string | null; updated_at: string | null } | null;
+  const topicChecklistRows = (checklistRes.data ?? []) as TopicChecklistRow[];
+  const STAGE_LABEL: Record<string, string> = {
+    beginning: "Just starting",
+    middle: "In the middle",
+    end: "Final stretch",
+  };
+
   return (
-    <>
-      {/* Hamburger toggle - only rendered below the md breakpoint. */}
-      <button
-        type="button"
-        onClick={() => setMobileOpen((v) => !v)}
-        aria-label={mobileOpen ? "Close menu" : "Open menu"}
-        className="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-lg bg-white border border-slate-800 shadow-sm flex items-center justify-center text-slate-300"
-      >
-        {mobileOpen ? "✕" : "☰"}
-      </button>
-
-      {/* Backdrop - tapping it closes the drawer. */}
-      {mobileOpen && (
-        <div
-          className="md:hidden fixed inset-0 bg-slate-950/50 z-40"
-          onClick={() => setMobileOpen(false)}
+    <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
+      {/* The first-run tour (OnboardingTour.tsx) is mounted globally in
+          AppShell.tsx, not here - it resolves whether to show itself
+          entirely client-side, so no per-page wiring is needed. */}
+      <main className="flex-1 px-6 py-8 space-y-6 w-full">
+        <WelcomeCard
+          greeting={timeOfDayGreeting()}
+          firstName={firstName}
+          examLabel={examLabel}
+          examDate={profile.exam_date}
+          daysRemaining={daysRemaining}
+          mentorName={currentMentorName}
+          statusLabel={statusLabel}
+          statusTone={statusTone}
+          streakDays={streaks.current}
+          todayProgress={todayTaskProgress}
+          pace={pace}
+          motivationMessage={motivationMessage}
         />
-      )}
 
-      {/*
-        Sidebar stays pinned while the page scrolls: at md and above it is
-        position:sticky; top:0 with self-start (so it is NOT stretched to the
-        height of the tall content column) and h-screen, so it is exactly one
-        viewport tall and never scrolls away. The nav inside still scrolls
-        internally (overflow-y-auto) if there are more links than fit.
-        Below md: fixed off-canvas drawer toggled by mobileOpen.
-      */}
-      <aside
-        className={`w-60 shrink-0 border-r border-slate-800 bg-white h-screen flex flex-col fixed md:sticky md:top-0 md:self-start inset-y-0 left-0 z-40 transition-transform duration-200 ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        } md:translate-x-0`}
-      >
-      <div className="px-5 py-6">
-        <div className="flex items-center gap-2">
-          <Image
-            src="/logo.png"
-            alt=""
-            width={28}
-            height={28}
-            className="rounded-md shrink-0"
+        {nextHighlight && <ImportantDayCard highlight={nextHighlight} todayIso={today} />}
+
+        <TodaysPlanCard plannedSystem={plannedSystem} tasks={todaysTasks} />
+
+        <PlannerStatusHeader status={todayStatus} />
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <UpcomingMentorshipCard
+            booking={
+              nextBooking
+                ? {
+                    startTime: nextBooking.start_time,
+                    endTime: nextBooking.end_time,
+                    mentorName: nextBooking.mentors?.name ?? "Your mentor",
+                    meetingLink: myMeetingLink,
+                  }
+                : null
+            }
           />
-          <span className="font-bold text-brand-300 block">Master Grid</span>
+          <MentorNoteCard note={latestNote} mentorName={noteMentorName} />
         </div>
-        {typeof streak === "number" && streak > 0 && (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 mt-1">
-            🔥 {streak} day{streak === 1 ? "" : "s"}
-          </span>
-        )}
-      </div>
 
-      <nav className="flex flex-col gap-4 px-3 flex-1 overflow-y-auto pb-4">
-        {isStudent && (
-          <Link href="/dashboard" data-tour="/dashboard" className={linkClass("/dashboard")}>
-            Home
-          </Link>
-        )}
+        <LatestAnalysisCard review={examReview} weakest={weakest} strongest={strongest} />
 
-        {visibleGroups.map((group) => (
-          <div key={group.title}>
-            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              {group.title}
-            </p>
-            <div className="flex flex-col gap-1">
-              {group.items.map((item) => (
-                // data-tour lets OnboardingTour.tsx find and spotlight this link.
-                <Link key={item.href} href={item.href} data-tour={item.href} className={linkClass(item.href)}>
-                  {item.label}
-                </Link>
-              ))}
-            </div>
+        <AiReminderCard message={reminderMessage} />
+
+        <WeeklyProgress summary={weeklySummary} />
+
+        <QuickActionsCard />
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <StudyStreakCard current={streaks.current} longest={streaks.longest} />
+          <NextMilestoneCard nextCheckin={nextCheckin} />
+        </div>
+
+        <RecentActivityCard items={recentActivity} />
+
+        {/* ---- My Overview (moved here from /overview) ---- */}
+        <h2 className="text-lg font-bold pt-2">My Overview</h2>
+
+        {currentMentorName && (
+          <div className="card">
+            <p className="label">Your mentor</p>
+            <p className="text-sm">{currentMentorName}</p>
           </div>
-        ))}
+        )}
 
-        {isAdmin && (
+        <div className="card grid sm:grid-cols-2 gap-4">
           <div>
-            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Admin
+            <p className="label">Track</p>
+            <p className="text-sm">
+              {profile.exam_track === "subject"
+                ? `Subject exams${profile.subject_name ? ` - ${profile.subject_name}` : ""}`
+                : profile.exam_track === "step1"
+                ? "Step 1 (CBSE)"
+                : "Not set"}
             </p>
-            <div className="flex flex-col gap-1">
-              <Link
-                href="/admin"
-                className="text-sm font-medium px-3 py-2.5 rounded-lg text-brand-300 bg-brand-900/40 hover:bg-brand-900/40"
-              >
-                Admin
-              </Link>
-            </div>
+          </div>
+          <div>
+            <p className="label">Prep stage</p>
+            <p className="text-sm">{profile.prep_stage ? STAGE_LABEL[profile.prep_stage] : "Not set"}</p>
+          </div>
+          <div>
+            <p className="label">Exam date</p>
+            <p className="text-sm">{profile.exam_date || "Not set"}</p>
+          </div>
+          <div>
+            <p className="label">Daily hour goal</p>
+            <p className="text-sm">{profile.daily_hour_goal ? `${profile.daily_hour_goal}h` : "Not set"}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="label">Resources</p>
+            <p className="text-sm">{profile.resources?.length ? profile.resources.join(", ") : "Not set"}</p>
+          </div>
+        </div>
+
+        {(profile.completed_so_far || profile.strong_areas || profile.weak_areas || profile.goals_notes) && (
+          <div className="card space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
+            {profile.completed_so_far && (
+              <div>
+                <p className="label">Completed so far</p>
+                <p className="text-sm text-slate-300">{profile.completed_so_far}</p>
+              </div>
+            )}
+            {profile.strong_areas && (
+              <div>
+                <p className="label">Strong in</p>
+                <p className="text-sm text-slate-300">{profile.strong_areas}</p>
+              </div>
+            )}
+            {profile.weak_areas && (
+              <div>
+                <p className="label">Struggling with</p>
+                <p className="text-sm text-slate-300">{profile.weak_areas}</p>
+              </div>
+            )}
+            {profile.goals_notes && (
+              <div>
+                <p className="label">Goals / wants</p>
+                <p className="text-sm text-slate-300">{profile.goals_notes}</p>
+              </div>
+            )}
           </div>
         )}
-      </nav>
 
-      <div className="px-3 pb-6 pt-3 border-t border-slate-800">
-        {isStudent && (
-          <Link href="/settings" data-tour="/settings" className={linkClass("/settings")}>
-            Settings
-          </Link>
-        )}
-        <div className="flex items-center gap-2.5 px-3 py-2.5 mt-1">
-          <span className="w-7 h-7 rounded-full bg-brand-900/50 text-brand-300 text-xs font-bold flex items-center justify-center shrink-0">
-            {initials(userName)}
-          </span>
-          <span className="text-sm text-slate-300 truncate">{userName || "Your profile"}</span>
-        </div>
-        <form action="/auth/signout" method="post">
-          <button className="w-full text-left text-sm font-medium px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-800 hover:text-slate-300">
-            Sign out
-          </button>
-        </form>
-      </div>
-      </aside>
-    </>
+        <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
+
+        <StudentNotesEditor
+          studentId={user.id}
+          initialNote={mentorNote?.note ?? null}
+          initialUpdatedAt={mentorNote?.updated_at ?? null}
+          readOnly
+        />
+      </main>
+    </AppShell>
   );
 }
