@@ -29,11 +29,10 @@ import {
 } from "@/lib/homeInsights";
 import { nextUpcomingHighlight } from "@/lib/mentorDailyNotes";
 import AppShell from "@/components/AppShell";
-import StatusUpdateCard from "@/components/StatusUpdateCard";
 import PlannerStatusHeader from "@/components/PlannerStatusHeader";
 import WeeklyProgress from "@/components/WeeklyProgress";
-import MissedDayPrompt from "@/components/MissedDayPrompt";
-import AdaptiveInsights from "@/components/AdaptiveInsights";
+import StudentNotesEditor from "@/components/StudentNotesEditor";
+import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 import {
   WelcomeCard,
   TodaysPlanCard,
@@ -308,6 +307,21 @@ export default async function DashboardPage() {
   const moveAheadSuggestion = computeMoveAheadSuggestion(pace, today, tasksByDate);
   const skippedCategories = computeSkippedCategories(planTasks, today);
 
+  // "My Overview" content (prep details, mentor's note, systems/disciplines/
+  // self-assessment checklist) now lives at the bottom of Home. RLS already
+  // lets a student SELECT their own rows in these tables.
+  const [noteRes, checklistRes] = await Promise.all([
+    supabase.from("mentor_student_notes").select("note, updated_at").eq("student_id", user.id).maybeSingle(),
+    supabase.from("student_topic_checklist").select("resource, category, topic, completed").eq("student_id", user.id),
+  ]);
+  const mentorNote = noteRes.data as { note: string | null; updated_at: string | null } | null;
+  const topicChecklistRows = (checklistRes.data ?? []) as TopicChecklistRow[];
+  const STAGE_LABEL: Record<string, string> = {
+    beginning: "Just starting",
+    middle: "In the middle",
+    end: "Final stretch",
+  };
+
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
       {/* The first-run tour (OnboardingTour.tsx) is mounted globally in
@@ -330,30 +344,6 @@ export default async function DashboardPage() {
         />
 
         {nextHighlight && <ImportantDayCard highlight={nextHighlight} todayIso={today} />}
-
-        {showMissedDayPrompt && (
-          <MissedDayPrompt
-            missedDate={yesterday}
-            missedCount={yesterdayMissedCount}
-            todayIso={today}
-            dayLabel="Yesterday"
-          />
-        )}
-
-        <AdaptiveInsights
-          catchUpPlan={catchUpPlan}
-          moveAhead={moveAheadSuggestion}
-          skippedCategories={skippedCategories}
-          studentId={user.id}
-          mentorId={mentorFromEmail?.id ?? null}
-          todayIso={today}
-        />
-
-        <StatusUpdateCard
-          userId={user.id}
-          initialStatus={profile.status_update ?? null}
-          initialUpdatedAt={profile.status_updated_at ?? null}
-        />
 
         <TodaysPlanCard
           plannedSystem={plannedSystem}
@@ -394,6 +384,84 @@ export default async function DashboardPage() {
         </div>
 
         <RecentActivityCard items={recentActivity} />
+
+        {/* ---- My Overview (moved here from /overview) ---- */}
+        <h2 className="text-lg font-bold pt-2">My Overview</h2>
+
+        {currentMentorName && (
+          <div className="card">
+            <p className="label">Your mentor</p>
+            <p className="text-sm">{currentMentorName}</p>
+          </div>
+        )}
+
+        <div className="card grid sm:grid-cols-2 gap-4">
+          <div>
+            <p className="label">Track</p>
+            <p className="text-sm">
+              {profile.exam_track === "subject"
+                ? `Subject exams${profile.subject_name ? ` - ${profile.subject_name}` : ""}`
+                : profile.exam_track === "step1"
+                ? "Step 1 (CBSE)"
+                : "Not set"}
+            </p>
+          </div>
+          <div>
+            <p className="label">Prep stage</p>
+            <p className="text-sm">{profile.prep_stage ? STAGE_LABEL[profile.prep_stage] : "Not set"}</p>
+          </div>
+          <div>
+            <p className="label">Exam date</p>
+            <p className="text-sm">{profile.exam_date || "Not set"}</p>
+          </div>
+          <div>
+            <p className="label">Daily hour goal</p>
+            <p className="text-sm">{profile.daily_hour_goal ? `${profile.daily_hour_goal}h` : "Not set"}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="label">Resources</p>
+            <p className="text-sm">{profile.resources?.length ? profile.resources.join(", ") : "Not set"}</p>
+          </div>
+        </div>
+
+        {(profile.completed_so_far || profile.strong_areas || profile.weak_areas || profile.goals_notes) && (
+          <div className="card space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
+            {profile.completed_so_far && (
+              <div>
+                <p className="label">Completed so far</p>
+                <p className="text-sm text-slate-300">{profile.completed_so_far}</p>
+              </div>
+            )}
+            {profile.strong_areas && (
+              <div>
+                <p className="label">Strong in</p>
+                <p className="text-sm text-slate-300">{profile.strong_areas}</p>
+              </div>
+            )}
+            {profile.weak_areas && (
+              <div>
+                <p className="label">Struggling with</p>
+                <p className="text-sm text-slate-300">{profile.weak_areas}</p>
+              </div>
+            )}
+            {profile.goals_notes && (
+              <div>
+                <p className="label">Goals / wants</p>
+                <p className="text-sm text-slate-300">{profile.goals_notes}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
+
+        <StudentNotesEditor
+          studentId={user.id}
+          initialNote={mentorNote?.note ?? null}
+          initialUpdatedAt={mentorNote?.updated_at ?? null}
+          readOnly
+        />
       </main>
     </AppShell>
   );
