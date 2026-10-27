@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
@@ -34,7 +34,6 @@ const ASSESSMENT_GROUPS: { label: string; items: string[] }[] = [
   { label: "Amboss", items: ["Amboss Self-Assessment"] },
   { label: "Free 120", items: ["Free 120 - 2021", "Free 120 - 2022", "Free 120 - 2024", "Free 120 - 2026"] },
 ];
-const PRESET_ASSESSMENTS = new Set(ASSESSMENT_GROUPS.flatMap((g) => g.items));
 
 /**
  * "Systems & Disciplines Covered" checklist on a student's Overview tab, plus
@@ -69,19 +68,41 @@ export default function StudentTopicChecklist({
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // CBSE custom entries: any self-assessment row that isn't one of the
-  // preset exams above. Seeded from saved rows, grows as the mentor adds.
-  const [customCbse, setCustomCbse] = useState<string[]>(() => {
-    const seen: string[] = [];
-    for (const r of initialRows) {
-      if (r.resource === "self_assessments" && r.category === "assessment" && !PRESET_ASSESSMENTS.has(r.topic)) {
-        if (!seen.includes(r.topic)) seen.push(r.topic);
-      }
-    }
-    return seen;
-  });
+    // CBSE attempts: the student (or mentor) logs "CBSE 1", "CBSE 2"... with
+  // the date taken. Stored in student_cbse_attempts (not the checklist table,
+  // since students can't write to that one).
+  interface CbseAttempt {
+    id: string;
+    name: string;
+    taken_date: string;
+    completed: boolean;
+  }
+  const [cbse, setCbse] = useState<CbseAttempt[]>([]);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [newCbse, setNewCbse] = useState("");
+  const [newCbseDate, setNewCbseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [adding, setAdding] = useState(false);
+  const canEditCbse = !readOnly || viewerId === studentId;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!cancelled) setViewerId(user?.id ?? null);
+      const { data } = await supabase
+        .from("student_cbse_attempts")
+        .select("id, name, taken_date, completed")
+        .eq("student_id", studentId)
+        .order("taken_date", { ascending: true });
+      if (!cancelled) setCbse((data ?? []) as CbseAttempt[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId]);
 
   function key(resource: StoredResource, category: Category, topic: string) {
     return `${resource}:${category}:${topic}`;
@@ -126,37 +147,46 @@ export default function StudentTopicChecklist({
     router.refresh();
   }
 
-  // Adds a custom CBSE entry as a new (unchecked) checklist item.
   async function addCbse() {
     const name = newCbse.trim();
-    if (!name || readOnly || !mentorId) return;
-    if (PRESET_ASSESSMENTS.has(name) || customCbse.includes(name)) {
-      setError("That entry already exists.");
-      return;
-    }
+    if (!name || !newCbseDate || !canEditCbse) return;
     setAdding(true);
     setError(null);
     const supabase = createClient();
-    const { error: insertError } = await supabase.from("student_topic_checklist").upsert(
-      {
-        student_id: studentId,
-        mentor_id: mentorId,
-        resource: "self_assessments",
-        category: "assessment",
-        topic: name,
-        completed: false,
-        completed_at: null,
-      },
-      { onConflict: "student_id,resource,category,topic" }
-    );
+    const { data, error: insertError } = await supabase
+      .from("student_cbse_attempts")
+      .insert({ student_id: studentId, name, taken_date: newCbseDate, completed: true })
+      .select("id, name, taken_date, completed")
+      .single();
     setAdding(false);
-    if (insertError) {
-      setError(insertError.message);
+    if (insertError || !data) {
+      setError(insertError?.message ?? "Couldn't save.");
       return;
     }
-    setCustomCbse((prev) => [...prev, name]);
+    setCbse((prev) => [...prev, data as CbseAttempt].sort((a, b) => a.taken_date.localeCompare(b.taken_date)));
     setNewCbse("");
-    router.refresh();
+  }
+
+  async function toggleCbse(a: CbseAttempt) {
+    if (!canEditCbse) return;
+    setCbse((prev) => prev.map((x) => (x.id === a.id ? { ...x, completed: !x.completed } : x)));
+    const supabase = createClient();
+    const { error: e } = await supabase.from("student_cbse_attempts").update({ completed: !a.completed }).eq("id", a.id);
+    if (e) {
+      setError(e.message);
+      setCbse((prev) => prev.map((x) => (x.id === a.id ? { ...x, completed: a.completed } : x)));
+    }
+  }
+
+  async function removeCbse(a: CbseAttempt) {
+    if (!canEditCbse || !confirm(`Remove ${a.name}?`)) return;
+    const supabase = createClient();
+    const { error: e } = await supabase.from("student_cbse_attempts").delete().eq("id", a.id);
+    if (e) {
+      setError(e.message);
+      return;
+    }
+    setCbse((prev) => prev.filter((x) => x.id !== a.id));
   }
 
   function renderBoxes(resource: StoredResource, category: Category, topics: readonly string[]) {
@@ -193,7 +223,7 @@ export default function StudentTopicChecklist({
     );
   }
 
-  const allAssessments = [...ASSESSMENT_GROUPS.flatMap((g) => g.items), ...customCbse];
+  const allAssessments = ASSESSMENT_GROUPS.flatMap((g) => g.items);
   const assessmentsDone = allAssessments.filter((t) => completed.has(key("self_assessments", "assessment", t))).length;
 
   return (
@@ -253,14 +283,40 @@ export default function StudentTopicChecklist({
         ))}
 
         <div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">CBSE</p>
-          {customCbse.length > 0 ? (
-            renderBoxes("self_assessments", "assessment", customCbse)
-          ) : (
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+            CBSE <span className="normal-case text-slate-600">({cbse.filter((c) => c.completed).length} taken)</span>
+          </p>
+          {cbse.length === 0 ? (
             <p className="text-xs text-slate-600">No CBSE entries yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {cbse.map((c) => (
+                <div key={c.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={c.completed}
+                    disabled={!canEditCbse}
+                    onChange={() => toggleCbse(c)}
+                    className="w-4 h-4 shrink-0"
+                  />
+                  <span className={c.completed ? "text-slate-300" : "text-slate-400"}>{c.name}</span>
+                  <span className="text-xs text-slate-500">&middot; {c.taken_date}</span>
+                  {canEditCbse && (
+                    <button
+                      type="button"
+                      onClick={() => removeCbse(c)}
+                      className="text-xs text-red-400 hover:text-red-300 ml-1"
+                      aria-label={`Remove ${c.name}`}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-          {!readOnly && mentorId && (
-            <div className="flex items-center gap-2 mt-3">
+          {canEditCbse && (
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
               <input
                 type="text"
                 value={newCbse}
@@ -271,16 +327,22 @@ export default function StudentTopicChecklist({
                     addCbse();
                   }
                 }}
-                placeholder="Custom, e.g. CBSE 1"
-                className="input text-sm py-1.5 flex-1 max-w-xs"
+                placeholder="e.g. CBSE 1"
+                className="input text-sm py-1.5 w-40"
+              />
+              <input
+                type="date"
+                value={newCbseDate}
+                onChange={(e) => setNewCbseDate(e.target.value)}
+                className="input text-sm py-1.5"
               />
               <button
                 type="button"
                 onClick={addCbse}
-                disabled={adding || !newCbse.trim()}
+                disabled={adding || !newCbse.trim() || !newCbseDate}
                 className="btn-secondary text-xs"
               >
-                {adding ? "Adding..." : "Add"}
+                {adding ? "Saving..." : "Save"}
               </button>
             </div>
           )}
