@@ -21,7 +21,7 @@ export const STEP1_SUBJECTS = [
 ] as const;
 
 export const STEP1_SYSTEMS = [
-  "Behavioral Health & Nervous Systems/Special Senses",
+  "Nervous System & Special Senses",
   "Biostatistics & Epidemiology/Population Health",
   "Blood & Lymphoreticular System",
   "Cardiovascular System",
@@ -35,6 +35,9 @@ export const STEP1_SYSTEMS = [
   "Renal & Urinary System",
   "Respiratory System",
   "Social Sciences (Ethics/Legal/Communication)",
+  // Appended last on purpose: the score-report AI prompt refers to systems
+  // by their list position (#1..#14), so inserting earlier would shift them.
+  "Psychiatry",
 ] as const;
 
 export type Step1Subject = (typeof STEP1_SUBJECTS)[number];
