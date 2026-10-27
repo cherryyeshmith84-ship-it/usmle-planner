@@ -7,6 +7,7 @@ import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
 import PerformanceClient from "@/components/PerformanceClient";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
+import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 import StudentNotesEditor from "@/components/StudentNotesEditor";
 
@@ -48,6 +49,10 @@ export default async function HistoryPage() {
   // full-length exam would reveal it.
   const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
   const qbankBreakdown = computeQBankSystemBreakdown((blocksData ?? []) as UWorldBlock[]);
+
+  // Same graphs the mentor sees on the student's Analysis tab.
+  const graphReports = reports.filter((r) => r.exam_type !== "question_level") as unknown as GraphReport[];
+  const graphBlocks = (blocksData ?? []) as unknown as GraphBlock[];
 
   // Read-only view of the same Systems & Disciplines checklist a mentor
   // fills in on this student's profile page (components/
@@ -136,6 +141,12 @@ export default async function HistoryPage() {
           Upload your NBME, UWSA, Free 120, and UWorld self-assessment results to track your weak and
           strong systems over time.
         </p>
+
+        <div className="mb-8">
+          <h2 className="text-lg font-bold mb-3">Progress graphs</h2>
+          <StudentProgressGraphs reports={graphReports} blocks={graphBlocks} />
+        </div>
+
         <PerformanceClient
           userId={user.id}
           initialReports={reports}
