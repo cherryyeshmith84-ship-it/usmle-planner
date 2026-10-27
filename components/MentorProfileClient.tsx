@@ -221,7 +221,7 @@ export default function MentorProfileClient({
                     <p className="text-sm text-slate-300">&ldquo;{r.comment}&rdquo;</p>
                     <p className="text-xs text-slate-500 mt-1">
                       - {reviewerNames?.[r.student_id] || "Student"} &middot;{" "}
-                      {new Date(r.created_at).toLocaleDateString()}
+                      {r.created_at ? new Date(r.created_at).toLocaleDateString() : ""}
                     </p>
                   </div>
                 ))}
