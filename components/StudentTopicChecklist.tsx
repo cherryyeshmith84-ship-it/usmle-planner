@@ -35,6 +35,24 @@ const ASSESSMENT_GROUPS: { label: string; items: string[] }[] = [
   { label: "Free 120", items: ["Free 120 - 2021", "Free 120 - 2022", "Free 120 - 2024", "Free 120 - 2026"] },
 ];
 
+/** Works out which self-assessment checklist item an uploaded score report
+ *  belongs to (e.g. "NBME Form 32" -> "NBME 32", "Free 120 2024" ->
+ *  "Free 120 - 2024"). Returns null when it can't tell. */
+function matchAssessmentTopic(name: string, takenDate: string | null): string | null {
+  const n = name.toLowerCase();
+  let m: RegExpMatchArray | null;
+  if ((m = n.match(/cbse\D*(\d+)/))) return `__cbse:${Number(m[1])}`;
+  if ((m = n.match(/nbme\D*(\d{1,2})/))) return `NBME ${Number(m[1])}`;
+  if ((m = n.match(/uwsa\D*(\d)/)) || (m = n.match(/uworld self[- ]assessment\D*(\d)/))) return `UWSA ${m[1]}`;
+  if ((m = n.match(/mehlman\D*(\d)/))) return `Mehlman ${m[1]}`;
+  if (n.includes("amboss")) return "Amboss Self-Assessment";
+  if (/free[\s-]*120/.test(n)) {
+    const y = n.match(/(20\d\d)/)?.[1] ?? (takenDate ? takenDate.slice(0, 4) : null);
+    return y ? `Free 120 - ${y}` : null;
+  }
+  return null;
+}
+
 /**
  * "Systems & Disciplines Covered" checklist on a student's Overview tab, plus
  * a "Self Assessments" checklist (NBME 21-34, UWSA 1-3, Mehlman 1-2, Amboss,
@@ -83,6 +101,9 @@ export default function StudentTopicChecklist({
   const [newCbseDate, setNewCbseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [adding, setAdding] = useState(false);
   const canEditCbse = !readOnly || viewerId === studentId;
+  // Latest score-report percent per self-assessment item (from the Analysis
+  // uploads), keyed by checklist topic name, or "__cbse:<n>" for CBSE n.
+  const [scores, setScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +119,20 @@ export default function StudentTopicChecklist({
         .eq("student_id", studentId)
         .order("taken_date", { ascending: true });
       if (!cancelled) setCbse((data ?? []) as CbseAttempt[]);
+      const { data: reports } = await supabase
+        .from("score_reports")
+        .select("exam_name, overall_percent, taken_date")
+        .eq("user_id", studentId)
+        .order("taken_date", { ascending: true });
+      if (!cancelled) {
+        const map: Record<string, number> = {};
+        for (const r of (reports ?? []) as { exam_name: string; overall_percent: number | null; taken_date: string | null }[]) {
+          if (r.overall_percent === null || r.overall_percent === undefined) continue;
+          const topic = matchAssessmentTopic(r.exam_name ?? "", r.taken_date);
+          if (topic) map[topic] = r.overall_percent; // oldest first, so the latest wins
+        }
+        setScores(map);
+      }
     })();
     return () => {
       cancelled = true;
@@ -194,16 +229,25 @@ export default function StudentTopicChecklist({
       <div className="grid sm:grid-cols-2 gap-1.5">
         {topics.map((topic) => {
           const k = key(resource, category, topic);
+          // A self-assessment with an uploaded score report counts as taken.
+          const score = category === "assessment" ? scores[topic] : undefined;
+          const autoTaken = score !== undefined;
+          const isChecked = completed.has(k) || autoTaken;
           return (
             <label key={topic} className={`flex items-center gap-2 text-sm ${readOnly ? "" : "cursor-pointer"}`}>
               <input
                 type="checkbox"
-                checked={completed.has(k)}
-                disabled={readOnly || savingKey === k}
+                checked={isChecked}
+                disabled={readOnly || savingKey === k || autoTaken}
                 onChange={() => toggle(resource, category, topic)}
                 className="w-4 h-4 shrink-0"
               />
-              <span className={completed.has(k) ? "text-slate-300" : "text-slate-400"}>{topic}</span>
+              <span className={isChecked ? "text-slate-300" : "text-slate-400"}>{topic}</span>
+              {autoTaken && (
+                <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-brand-900/40 text-brand-300">
+                  {score}%
+                </span>
+              )}
             </label>
           );
         })}
@@ -224,7 +268,9 @@ export default function StudentTopicChecklist({
   }
 
   const allAssessments = ASSESSMENT_GROUPS.flatMap((g) => g.items);
-  const assessmentsDone = allAssessments.filter((t) => completed.has(key("self_assessments", "assessment", t))).length;
+  const assessmentsDone = allAssessments.filter(
+    (t) => completed.has(key("self_assessments", "assessment", t)) || scores[t] !== undefined
+  ).length;
 
   return (
     <div className="card space-y-5">
@@ -301,6 +347,15 @@ export default function StudentTopicChecklist({
                   />
                   <span className={c.completed ? "text-slate-300" : "text-slate-400"}>{c.name}</span>
                   <span className="text-xs text-slate-500">&middot; {c.taken_date}</span>
+                  {(() => {
+                    const num = c.name.match(/(\d+)/)?.[1];
+                    const sc = num ? scores[`__cbse:${Number(num)}`] : undefined;
+                    return sc !== undefined ? (
+                      <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-brand-900/40 text-brand-300">
+                        {sc}%
+                      </span>
+                    ) : null;
+                  })()}
                   {canEditCbse && (
                     <button
                       type="button"
