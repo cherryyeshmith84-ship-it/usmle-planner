@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -10,7 +10,6 @@ import {
   computeImmediateExamReview,
   computeSystemStrengths,
   systemTrends,
-  type AiExamReview,
   type ScoreReport,
 } from "@/lib/scoreReports";
 import { compareContentBreakdowns, systemQuestionCounts, type ContentAreaStat } from "@/lib/questionLevelReports";
@@ -75,11 +74,11 @@ function ChevronToggle({ open }: { open: boolean }) {
 }
 
 /**
- * Replaces the old plain daily-log list on the Performance page. Built
- * entirely from score_reports (NBME/UWSA/Free120/UWorld self-assessment
- * uploads, see ScoreReportUpload.tsx): current weak/strong systems, a
- * system-by-report comparison table, an AI-generated coaching note, and the
- * upload flow itself.
+ * Performance page, built entirely from score_reports (NBME/UWSA/Free120/
+ * UWorld self-assessment uploads, see ScoreReportUpload.tsx): current
+ * weak/strong systems, system-by-report comparison tables, and the upload
+ * flow itself. (The AI Exam Review and Default AI Study Plan cards were
+ * removed; a mentor-written study plan still shows when one exists.)
  */
 export default function PerformanceClient({
   userId,
@@ -89,51 +88,21 @@ export default function PerformanceClient({
 }: {
   userId: string;
   initialReports: ScoreReport[];
-  // The student's own mentor, resolved server-side (app/history/page.tsx)
-  // from an existing booked session or message thread - null if the student
-  // has no mentor relationship yet, in which case "Discuss With Mentor"
-  // routes to the mentor directory instead of a specific profile.
   myMentor?: { id: string; name: string | null } | null;
   // A mentor-authored study plan (see StudyPlanEditor.tsx / mentor_study_plans
-  // table) - when present, this fully replaces the computed "Default AI Study
-  // Plan" below. Null until a mentor writes one; disappears again if they
-  // remove it.
+  // table). Null until a mentor writes one.
   mentorStudyPlan?: { content: string; updatedAt: string; mentorName: string | null } | null;
 }) {
   const router = useRouter();
-  const [aiReview, setAiReview] = useState<AiExamReview | null>(null);
-  const [loadingSuggestion, setLoadingSuggestion] = useState(false);
-  const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // "View Report" on each history card - opens the original uploaded
-  // image_paths (already stored at upload time, never surfaced anywhere
-  // until now). The score-reports storage bucket is private, so each path
-  // needs a signed URL; those are fetched lazily on first click and cached
-  // per report id rather than re-signed every render.
   const [viewingReportId, setViewingReportId] = useState<string | null>(null);
   const [reportImageUrls, setReportImageUrls] = useState<Record<string, string[]>>({});
   const [loadingReportImages, setLoadingReportImages] = useState<string | null>(null);
-  // Maximize/minimize toggles for the three "Progress by ..." tables below -
-  // each defaults open, but with 13+ reports as columns these can get wide
-  // and tall, so a student can collapse the ones they're not looking at
-  // right now without losing their place on the page.
   const [systemTableOpen, setSystemTableOpen] = useState(true);
   const [disciplineTableOpen, setDisciplineTableOpen] = useState(true);
   const [topicTableOpen, setTopicTableOpen] = useState(true);
-  // "Progress by system" table controls - default sort matches the existing
-  // weakest-first order computeSystemStrengths already returns; the other
-  // two re-sort by how much each system's percent moved from its first to
-  // its most recent regular report (see systemDelta below), not just its
-  // rolling average, so a system that's swinging hard shows up even if its
-  // average still looks middling. expandedSystemHistory drives the
-  // click-a-system-to-see-full-history row.
   const [systemSort, setSystemSort] = useState<"weakest" | "declining" | "improving">("weakest");
   const [expandedSystemHistory, setExpandedSystemHistory] = useState<string | null>(null);
-  // Compare Exams - which two regular (non-question-level) reports to diff.
-  // Null until the student picks one explicitly, in which case the default
-  // below (previous vs. latest) is used - same pair Immediate Exam Review
-  // already compares, so Compare Exams starts out showing the same story in
-  // more detail rather than something that looks unrelated.
   const [compareAId, setCompareAId] = useState<string | null>(null);
   const [compareBId, setCompareBId] = useState<string | null>(null);
 
@@ -144,9 +113,6 @@ export default function PerformanceClient({
   const weakest = strengths.slice(0, 5);
   const strongest = [...strengths].reverse().slice(0, 3);
 
-  // Same idea as strengths/weakest/strongest above, but ranking Disciplines
-  // (Anatomy, Pathology, Pharmacology, etc.) - the other axis reports break
-  // performance down by, alongside System.
   const disciplineStrengths = useMemo(() => computeDisciplineStrengths(reports), [reports]);
   const weakestDisciplines = disciplineStrengths.slice(0, 5);
   const strongestDisciplines = [...disciplineStrengths].reverse().slice(0, 3);
@@ -155,9 +121,6 @@ export default function PerformanceClient({
     () => [...reports].sort((a, b) => (b.taken_date ?? "").localeCompare(a.taken_date ?? "")),
     [reports]
   );
-  // Question-level reports (per-question feedback PDFs) are a different
-  // kind of upload from a regular single-table score report, so they get
-  // their own list in the history section instead of being mixed in.
   const regularReports = useMemo(
     () => sortedReports.filter((r) => r.exam_type !== "question_level"),
     [sortedReports]
@@ -166,40 +129,21 @@ export default function PerformanceClient({
     () => sortedReports.filter((r) => r.exam_type === "question_level"),
     [sortedReports]
   );
-  // Same reports, oldest first - column order for the "Progress by topic"
-  // table below, matching the left-to-right convention of the other
-  // progress tables.
   const questionLevelColumns = useMemo(
     () => [...questionLevelReportsList].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")),
     [questionLevelReportsList]
   );
-  // Every REGULAR (non-question-level) report, oldest first, for the
-  // "Progress by system" table - previously this included question-level
-  // reports too and was capped to the last 8 with .slice(-8) (why only 8 of
-  // 13 submitted reports ever showed up). Question-level reports get their
-  // own separate topic-level table below instead of being mixed into this
-  // one, since a single system percent from a question-level report is a
-  // coarser rollup of the same data that table already shows per-topic.
   const comparisonReports = useMemo(
     () =>
       [...regularReports].sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? "")),
     [regularReports]
   );
-  // Row list for that same table - system strengths computed from regular
-  // reports only, so a system that only ever appeared in a question-level
-  // upload doesn't show up as an all-dashes row here.
   const regularStrengths = useMemo(() => computeSystemStrengths(regularReports), [regularReports]);
-  // Same, but for the "Progress by discipline" table below it.
   const regularDisciplineStrengths = useMemo(
     () => computeDisciplineStrengths(regularReports),
     [regularReports]
   );
 
-  // How much a system's percent moved from its first to its most recent
-  // appearance across comparisonReports (same columns the table shows) -
-  // used by the "Most declining"/"Most improving" sort options below. Null
-  // when a system has fewer than 2 data points, so it sorts as "no real
-  // movement" rather than a false zero.
   function systemDelta(system: string): number | null {
     const vals = comparisonReports
       .map((r) => r.system_breakdown?.[system])
@@ -216,9 +160,6 @@ export default function PerformanceClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regularStrengths, systemSort, comparisonReports]);
 
-  // Compare Exams - defaults to the same previous-vs-latest pair Immediate
-  // Exam Review already uses (comparisonReports is oldest-first, so [-2]/[-1]
-  // are previous/latest) until the student explicitly picks two reports.
   const compareA = useMemo(
     () => comparisonReports.find((r) => r.id === compareAId) ?? comparisonReports[comparisonReports.length - 2] ?? null,
     [comparisonReports, compareAId]
@@ -243,9 +184,6 @@ export default function PerformanceClient({
         rows.push({ category, from, to, delta: to - from });
       }
     }
-    // Biggest movers first, regardless of direction - that's the whole point
-    // of a comparison view, as opposed to the weakest-first convention used
-    // elsewhere on this page.
     return rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   }
   const compareSystemRows = useMemo(
@@ -259,11 +197,8 @@ export default function PerformanceClient({
     [compareA, compareB]
   );
 
-  // Action Center (item 15) - a short, deterministic "what to do right now"
-  // checklist built from data already on this page, not a new AI call. Each
-  // rule is independent and only fires when its condition is genuinely true,
-  // so the list shrinks to nothing (and the card disappears) once a student
-  // is caught up rather than nagging permanently.
+  // Action Center - short, deterministic "what to do right now" checklist
+  // built from data already on this page.
   interface ActionItem {
     id: string;
     text: string;
@@ -293,26 +228,15 @@ export default function PerformanceClient({
         text: "Add a discipline breakdown (Anatomy, Pathology, Pharmacology, etc.) to your next upload to unlock discipline tracking.",
       });
     }
-    if (reports.length > 0 && !mentorStudyPlan && (!aiReview || aiReview.priorityAreas.length === 0)) {
-      items.push({
-        id: "ai-review",
-        text: "Get an AI Exam Review above to generate your default study plan.",
-      });
-    }
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [immediateReview, disciplineStrengths, mentorStudyPlan, aiReview, reports, mentorHref]);
+  }, [immediateReview, disciplineStrengths, reports, mentorHref]);
 
   interface TopicRow {
     key: string;
     subtopic: string;
     percents: Record<string, number>;
   }
-  // Groups every specific topic (content_breakdown entry) across every
-  // question-level report upload, by canonical system, for a dedicated
-  // topic-level progress table - the score-reports table above only ever
-  // has one number per system, so this is the "in that subtopic there
-  // should be topics" breakdown instead.
   const questionLevelTopicGroups = useMemo(() => {
     const bySystem: Record<string, Record<string, TopicRow>> = {};
     for (const r of questionLevelReportsList) {
@@ -339,44 +263,6 @@ export default function PerformanceClient({
       });
   }, [questionLevelReportsList]);
 
-  // On load, just check whether we already have a cached suggestion for
-  // this student - this is a plain DB read, it never calls the (shared,
-  // quota-limited) Gemini API, so it's free to run automatically.
-  useEffect(() => {
-    if (reports.length === 0) return;
-    (async () => {
-      try {
-        const res = await fetch("/api/score-report/suggestions");
-        const json = await res.json();
-        if (res.ok && json.review) setAiReview(json.review);
-      } catch {
-        // Silent - the button is still there if this fails.
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function getSuggestion(force = false) {
-    setLoadingSuggestion(true);
-    setSuggestionError(null);
-    try {
-      const res = await fetch("/api/score-report/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setSuggestionError(json.error || "Couldn't generate a review.");
-      } else {
-        setAiReview(json.review);
-      }
-    } catch (e: any) {
-      setSuggestionError(e.message || "Couldn't reach the AI.");
-    }
-    setLoadingSuggestion(false);
-  }
-
   async function deleteReport(id: string) {
     if (!confirm("Delete this score report? This can't be undone.")) return;
     const supabase = createClient();
@@ -384,14 +270,6 @@ export default function PerformanceClient({
     router.refresh();
   }
 
-  /** Toggles the "View Report" panel for a card, lazily signing every
-   *  image_paths entry the first time (storage RLS only lets a student sign
-   *  URLs for their own folder, which is exactly what these paths are - see
-   *  score_reports_storage_select policy). Rendered as real <a> links
-   *  (opened one at a time by the student's own click) rather than
-   *  window.open() from the async callback, since the async gap between
-   *  fetching the signed URLs and having them ready breaks the "triggered by
-   *  a user gesture" window popup blockers require. */
   async function toggleViewReport(r: ScoreReport) {
     if (viewingReportId === r.id) {
       setViewingReportId(null);
@@ -409,15 +287,6 @@ export default function PerformanceClient({
     setLoadingReportImages(null);
   }
 
-  /**
-   * Renders one report card (used for both the regular score-report list
-   * and the separate question-level-report list below it). For
-   * question-level reports, shows BOTH specific weak topics (any exact
-   * content-description with at least one wrong answer) and specific
-   * strong topics (every question on that exact topic answered correctly)
-   * - each row already names the system it's under, so a weak system can
-   * be traced down to the exact question topic causing it.
-   */
   function renderReportCard(r: ScoreReport) {
     const expanded = expandedId === r.id;
     const viewingReport = viewingReportId === r.id;
@@ -499,11 +368,6 @@ export default function PerformanceClient({
                   <p className="text-xs text-slate-500">No per-system breakdown saved for this one.</p>
                 ) : (
                   (() => {
-                    // Only a question-level report has raw per-question
-                    // counts behind its system percentages - a regular
-                    // NBME/UWSA image upload only ever stores the percent
-                    // itself, so questionCounts is empty for those and the
-                    // count badge just doesn't render.
                     const questionCounts =
                       r.exam_type === "question_level" && r.content_breakdown
                         ? systemQuestionCounts(r.content_breakdown)
@@ -550,11 +414,6 @@ export default function PerformanceClient({
               (() => {
                 const entries = Object.entries(r.content_breakdown) as [string, ContentAreaStat][];
                 const sortedByPercent = [...entries].sort((a, b) => a[1].percent - b[1].percent);
-                // "Weak" = at least one question missed on this exact topic;
-                // "strong" = every question filed under this exact topic was
-                // correct. Most content-description rows only have 1-2
-                // questions behind them, so in practice this reads close to
-                // a per-question right/wrong list, not just a broad average.
                 const weakTopics = sortedByPercent.filter(([, s]) => s.percent < 100);
                 const strongTopics = [...sortedByPercent].reverse().filter(([, s]) => s.percent === 100);
                 const prev = previousQuestionLevelReport(reports, r);
@@ -664,19 +523,9 @@ export default function PerformanceClient({
         </div>
       ) : (
         <>
-          {/* Mentor Status banner (bonus) - only meaningful once the student
-              has both a mentor relationship and at least one regular
-              report; review status is written exclusively by
-              mentor_mark_report_reviewed() from the mentor's own student-
-              progress page (see MentorReviewButton.tsx), never by the
-              student's own client. */}
           {myMentor && immediateReview && (
             <div
               className="card flex items-center justify-between gap-3 flex-wrap"
-              // Inline style, not a Tailwind border-* class - .card's own
-              // `border` shorthand rule (globals.css) is emitted after the
-              // Tailwind utilities layer in this file, so a utility class
-              // would silently lose the cascade; an inline style always wins.
               style={{ borderColor: immediateReview.latest.mentor_reviewed_at ? "#14532d" : "#78350f" }}
             >
               <p className="text-xs text-slate-300">
@@ -698,8 +547,6 @@ export default function PerformanceClient({
             </div>
           )}
 
-          {/* Action Center - short, rule-based "what to do now" checklist;
-              see actionItems above for exactly what triggers each row. */}
           {actionItems.length > 0 && (
             <div className="card">
               <p className="text-sm font-semibold mb-2">Action Center</p>
@@ -718,11 +565,6 @@ export default function PerformanceClient({
             </div>
           )}
 
-          {/* Immediate Exam Review - deterministic, no AI call, so it's ready
-              the instant a report is saved instead of waiting on anything.
-              Always about the single most recent regular (non-question-
-              level) report, which is why it sits above every other section -
-              a student should be able to read this in about 30 seconds. */}
           {immediateReview && (
             <div className="card">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
@@ -780,122 +622,29 @@ export default function PerformanceClient({
             </div>
           )}
 
-          {/* AI Exam Review - structured bullets instead of a paragraph (see
-              AiExamReview in lib/scoreReports.ts). Sits right below the
-              Immediate Exam Review, above every table, matching the intended
-              upload -> AI processing -> immediate review -> AI review flow. */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold">AI Exam Review</p>
-              <button
-                type="button"
-                onClick={() => getSuggestion(!!aiReview)}
-                disabled={loadingSuggestion}
-                className="btn-secondary text-xs"
-              >
-                {loadingSuggestion ? "Thinking..." : aiReview ? "Refresh" : "Get AI review"}
-              </button>
-            </div>
-            {suggestionError && <p className="text-xs text-red-400 mb-2">{suggestionError}</p>}
-            {aiReview ? (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  {aiReview.bullets.map((b, i) => (
-                    <p key={i} className={`text-sm flex items-start gap-2 ${b.positive ? "text-slate-300" : "text-slate-300"}`}>
-                      <span className={`shrink-0 ${b.positive ? "text-green-400" : "text-amber-400"}`}>
-                        {b.positive ? "✓" : "⚠"}
-                      </span>
-                      {b.text}
-                    </p>
-                  ))}
-                </div>
-                {aiReview.priorityAreas.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Priority Areas</p>
-                    <ol className="text-sm text-slate-300 list-decimal list-inside space-y-0.5">
-                      {aiReview.priorityAreas.map((area) => (
-                        <li key={area}>{area}</li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-                {aiReview.estimatedHours && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                      Estimated study requirement
-                    </p>
-                    <p className="text-sm text-slate-300">{aiReview.estimatedHours}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              !suggestionError && (
-                <p className="text-xs text-slate-500">
-                  Generates a quick read on what's going well and what to prioritize, based on your score
-                  history. Reused automatically until you add a new report or hit Refresh, so it doesn't
-                  burn through the shared AI quota.
-                </p>
-              )
-            )}
-          </div>
-
-          {/* Study Plan - a mentor-authored plan (mentorStudyPlan) always
-              wins when one exists; otherwise this is computed on the fly
-              from the AI Exam Review above (no separate AI call/schema
-              needed for the default case - see mentorStudyPlan prop doc). */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-sm font-semibold">
-                {mentorStudyPlan ? "Study Plan" : "Default AI Study Plan"}
-              </p>
-              {mentorStudyPlan && (
+          {/* Mentor-written study plan - only shown when a mentor has
+              written one (the AI Exam Review and Default AI Study Plan
+              cards were removed). */}
+          {mentorStudyPlan && (
+            <div className="card">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold">Study Plan</p>
                 <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-brand-900/40 text-brand-300">
                   From {mentorStudyPlan.mentorName ?? "your mentor"}
                 </span>
-              )}
-            </div>
-            {mentorStudyPlan ? (
-              <>
-                <p className="text-sm text-slate-300 whitespace-pre-wrap">{mentorStudyPlan.content}</p>
-                <p className="text-xs text-slate-500 mt-2">
-                  Last updated {new Date(mentorStudyPlan.updatedAt).toLocaleDateString()}
-                </p>
-              </>
-            ) : aiReview && aiReview.priorityAreas.length > 0 ? (
-              <>
-                <p className="text-xs text-slate-500 mb-2">
-                  Generated from your AI Exam Review above - a mentor can replace this with their own plan
-                  any time.
-                </p>
-                <ol className="text-sm text-slate-300 list-decimal list-inside space-y-0.5">
-                  {aiReview.priorityAreas.map((area) => (
-                    <li key={area}>{area}</li>
-                  ))}
-                </ol>
-                {aiReview.estimatedHours && (
-                  <p className="text-xs text-slate-500 mt-2">Estimated total: {aiReview.estimatedHours}</p>
-                )}
-              </>
-            ) : (
-              <p className="text-xs text-slate-500">
-                Get an AI Exam Review above to generate your default study plan here.
+              </div>
+              <p className="text-sm text-slate-300 whitespace-pre-wrap">{mentorStudyPlan.content}</p>
+              <p className="text-xs text-slate-500 mt-2">
+                Last updated {new Date(mentorStudyPlan.updatedAt).toLocaleDateString()}
               </p>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Mentor Recommendation - what makes this different from a plain
-              analytics page: nudges the student to loop a mentor in on this
-              exact report before diving into the next study block, instead
-              of just leaving them alone with the numbers above. Routes to
-              the student's own mentor (myMentor, resolved server-side from
-              an existing booked session or message thread) if one exists,
-              otherwise to the mentor directory to find one. */}
           <div className="card">
             <p className="text-sm font-semibold mb-1">Mentor Recommendation</p>
             <p className="text-xs text-slate-400 mb-3">
-              Your AI analysis has generated a default study recommendation. Before starting your next
-              study block, discuss this report with your mentor - they can help turn these numbers into a
-              concrete plan.
+              Before starting your next study block, discuss this report with your mentor - they can
+              help turn these numbers into a concrete plan.
             </p>
             <a
               href={myMentor ? `/mentorship/mentor/${myMentor.id}` : "/mentorship"}
@@ -915,12 +664,6 @@ export default function PerformanceClient({
                       <span className="text-xs text-slate-300 truncate">{s.system}</span>
                       <span className={`text-xs ${TREND_CLASS[s.trend]}`}>{TREND_LABEL[s.trend]}</span>
                     </div>
-                    {/* Row detail - Last Exam / Average / Target %, so a
-                        student can see at a glance whether a system is
-                        already close to goal or still far off, not just its
-                        rolling average. Target is a fixed 70% default (see
-                        SYSTEM_TARGET_PERCENT) - there's no per-student
-                        customizable goal yet. */}
                     <div className="flex items-center gap-3 text-xs text-slate-500">
                       <span>
                         Last{" "}
@@ -1005,12 +748,6 @@ export default function PerformanceClient({
               <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <p className="text-sm font-semibold">Progress by system</p>
                 <div className="flex items-center gap-2">
-                  {/* Sort control - "Weakest first" is the existing default
-                      order computeSystemStrengths already returns; the other
-                      two re-rank by systemDelta (first-vs-last percent
-                      across the columns shown), so a system swinging hard in
-                      either direction surfaces even if its average looks
-                      middling. */}
                   <select
                     value={systemSort}
                     onChange={(e) => setSystemSort(e.target.value as typeof systemSort)}
@@ -1073,12 +810,6 @@ export default function PerformanceClient({
                               );
                             })}
                           </tr>
-                          {/* Click-a-system full history - every trend point
-                              ever recorded for this system (not just the
-                              regular-report columns above), each with its
-                              delta vs. the point before it, for a student
-                              who wants the whole story on one system instead
-                              of scanning across the wide table. */}
                           {historyOpen && (
                             <tr className="border-t border-slate-900 bg-slate-900/30">
                               <td colSpan={comparisonReports.length + 1} className="px-3 py-2">
@@ -1180,10 +911,6 @@ export default function PerformanceClient({
             </div>
           )}
 
-          {/* Compare Exams - pick any two regular reports and see every
-              system/discipline that moved between them, biggest movers
-              first. Defaults to previous-vs-latest (same pair Immediate
-              Exam Review uses) until the student picks their own. */}
           {comparisonReports.length > 1 && compareA && compareB && (
             <div className="card">
               <p className="text-sm font-semibold mb-3">Compare Exams</p>
@@ -1263,12 +990,6 @@ export default function PerformanceClient({
             </div>
           )}
 
-          {/* Score Report History - moved ahead of the question-level
-              tables below (Progress by topic / Question-level report
-              history) so the page order matches the intended flow: ...
-              Compare Exams -> Score Report History -> Question-Level
-              Analysis, rather than interleaving the two question-level
-              pieces around it. */}
           <div className="space-y-2">
             <p className="text-sm font-semibold">Score report history</p>
             {regularReports.length === 0 ? (
@@ -1278,12 +999,6 @@ export default function PerformanceClient({
             )}
           </div>
 
-          {/* Question-Level Analysis - the topic-level progress table and
-              the individual question-level report history now sit together
-              as one final section, matching the flow diagram's last step.
-              Reports here can only ever come from before the upload path
-              was removed - there's no way to add a new one anymore, but
-              existing ones still display normally. */}
           {questionLevelColumns.length > 0 && (
             <div className="card overflow-x-auto">
               <div className="flex items-center justify-between mb-1">
@@ -1358,7 +1073,6 @@ export default function PerformanceClient({
               questionLevelReportsList.map((r) => renderReportCard(r))
             )}
           </div>
-
         </>
       )}
     </div>
