@@ -121,6 +121,14 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
   const reviews = (feedbackData ?? []) as SessionFeedback[];
   const avgRating = averageRating(reviews);
 
+  // Reviewer names, via a security-definer RPC (mentor_review_names) since
+  // students can't normally read other students' profiles.
+  const { data: nameRows } = await supabase.rpc("mentor_review_names", { p_mentor_id: mentor.id });
+  const reviewerNames: Record<string, string> = {};
+  for (const n of (nameRows ?? []) as { student_id: string; full_name: string | null }[]) {
+    if (n.full_name) reviewerNames[n.student_id] = n.full_name;
+  }
+
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 w-full">
@@ -132,6 +140,7 @@ export default async function MentorProfilePage({ params }: { params: { mentorId
           currentUserId={user.id}
           avgRating={avgRating}
           reviews={reviews}
+          reviewerNames={reviewerNames}
           isExistingStudent={isExistingStudent}
           meetingLink={meetingLink}
         />
