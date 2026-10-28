@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { EXAM_TYPE_LABEL, type ScoreReport } from "@/lib/scoreReports";
 import { systemQuestionCounts } from "@/lib/questionLevelReports";
 import MentorReviewButton from "./MentorReviewButton";
+import ScoreReportEditForm from "./ScoreReportEditForm";
 
 function scoreBadgeClass(pct: number | null) {
   if (pct === null) return "bg-slate-800 text-slate-300";
@@ -24,11 +25,13 @@ function scoreBadgeClass(pct: number | null) {
  * can sign their own files), and the review-status control
  * (MentorReviewButton). Deliberately has no Delete button - unlike the
  * student's own equivalent card in PerformanceClient.tsx, a mentor should
- * never be able to remove a student's data.
+ * never be able to remove a student's data. Admins (canEdit) additionally
+ * get an Edit button to correct a report's name, date and percentages.
  */
 export default function MentorScoreReportRow({
   report,
   canReview,
+  canEdit = false,
 }: {
   report: ScoreReport;
   // False for an admin viewing this page without an actual mentor
@@ -36,8 +39,11 @@ export default function MentorScoreReportRow({
   // reject their write anyway (is_mentor_of_student check), so the control
   // is hidden rather than shown just to error out on click.
   canReview: boolean;
+  // True only for admins (RLS lets admins update any score report).
+  canEdit?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [viewingReport, setViewingReport] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[] | null>(null);
   const [loadingImages, setLoadingImages] = useState(false);
@@ -84,8 +90,19 @@ export default function MentorScoreReportRow({
               {viewingReport ? "Hide report" : "View Report"}
             </button>
           )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setEditing((v) => !v)}
+              className="text-xs text-brand-400 hover:text-brand-300 font-medium"
+            >
+              {editing ? "Close edit" : "Edit"}
+            </button>
+          )}
         </div>
       </div>
+
+      {canEdit && editing && <ScoreReportEditForm report={report} onClose={() => setEditing(false)} />}
 
       {/* Review status - only the signed-in mentor's own relationship can
           write this (mentor_mark_report_reviewed checks is_mentor_of_student
