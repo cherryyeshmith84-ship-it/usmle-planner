@@ -15,6 +15,7 @@ import {
 import { compareContentBreakdowns, systemQuestionCounts, type ContentAreaStat } from "@/lib/questionLevelReports";
 import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import ScoreReportUpload from "./ScoreReportUpload";
+import ScoreReportEditForm from "./ScoreReportEditForm";
 
 /** Finds the most recent OTHER question-level report before this one (by
  *  taken_date), for the "vs. your last question-level upload" comparison -
@@ -95,6 +96,7 @@ export default function PerformanceClient({
 }) {
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingReportId, setViewingReportId] = useState<string | null>(null);
   const [reportImageUrls, setReportImageUrls] = useState<Record<string, string[]>>({});
   const [loadingReportImages, setLoadingReportImages] = useState<string | null>(null);
@@ -326,6 +328,13 @@ export default function PerformanceClient({
             </button>
             <button
               type="button"
+              onClick={() => setEditingId(editingId === r.id ? null : r.id)}
+              className="text-xs text-brand-400 hover:text-brand-300 font-medium"
+            >
+              {editingId === r.id ? "Close edit" : "Edit"}
+            </button>
+            <button
+              type="button"
               onClick={() => deleteReport(r.id)}
               className="text-xs text-red-400 hover:text-red-300"
             >
@@ -333,6 +342,7 @@ export default function PerformanceClient({
             </button>
           </div>
         </div>
+        {editingId === r.id && <ScoreReportEditForm report={r} onClose={() => setEditingId(null)} />}
         {viewingReport && (
           <div className="mt-3 pt-3 border-t border-slate-800">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
