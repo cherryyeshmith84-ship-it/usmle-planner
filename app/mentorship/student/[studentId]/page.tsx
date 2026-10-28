@@ -14,7 +14,6 @@ import type { PlanTask } from "@/lib/planTasks";
 import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
-import StudyPlanEditor from "@/components/StudyPlanEditor";
 import MeetingLinkEditor from "@/components/MeetingLinkEditor";
 import StudentNotesEditor from "@/components/StudentNotesEditor";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
@@ -541,19 +540,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
         <QBankSystemBreakdown cells={qbankBreakdown} />
       </div>
-
-      {canEdit && (
-        <div>
-          <h2 className="text-lg font-bold mb-3">Study plan</h2>
-          <StudyPlanEditor
-            studentId={params.studentId}
-            mentorId={myMentorRecord!.id}
-            currentUserId={user.id}
-            initialContent={studyPlan?.content ?? null}
-            initialUpdatedAt={studyPlan?.updated_at ?? null}
-          />
-        </div>
-      )}
 
       {scoreReports.length > 0 && (
         <div>
