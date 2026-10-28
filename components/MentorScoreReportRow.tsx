@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { EXAM_TYPE_LABEL, type ScoreReport } from "@/lib/scoreReports";
 import { systemQuestionCounts } from "@/lib/questionLevelReports";
@@ -44,9 +45,25 @@ export default function MentorScoreReportRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
   const [viewingReport, setViewingReport] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[] | null>(null);
   const [loadingImages, setLoadingImages] = useState(false);
+
+  async function deleteReport() {
+    if (!canEdit) return;
+    if (!confirm(`Delete "${report.exam_name}"? This can't be undone.`)) return;
+    setDeleting(true);
+    const supabase = createClient();
+    const { error } = await supabase.from("score_reports").delete().eq("id", report.id);
+    setDeleting(false);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    router.refresh();
+  }
 
   async function toggleViewReport() {
     if (viewingReport) {
@@ -97,6 +114,16 @@ export default function MentorScoreReportRow({
               className="text-xs text-brand-400 hover:text-brand-300 font-medium"
             >
               {editing ? "Close edit" : "Edit"}
+            </button>
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={deleteReport}
+              disabled={deleting}
+              className="text-xs text-red-400 hover:text-red-300"
+            >
+              {deleting ? "Deleting..." : "Delete"}
             </button>
           )}
         </div>
