@@ -560,7 +560,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
           <h2 className="text-lg font-bold mb-3">Score reports</h2>
           <div className="space-y-2">
             {scoreReports.map((r) => (
-              <MentorScoreReportRow key={r.id} report={r} canReview={canEdit} />
+              <MentorScoreReportRow key={r.id} report={r} canReview={canEdit} canEdit={isAdmin} />
             ))}
           </div>
         </div>
