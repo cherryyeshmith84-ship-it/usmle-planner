@@ -15,36 +15,22 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://master-grid.vercel
  * website-popup half is Planner9pmPopup.tsx + /api/planner/today-status.
  * Triggered every 15 minutes by the GitHub Actions workflow (not Vercel's
  * own Cron Jobs - see planner-evening-reminder/route.ts's doc comment on
- * the Hobby-plan 2-cron cap), so it can catch each student's own local 9pm
- * as it rolls around the world, not just one fixed moment in Eastern Time.
+ * the Hobby-plan 2-cron cap), so it can catch each student's own local
+ * 9:30 PM as it rolls around the world, not just one fixed moment in
+ * Eastern Time.
  *
- * For each onboarded, non-admin student: figure out what hour it currently
+ * For each onboarded, non-admin student: figure out what time it currently
  * is in THEIR stored profiles.timezone (see TimezoneSync.tsx - falls back
  * to Eastern Time if a student's browser has never reported in yet), skip
- * unless it's currently their 9 o'clock hour (21:00-21:59 local), then skip
- * again if they've already been reminded today. "Today" for the dedup
- * marker is deliberately the shared Eastern-calendar-date
- * (easternDateStringNow()), not each student's own local date - simpler
- * than tracking a separate "last reminded" date per timezone, and the only
- * practical effect is a student whose local day rolls over near the
- * Eastern-Time midnight could in rare cases go two calendar days without a
- * reminder around that boundary, which is an acceptable trade for not
- * needing per-timezone dedup bookkeeping.
+ * unless it's currently between 9:30 PM and 10:30 PM local (the window is
+ * an hour wide so a delayed GitHub Actions tick can't make us miss it),
+ * then skip again if they've already been reminded today. "Today" for the
+ * dedup marker is deliberately the shared Eastern-calendar-date
+ * (easternDateStringNow()), not each student's own local date.
  *
- * Supersedes the old fixed-9:30pm-ET evening reminder
- * (planner-evening-reminder/route.ts - no longer triggered by the GitHub
- * Actions workflow, see planner-reminders.yml) and broadens its audience:
- * that one only reminded students a mentor had assigned a planner to (a
- * student_planner_settings row); this one reminds every onboarded student
- * with any Assignments due today, whether their plan came from a mentor or
- * their own Personal Plan.
- *
- * Only nags a student who has touched NONE of today's Assignments by 9pm -
+ * Only nags a student who has touched NONE of today's Assignments by then -
  * any progress at all (even 1 of several checked off) counts as "updated"
- * and skips the email, same as a fully completed day. This is deliberately
- * more lenient than the in-app "Completed" badge (which still requires
- * every Assignment plus the journal fields), so a student who's partway
- * through their day isn't nagged for not having finished everything.
+ * and skips the email, same as a fully completed day.
  */
 
 function isAuthorized(req: NextRequest): boolean {
@@ -56,11 +42,10 @@ function isAuthorized(req: NextRequest): boolean {
   return querySecret === expected;
 }
 
-/** Current local date ("YYYY-MM-DD") and hour (0-23) in an arbitrary IANA
- *  timezone string. Returns null for an invalid/unrecognized zone (e.g. a
- *  corrupted value) rather than throwing, so one bad profile row can't take
- *  down the whole run. */
-function localDateAndHour(timeZone: string): { date: string; hour: number } | null {
+/** Current local date ("YYYY-MM-DD") and minutes-since-midnight (0-1439) in
+ *  an arbitrary IANA timezone string. Returns null for an invalid/unrecognized
+ *  zone rather than throwing, so one bad profile row can't take down the run. */
+function localDateAndMinutes(timeZone: string): { date: string; minutes: number } | null {
   try {
     const dateFmt = new Intl.DateTimeFormat("en-CA", {
       timeZone,
@@ -68,10 +53,18 @@ function localDateAndHour(timeZone: string): { date: string; hour: number } | nu
       month: "2-digit",
       day: "2-digit",
     });
-    const hourFmt = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false });
-    const date = dateFmt.format(new Date());
-    const hourRaw = Number(hourFmt.format(new Date()));
-    return { date, hour: hourRaw === 24 ? 0 : hourRaw };
+    const timeFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const now = new Date();
+    const date = dateFmt.format(now);
+    const parts = timeFmt.formatToParts(now);
+    const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+    const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+    return { date, minutes: h * 60 + m };
   } catch {
     return null;
   }
@@ -89,14 +82,16 @@ async function sendReminderEmail(to: string, firstName: string): Promise<boolean
     body: JSON.stringify({
       from,
       to,
-      subject: "It's 9 PM - update today's planner",
+      subject: "You've got this - a quick planner update before bed",
       html: `
         <div style="font-family: -apple-system, Segoe UI, Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
           <p>Hi ${firstName},</p>
-          <p>It's 9 PM your time, and today's row on your Master Grid planner hasn't been touched yet.
-            Take a minute to check off your Assignments and fill in anything else that's needed
-            before the day closes out.</p>
-          <p><a href="${plannerUrl}">Open your planner &#8594;</a></p>
+          <p>Every day you show up is a day closer to your goal - and we're proud of you for putting in the work.</p>
+          <p>We noticed today's planner hasn't been updated yet. It only takes a minute: tick off what you
+            finished today, even if it wasn't everything. Small, steady progress is what wins this exam,
+            and keeping your planner current lets your mentor cheer you on and help you adjust.</p>
+          <p><a href="${plannerUrl}">Update my planner &#8594;</a></p>
+          <p>Rest well tonight - you're doing better than you think.</p>
           <p>- Master Grid</p>
         </div>
       `,
@@ -136,9 +131,12 @@ async function runReminders() {
   for (const student of students) {
     if (!student.email) continue;
 
-    const local = localDateAndHour(student.timezone || EASTERN_TZ);
+    const local = localDateAndMinutes(student.timezone || EASTERN_TZ);
     if (!local) continue;
-    if (local.hour !== 21) continue; // not this student's 9pm hour right now
+    // 9:30 PM - 10:30 PM local. The window is an hour wide so a late
+    // GitHub Actions tick can't make us skip a student entirely; the
+    // per-day marker below stops repeats.
+    if (local.minutes < 21 * 60 + 30 || local.minutes >= 22 * 60 + 30) continue;
     checked++;
 
     if (student.last_9pm_reminder_date === easternToday) continue; // already evaluated today
@@ -170,10 +168,8 @@ async function runReminders() {
 
     if (status.assignmentsTotal === 0 || status.assignmentsCompleted > 0) {
       // Nothing to nag about - either no Assignments were due today, or
-      // the student has made at least some progress (a partial update is
-      // enough to skip the reminder, not just a fully "Completed" day).
-      // Still mark the dedup date so this student isn't re-evaluated again
-      // on the next 15-minute tick within the same local 9pm hour.
+      // the student has made at least some progress. Still mark the dedup
+      // date so this student isn't re-evaluated on every later tick.
       await supabase.from("profiles").update({ last_9pm_reminder_date: easternToday }).eq("id", student.id);
       continue;
     }
