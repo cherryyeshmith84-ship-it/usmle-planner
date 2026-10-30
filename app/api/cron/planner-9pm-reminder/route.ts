@@ -22,9 +22,9 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://master-grid.vercel
  * For each onboarded, non-admin student: figure out what time it currently
  * is in THEIR stored profiles.timezone (see TimezoneSync.tsx - falls back
  * to Eastern Time if a student's browser has never reported in yet), skip
- * unless it's currently between 9:30 PM and 10:30 PM local (the window is
- * an hour wide so a delayed GitHub Actions tick can't make us miss it),
- * then skip again if they've already been reminded today. "Today" for the
+ * unless it's currently between 9:30 PM and midnight local (a wide window,
+ * because GitHub Actions ticks can be hours apart), then skip again if
+ * they've already been reminded today. "Today" for the
  * dedup marker is deliberately the shared Eastern-calendar-date
  * (easternDateStringNow()), not each student's own local date.
  *
@@ -133,10 +133,11 @@ async function runReminders() {
 
     const local = localDateAndMinutes(student.timezone || EASTERN_TZ);
     if (!local) continue;
-    // 9:30 PM - 10:30 PM local. The window is an hour wide so a late
-    // GitHub Actions tick can't make us skip a student entirely; the
-    // per-day marker below stops repeats.
-    if (local.minutes < 21 * 60 + 30 || local.minutes >= 22 * 60 + 30) continue;
+    // 9:30 PM - 11:59 PM local. GitHub Actions' "every 15 minutes" schedule
+    // is only best-effort and often runs just every 1-3 hours, so a narrow
+    // window made it miss whole time zones. This wider window catches the
+    // next run after 9:30 PM; the per-day marker below stops repeats.
+    if (local.minutes < 21 * 60 + 30) continue;
     checked++;
 
     if (student.last_9pm_reminder_date === easternToday) continue; // already evaluated today
