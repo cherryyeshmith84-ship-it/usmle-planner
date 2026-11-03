@@ -1,47 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Small reusable image-upload control - originally built for the Self
- * Assessment and Question Bank admin forms (uploading to the
- * "question-images" bucket), now also reused by UWorldBlockTracker.tsx to
- * let a student attach a screenshot of their block % result (uploading to
- * the separate "block-screenshots" bucket instead - see migration
- * add_block_screenshots). The `bucket` and `folder` props are what make
- * that reuse possible without duplicating this component: `bucket` picks
- * which Storage bucket the file goes to, and `folder` (when given) prefixes
- * the random filename with a path segment - for block screenshots this is
- * the student's own user id, which is what the bucket's RLS policies check
- * to decide who's allowed to read/write it.
+ * Small reusable image-upload control (question forms, planner screenshots).
+ * Uploads to the "question-images" Supabase Storage bucket and stores the
+ * public URL via onChange.
  *
- * `readOnly` renders the image (if any) with no file input and no "Remove"
- * button - used when someone who can only VIEW this field (a mentor,
- * admin, or viewer looking at a student's page) shouldn't see edit
- * controls they have no permission to use anyway.
- *
- * Existing callers that don't pass `bucket`/`folder`/`readOnly` keep their
- * old behavior exactly (question-images bucket, no folder prefix, always
- * editable).
+ * Clicking the thumbnail opens a full-screen viewer showing the image at its
+ * actual size (scrollable if larger than the screen) with a Close button.
+ * Esc or clicking the dark background also closes it.
  */
 export default function ImageUploadField({
   label,
   value,
   onChange,
-  bucket = "question-images",
-  folder,
-  readOnly = false,
 }: {
   label: string;
   value: string | null | undefined;
   onChange: (url: string | null) => void;
-  bucket?: string;
-  folder?: string;
-  readOnly?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [zoomed, setZoomed] = useState(false);
+
+  useEffect(() => {
+    if (!zoomed) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setZoomed(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomed]);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -56,10 +47,11 @@ export default function ImageUploadField({
     setError(null);
     const supabase = createClient();
     const ext = file.name.split(".").pop() || "png";
-    const filename = `${crypto.randomUUID()}.${ext}`;
-    const path = folder ? `${folder}/${filename}` : filename;
+    const path = `${crypto.randomUUID()}.${ext}`;
 
-    const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: false });
+    const { error: uploadError } = await supabase.storage
+      .from("question-images")
+      .upload(path, file, { upsert: false });
 
     if (uploadError) {
       setUploading(false);
@@ -67,7 +59,7 @@ export default function ImageUploadField({
       return;
     }
 
-    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+    const { data } = supabase.storage.from("question-images").getPublicUrl(path);
     setUploading(false);
     onChange(data.publicUrl);
   }
@@ -78,21 +70,30 @@ export default function ImageUploadField({
       {value ? (
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt="" className="max-h-56 rounded-lg border border-slate-700 mb-1" />
-          {!readOnly && (
-            <div>
-              <button
-                type="button"
-                onClick={() => onChange(null)}
-                className="text-xs text-red-400 hover:text-red-300"
-              >
-                Remove image
-              </button>
-            </div>
-          )}
+          <img
+            src={value}
+            alt="Screenshot - click to enlarge"
+            title="Click to view full size"
+            onClick={() => setZoomed(true)}
+            className="max-h-56 rounded-lg border border-slate-700 mb-1 cursor-zoom-in"
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setZoomed(true)}
+              className="text-xs text-brand-400 hover:underline"
+            >
+              View full size
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="text-xs text-red-400 hover:text-red-300"
+            >
+              Remove image
+            </button>
+          </div>
         </div>
-      ) : readOnly ? (
-        <p className="text-xs text-slate-500">No image uploaded.</p>
       ) : (
         <input
           type="file"
@@ -104,6 +105,32 @@ export default function ImageUploadField({
       )}
       {uploading && <p className="text-xs text-slate-400 mt-1">Uploading...</p>}
       {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+
+      {zoomed && value && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/85 overflow-auto"
+          onClick={() => setZoomed(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            onClick={() => setZoomed(false)}
+            className="fixed top-4 right-4 z-[110] rounded-lg bg-white text-slate-900 font-semibold text-sm px-4 py-2 shadow-lg hover:bg-slate-200"
+          >
+            ✕ Close
+          </button>
+          <div className="min-h-full min-w-full flex items-center justify-center p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={value}
+              alt="Full size screenshot"
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: "none", width: "auto", height: "auto" }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
