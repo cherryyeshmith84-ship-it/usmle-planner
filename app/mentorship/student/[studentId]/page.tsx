@@ -21,6 +21,7 @@ import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import SelfAssignedTasksToggle from "@/components/SelfAssignedTasksToggle";
 import PlannerCalendar from "@/components/PlannerCalendar";
 import MentorChatPanel from "@/components/MentorChatPanel";
+import MentorTeamCard from "@/components/MentorTeamCard";
 import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
@@ -399,6 +400,7 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const studyPlannerContent = (
     <div className="space-y-8">
+      <MentorTeamCard studentId={params.studentId} canManage={isAdmin} />
       {isAdmin && !canEdit && (
         <div className="card text-sm space-y-1">
           {adminPlannerEdit ? (
