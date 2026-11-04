@@ -1,4 +1,5 @@
 const ISSUES: { key: string; label: string }[] = [
+  { key: "no_issue", label: "No issue" },
   { key: "distraction", label: "Distraction" },
   { key: "fatigue", label: "Fatigue" },
   { key: "didnt_understand", label: "Didn't understand concepts" },
@@ -7,14 +8,6 @@ const ISSUES: { key: string; label: string }[] = [
   { key: "time_management", label: "Time management" },
 ];
 
-/**
- * "Study Issues" (Study Planner v1 item 10) - single-select, so a mentor
- * can immediately see what happened without reading a paragraph. Stored as
- * plain text in planner_entries.field_values.study_issue, same save flow
- * as the rest of the grid (via setCellValue passed down from
- * PlannerGridClient). Already readable by the student's mentor via the
- * existing "Mentor views related student's planner entries" RLS policy.
- */
 export default function StudyIssueSelector({
   value,
   onChange,
