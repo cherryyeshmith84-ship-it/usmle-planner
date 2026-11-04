@@ -4,22 +4,32 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Small reusable image-upload control (question forms, planner screenshots).
- * Uploads to the "question-images" Supabase Storage bucket and stores the
- * public URL via onChange.
+ * Small reusable image-upload control - originally built for the Self
+ * Assessment and Question Bank admin forms (uploading to the
+ * "question-images" bucket), also reused by UWorldBlockTracker.tsx for block
+ * screenshots ("block-screenshots" bucket) and by onboarding for photos.
+ * `bucket` picks the Storage bucket, `folder` prefixes the filename with a
+ * path segment (the student's user id for block screenshots), and
+ * `readOnly` hides the file input and Remove button for viewers.
  *
- * Clicking the thumbnail opens a full-screen viewer showing the image at its
- * actual size (scrollable if larger than the screen) with a Close button.
- * Esc or clicking the dark background also closes it.
+ * Clicking the image (or "View full size") opens a full-screen viewer at the
+ * image's actual size (scrollable if larger than the screen) with a Close
+ * button. Esc or clicking the dark background also closes it.
  */
 export default function ImageUploadField({
   label,
   value,
   onChange,
+  bucket = "question-images",
+  folder,
+  readOnly = false,
 }: {
   label: string;
   value: string | null | undefined;
   onChange: (url: string | null) => void;
+  bucket?: string;
+  folder?: string;
+  readOnly?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,11 +57,10 @@ export default function ImageUploadField({
     setError(null);
     const supabase = createClient();
     const ext = file.name.split(".").pop() || "png";
-    const path = `${crypto.randomUUID()}.${ext}`;
+    const filename = `${crypto.randomUUID()}.${ext}`;
+    const path = folder ? `${folder}/${filename}` : filename;
 
-    const { error: uploadError } = await supabase.storage
-      .from("question-images")
-      .upload(path, file, { upsert: false });
+    const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: false });
 
     if (uploadError) {
       setUploading(false);
@@ -59,7 +68,7 @@ export default function ImageUploadField({
       return;
     }
 
-    const { data } = supabase.storage.from("question-images").getPublicUrl(path);
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
     setUploading(false);
     onChange(data.publicUrl);
   }
@@ -72,7 +81,7 @@ export default function ImageUploadField({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={value}
-            alt="Screenshot - click to enlarge"
+            alt="Click to view full size"
             title="Click to view full size"
             onClick={() => setZoomed(true)}
             className="max-h-56 rounded-lg border border-slate-700 mb-1 cursor-zoom-in"
@@ -85,15 +94,19 @@ export default function ImageUploadField({
             >
               View full size
             </button>
-            <button
-              type="button"
-              onClick={() => onChange(null)}
-              className="text-xs text-red-400 hover:text-red-300"
-            >
-              Remove image
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => onChange(null)}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                Remove image
+              </button>
+            )}
           </div>
         </div>
+      ) : readOnly ? (
+        <p className="text-xs text-slate-500">No image uploaded.</p>
       ) : (
         <input
           type="file"
