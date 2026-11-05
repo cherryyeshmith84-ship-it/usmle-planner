@@ -88,7 +88,6 @@ export default function MentorBrowseClient({
                 <div className="text-xs text-slate-500 space-y-1">
                   <p>
                     Mentoring {activeStudentCount} student{activeStudentCount === 1 ? "" : "s"} now
-                    <span className="text-slate-600"> · Helped {m.helpedCount} total</span>
                   </p>
                   <p>
                     {commentCount} comment{commentCount === 1 ? "" : "s"}
