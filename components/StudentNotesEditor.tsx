@@ -4,12 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-const LANGUAGES = [
-  { code: "en-IN", label: "English (India)" },
-  { code: "en-US", label: "English (US)" },
-  { code: "hi-IN", label: "Hindi" },
-  { code: "te-IN", label: "Telugu" },
-];
+const LANG = "en-IN";
 
 /**
  * "Analysis and plan" - one standing note per student (table
@@ -43,7 +38,6 @@ export default function StudentNotesEditor({
   const [dirty, setDirty] = useState(false);
 
   // Voice recording state
-  const [lang, setLang] = useState("en-IN");
   const [recording, setRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interim, setInterim] = useState("");
@@ -71,7 +65,7 @@ export default function StudentNotesEditor({
       return;
     }
     const rec = new SR();
-    rec.lang = lang;
+    rec.lang = LANG;
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (event: any) => {
@@ -237,19 +231,6 @@ export default function StudentNotesEditor({
               ■ Stop recording
             </button>
           )}
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value)}
-            disabled={recording}
-            className="input text-xs py-1 px-2"
-            title="Language being spoken"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label}
-              </option>
-            ))}
-          </select>
           {recording && <span className="text-xs text-red-500 font-semibold">Listening...</span>}
         </div>
 
