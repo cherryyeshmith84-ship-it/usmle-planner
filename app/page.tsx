@@ -65,6 +65,19 @@ export default async function Home() {
     redirect("/dashboard");
   }
 
+  const { data: testimonialRows } = await supabase
+    .from("testimonials")
+    .select("id, name, info, comment, image_url")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+  const testimonials = (testimonialRows ?? []) as {
+    id: string;
+    name: string;
+    info: string | null;
+    comment: string;
+    image_url: string | null;
+  }[];
+
   return (
     <>
       <HomeIntroAnimation />
@@ -271,6 +284,36 @@ export default async function Home() {
           ))}
         </div>
       </section>
+
+      {/* Testimonials (managed by admin at /admin/testimonials) */}
+      {testimonials.length > 0 && (
+        <section className="max-w-5xl mx-auto w-full px-6 py-20">
+          <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-12">
+            What Our Students Say
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {testimonials.map((t) => (
+              <div key={t.id} className="card flex flex-col">
+                <p className="text-sm text-slate-300 mb-5 flex-1">&ldquo;{t.comment}&rdquo;</p>
+                <div className="flex items-center gap-3">
+                  {t.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={t.image_url} alt={t.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <span className="w-12 h-12 rounded-full bg-brand-900/50 text-brand-300 font-bold flex items-center justify-center shrink-0">
+                      {t.name.charAt(0)}
+                    </span>
+                  )}
+                  <div>
+                    <p className="font-semibold text-sm">{t.name}</p>
+                    {t.info && <p className="text-xs text-slate-500">{t.info}</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Final CTA */}
       <section className="max-w-3xl mx-auto w-full px-6 py-20 text-center">
