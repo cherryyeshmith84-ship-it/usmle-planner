@@ -66,13 +66,13 @@ function LineChart({ points, color }: { points: Point[]; color: string }) {
         {Array.from({ length: 21 }, (_, i) => i * 5).map((v) => (
           <g key={v}>
             <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="#334155" strokeWidth={v % 10 === 0 ? 0.7 : 0.4} strokeDasharray={v === 0 ? "" : "3 3"} />
-            <text x={L - 6} y={y(v) + 3} textAnchor="end" fontSize={10} fill="#94a3b8">
+            <text x={L - 6} y={y(v) + 3} textAnchor="end" fontSize={11} fill="#475569">
               {v}%
             </text>
           </g>
         ))}
         {Array.from(tickIdx).map((i) => (
-          <text key={i} x={x(times[i])} y={H - 14} textAnchor="middle" fontSize={10} fill="#94a3b8">
+          <text key={i} x={x(times[i])} y={H - 14} textAnchor="middle" fontSize={11} fill="#475569">
             {fmtDate(points[i].date)}
           </text>
         ))}
@@ -90,21 +90,22 @@ function LineChart({ points, color }: { points: Point[]; color: string }) {
             onMouseLeave={() => setHover(null)}
           />
         ))}
-        {hover !== null && (
-          <g>
-            <text
-              x={Math.min(Math.max(x(times[hover]), L + 60), W - R - 60)}
-              y={Math.max(y(points[hover].value) - 10, 12)}
-              textAnchor="middle"
-              fontSize={11}
-              fontWeight={600}
-              fill="#e2e8f0"
-            >
-              {points[hover].value}% · {fmtDate(points[hover].date)}
-              {points[hover].label ? ` · ${points[hover].label}` : ""}
-            </text>
-          </g>
-        )}
+        {hover !== null &&
+          (() => {
+            const p = points[hover];
+            const text = `${p.value}% · ${fmtDate(p.date)}${p.label ? ` · ${p.label}` : ""}`;
+            const w = text.length * 6.8 + 20;
+            const cx = Math.min(Math.max(x(times[hover]), L + w / 2), W - R - w / 2);
+            const top = Math.max(y(p.value) - 36, 4);
+            return (
+              <g>
+                <rect x={cx - w / 2} y={top} width={w} height={22} rx={6} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
+                <text x={cx} y={top + 15} textAnchor="middle" fontSize={12} fontWeight={700} fill="#0f172a">
+                  {text}
+                </text>
+              </g>
+            );
+          })()}
       </svg>
     </div>
   );
