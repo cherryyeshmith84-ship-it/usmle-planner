@@ -132,8 +132,6 @@ export default function NavBar({
       // Mentor-wide, day-by-day assignment plans per system (see
       // MentorTemplatesManager.tsx).
       { href: "/mentorship/templates", label: "Planner Templates" },
-      // Self-service "waiting for a mentor" pool.
-      { href: "/mentorship/waiting", label: "Waiting" },
       // Students an admin has granted this mentor read-only access to.
       { href: "/mentorship/viewing", label: "Viewing" },
     ],
