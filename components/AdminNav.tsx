@@ -26,6 +26,7 @@ const GROUPS: NavGroup[] = [
       { href: "/admin/analysis", label: "Analysis" },
       { href: "/admin/planner-import", label: "Planner import" },
       { href: "/admin/terms", label: "Terms acceptances" },
+      { href: "/admin/testimonials", label: "Testimonials" },
     ],
   },
   {
