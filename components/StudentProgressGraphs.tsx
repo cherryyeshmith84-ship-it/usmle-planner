@@ -8,6 +8,8 @@ export type GraphReport = {
   exam_type: string | null;
   overall_percent: number | null;
   taken_date: string | null;
+  system_breakdown?: Record<string, number> | null;
+  discipline_breakdown?: Record<string, number> | null;
 };
 
 export type GraphBlock = {
@@ -154,6 +156,113 @@ function dailySeries(blocks: GraphBlock[]): Point[] {
     .map(([date, v]) => ({ date, value: Math.round((v.sum / v.w) * 10) / 10 }));
 }
 
+/**
+ * Graph of one system (or discipline) across every uploaded exam: pick a
+ * category from the dropdown, see its % at each exam, plus a table of all
+ * categories (click a row to switch the graph).
+ */
+function ExamCategoryGraph({
+  title,
+  subtitle,
+  noun,
+  reports,
+  field,
+  color,
+}: {
+  title: string;
+  subtitle: string;
+  noun: string;
+  reports: GraphReport[];
+  field: "system_breakdown" | "discipline_breakdown";
+  color: string;
+}) {
+  const [selected, setSelected] = useState<string>("");
+
+  const rows = useMemo(() => {
+    const sorted = reports
+      .filter((r) => r.taken_date)
+      .sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""));
+    const names = new Set<string>();
+    for (const r of sorted) {
+      for (const k of Object.keys(r[field] ?? {})) names.add(k);
+    }
+    return Array.from(names)
+      .map((name) => {
+        const pts: Point[] = [];
+        for (const r of sorted) {
+          const v = (r[field] ?? {})[name];
+          if (typeof v === "number" && isFinite(v)) {
+            pts.push({ date: r.taken_date as string, value: Math.round(v * 10) / 10, label: r.exam_name ?? undefined });
+          }
+        }
+        const avg = pts.length ? Math.round((pts.reduce((s, p) => s + p.value, 0) / pts.length) * 10) / 10 : null;
+        return {
+          name,
+          pts,
+          avg,
+          latest: pts.length ? pts[pts.length - 1].value : null,
+          trend: classify(pts.map((p) => p.value)),
+        };
+      })
+      .filter((r) => r.pts.length > 0)
+      .sort((a, b) => b.pts.length - a.pts.length || a.name.localeCompare(b.name));
+  }, [reports, field]);
+
+  if (rows.length === 0) return null;
+  const active = rows.find((r) => r.name === selected) ?? rows[0];
+
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <select value={active.name} onChange={(e) => setSelected(e.target.value)} className="input text-sm py-1">
+          {rows.map((r) => (
+            <option key={r.name} value={r.name}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-3 mb-1">
+        <span className="text-xs text-slate-400">{active.name}</span>
+        <span className={`text-xs font-semibold ${TREND_UI[active.trend].cls}`}>{TREND_UI[active.trend].label}</span>
+      </div>
+      <LineChart points={active.pts} color={color} />
+      <div className="overflow-x-auto mt-4">
+        <table className="min-w-full text-xs">
+          <thead>
+            <tr className="text-left text-slate-500">
+              <th className="pr-3 py-1">{noun}</th>
+              <th className="px-2 py-1">Exams</th>
+              <th className="px-2 py-1">Average</th>
+              <th className="px-2 py-1">Latest</th>
+              <th className="px-2 py-1">Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr
+                key={r.name}
+                className="border-t border-slate-800 cursor-pointer hover:bg-slate-800/40"
+                onClick={() => setSelected(r.name)}
+              >
+                <td className="pr-3 py-1.5 text-slate-300 whitespace-nowrap">{r.name}</td>
+                <td className="px-2 py-1.5">{r.pts.length}</td>
+                <td className="px-2 py-1.5">{r.avg !== null ? `${r.avg}%` : "-"}</td>
+                <td className="px-2 py-1.5">{r.latest !== null ? `${r.latest}%` : "-"}</td>
+                <td className={`px-2 py-1.5 font-semibold ${TREND_UI[r.trend].cls}`}>{TREND_UI[r.trend].label}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function StudentProgressGraphs({
   reports,
   blocks,
@@ -189,7 +298,7 @@ export default function StudentProgressGraphs({
   const bankTrend = classify(bankPoints.map((p) => p.value));
   const bankQuestions = bankBlocks.reduce((s, b) => s + (Number(b.questions) || 0), 0);
 
-  // ---- By system ----
+  // ---- By system (Qbank) ----
   const systemRows = useMemo(() => {
     const groups = new Map<string, GraphBlock[]>();
     for (const b of bankBlocks) {
@@ -233,6 +342,24 @@ export default function StudentProgressGraphs({
         <LineChart points={examPoints} color="#818cf8" />
       </div>
 
+      {/* Exam score by system / discipline */}
+      <ExamCategoryGraph
+        title="Exam score by system"
+        subtitle="How each organ system scored across your uploaded exams. Pick a system to see its graph."
+        noun="System"
+        reports={reports}
+        field="system_breakdown"
+        color="#f472b6"
+      />
+      <ExamCategoryGraph
+        title="Exam score by discipline"
+        subtitle="How each discipline (Pathology, Pharmacology, etc.) scored across your uploaded exams."
+        noun="Discipline"
+        reports={reports}
+        field="discipline_breakdown"
+        color="#38bdf8"
+      />
+
       {/* Qbank graph */}
       <div className="card">
         <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
@@ -267,7 +394,7 @@ export default function StudentProgressGraphs({
         )}
       </div>
 
-      {/* By system */}
+      {/* Qbank by system */}
       <div className="card">
         <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
           <div>
