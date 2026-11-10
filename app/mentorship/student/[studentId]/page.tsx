@@ -460,11 +460,6 @@ export default async function StudentProgressPage({ params }: { params: { studen
         {scoreReports.length === 0 && <p className="text-sm text-slate-500">No score reports uploaded yet.</p>}
       </div>
 
-      <div>
-        <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
-        <QBankSystemBreakdown cells={qbankBreakdown} />
-      </div>
-
       {scoreReports.length > 0 && (
         <div>
           <h2 className="text-lg font-bold mb-3">Score reports</h2>
