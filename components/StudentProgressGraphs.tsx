@@ -21,14 +21,19 @@ export type GraphBlock = {
 };
 
 // `color` (optional) overrides the dot colour for that point - used on the
-// Exam graph to tell NBME exams (dark blue) from other self-assessments (green).
+// Exam graph to tell the real exam (CBSE / "NBME" exam, dark blue) from
+// self-assessments (green).
 type Point = { date: string; value: number; label?: string; color?: string };
 
-const NBME_COLOR = "#1e3a8a"; // dark blue
-const SELF_ASSESSMENT_COLOR = "#16a34a"; // green
+const NBME_COLOR = "#1e3a8a"; // dark blue - CBSE (the real NBME exam)
+const SELF_ASSESSMENT_COLOR = "#16a34a"; // green - NBME forms 20-34, UWSA, Free 120, Amboss...
 
+// Anything called CBSE is the real exam (dark blue). Everything else - NBME
+// Form 20-34 (incl. "CBSSA"), UWSA, Free 120, Amboss, Mehlman - is a
+// self-assessment (green).
 function isNbme(r: { exam_name: string | null; exam_type: string | null }) {
-  return r.exam_type === "nbme" || /nbme|cbse|cbssa/i.test(r.exam_name ?? "");
+  const n = r.exam_name ?? "";
+  return /cbse/i.test(n) && !/cbssa/i.test(n);
 }
 
 const BANKS = ["UWorld", "Amboss", "Mehlman"] as const;
@@ -398,11 +403,11 @@ export default function StudentProgressGraphs({
         <div className="flex items-center gap-4 text-xs text-slate-400 mb-1">
           <span className="flex items-center gap-1.5">
             <span className="inline-block w-3 h-3 rounded-full" style={{ background: NBME_COLOR }} />
-            NBME
+            NBME (CBSE)
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block w-3 h-3 rounded-full" style={{ background: SELF_ASSESSMENT_COLOR }} />
-            Self-assessments (UWSA, Free 120, Amboss, etc.)
+            Self-assessments (NBME Forms 20-34, UWSA, Free 120, Amboss, etc.)
           </span>
         </div>
         <LineChart points={examPoints} color="#94a3b8" />
