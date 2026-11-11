@@ -128,7 +128,7 @@ export default function ImageUploadField({
       phoneCameraRef.current.click();
       return;
     }
-    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+    if (typeof navigator !== "undefined" && !!navigator.mediaDevices) {
       setCameraOpen(true);
     } else {
       setError("This browser can't open the camera. Use Choose File instead.");
