@@ -20,7 +20,16 @@ export type GraphBlock = {
   questions: number | string | null;
 };
 
-type Point = { date: string; value: number; label?: string };
+// `color` (optional) overrides the dot colour for that point - used on the
+// Exam graph to tell NBME exams (dark blue) from other self-assessments (green).
+type Point = { date: string; value: number; label?: string; color?: string };
+
+const NBME_COLOR = "#1e3a8a"; // dark blue
+const SELF_ASSESSMENT_COLOR = "#16a34a"; // green
+
+function isNbme(r: { exam_name: string | null; exam_type: string | null }) {
+  return r.exam_type === "nbme" || /nbme|cbse|cbssa/i.test(r.exam_name ?? "");
+}
 
 const BANKS = ["UWorld", "Amboss", "Mehlman"] as const;
 
@@ -31,6 +40,19 @@ function toTime(d: string) {
 function fmtDate(d: string) {
   const dt = new Date(d + "T00:00:00");
   return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Overall % of a report. If none was entered but per-system percentages
+ *  exist, uses their average (flagged as an estimate). */
+function overallOf(r: GraphReport): { value: number; est: boolean } | null {
+  if (r.overall_percent !== null && r.overall_percent !== undefined && isFinite(Number(r.overall_percent))) {
+    return { value: Math.round(Number(r.overall_percent) * 10) / 10, est: false };
+  }
+  const vals = Object.values(r.system_breakdown ?? {}).filter((v) => typeof v === "number" && isFinite(v));
+  if (vals.length >= 3) {
+    return { value: Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10, est: true };
+  }
+  return null;
 }
 
 function LineChart({ points, color }: { points: Point[]; color: string }) {
@@ -84,8 +106,8 @@ function LineChart({ points, color }: { points: Point[]; color: string }) {
             key={i}
             cx={x(times[i])}
             cy={y(p.value)}
-            r={hover === i ? 5 : 3.5}
-            fill={color}
+            r={hover === i ? 6 : 4.5}
+            fill={p.color ?? color}
             stroke="#0f172a"
             strokeWidth={1}
             onMouseEnter={() => setHover(i)}
@@ -159,7 +181,9 @@ function dailySeries(blocks: GraphBlock[]): Point[] {
 /**
  * Graph of one system (or discipline) across every uploaded exam: pick a
  * category from the dropdown, see its % at each exam, plus a table of all
- * categories (click a row to switch the graph).
+ * categories (click a row to switch the graph). When none of the student's
+ * reports contain system/discipline percentages, shows a hint instead of
+ * silently hiding the card.
  */
 function ExamCategoryGraph({
   title,
@@ -208,7 +232,18 @@ function ExamCategoryGraph({
       .sort((a, b) => b.pts.length - a.pts.length || a.name.localeCompare(b.name));
   }, [reports, field]);
 
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return (
+      <div className="card">
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-xs text-slate-500 mt-1">
+          No {noun.toLowerCase()} percentages in any uploaded exam yet. Upload a detailed score report, or open an
+          exam under the exam history below, click Edit, and type in the {noun.toLowerCase()} percentages - this
+          graph then appears automatically.
+        </p>
+      </div>
+    );
+  }
   const active = rows.find((r) => r.name === selected) ?? rows[0];
 
   return (
@@ -274,19 +309,33 @@ export default function StudentProgressGraphs({
   const [system, setSystem] = useState<string>("");
 
   // ---- Exam graph ----
+  // Reports with no overall % fall back to the average of their system
+  // percentages (tooltip says "est.") so they don't vanish from the graph.
   const examPoints: Point[] = useMemo(
     () =>
       reports
-        .filter((r) => r.taken_date && r.overall_percent !== null && r.overall_percent !== undefined && isFinite(Number(r.overall_percent)))
+        .filter((r) => r.taken_date)
         .sort((a, b) => (a.taken_date ?? "").localeCompare(b.taken_date ?? ""))
-        .map((r) => ({
-          date: r.taken_date as string,
-          value: Math.round(Number(r.overall_percent) * 10) / 10,
-          label: r.exam_name ?? undefined,
-        })),
+        .flatMap((r) => {
+          const o = overallOf(r);
+          if (!o) return [];
+          const name = r.exam_name ?? "";
+          return [
+            {
+              date: r.taken_date as string,
+              value: o.value,
+              label: o.est ? `${name} (est. from systems)` : name || undefined,
+              color: isNbme(r) ? NBME_COLOR : SELF_ASSESSMENT_COLOR,
+            },
+          ];
+        }),
     [reports]
   );
   const examTrend = classify(examPoints.map((p) => p.value));
+  const estimatedCount = reports.filter((r) => {
+    const hasOverall = r.overall_percent !== null && r.overall_percent !== undefined && isFinite(Number(r.overall_percent));
+    return !hasOverall && overallOf(r) !== null;
+  }).length;
 
   // ---- Qbank graph ----
   // Blocks logged without a qbank name are counted as UWorld (the default).
@@ -335,11 +384,28 @@ export default function StudentProgressGraphs({
         <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
           <div>
             <p className="text-sm font-semibold">Exam graph</p>
-            <p className="text-xs text-slate-500">Overall score of each uploaded exam, by date taken.</p>
+            <p className="text-xs text-slate-500">
+              Overall score of each uploaded exam, by date taken.
+              {estimatedCount > 0
+                ? ` ${estimatedCount} exam${estimatedCount === 1 ? " has" : "s have"} no overall % entered, so ${
+                    estimatedCount === 1 ? "its" : "their"
+                  } point is the average of the system percentages (edit the exam to enter the real score).`
+                : ""}
+            </p>
           </div>
           <span className={`text-xs font-semibold ${TREND_UI[examTrend].cls}`}>{TREND_UI[examTrend].label}</span>
         </div>
-        <LineChart points={examPoints} color="#818cf8" />
+        <div className="flex items-center gap-4 text-xs text-slate-400 mb-1">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full" style={{ background: NBME_COLOR }} />
+            NBME
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full" style={{ background: SELF_ASSESSMENT_COLOR }} />
+            Self-assessments (UWSA, Free 120, Amboss, etc.)
+          </span>
+        </div>
+        <LineChart points={examPoints} color="#94a3b8" />
       </div>
 
       {/* Exam score by system / discipline */}
