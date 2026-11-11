@@ -265,7 +265,9 @@ export default async function StudentProgressPage({ params }: { params: { studen
 
   const qbankBreakdown = computeQBankSystemBreakdown(uworldBlocks);
 
-  const graphReports = regularReports as unknown as GraphReport[];
+  // Every uploaded report counts on the graphs, including question-level
+  // reports (CBSE 1, CBSE 2...).
+  const graphReports = scoreReports as unknown as GraphReport[];
   const graphBlocks = uworldBlocks as unknown as GraphBlock[];
 
   // --- Tab contents -------------------------------------------------------
