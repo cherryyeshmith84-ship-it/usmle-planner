@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
@@ -6,6 +5,7 @@ import type { Mentor } from "@/lib/mentors";
 import { findMentorByEmail } from "@/lib/mentors";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
+import MentorStudentList from "@/components/MentorStudentList";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,8 @@ type StudentRow = Pick<
 /**
  * "Your students" for a mentor: students who linked this mentor's email,
  * PLUS students the admin added this mentor to as a co-mentor
- * (student_co_mentors table).
+ * (student_co_mentors table). The list itself (with search) is rendered by
+ * components/MentorStudentList.tsx.
  */
 export default async function MentorStudentsPage() {
   const supabase = createClient();
@@ -63,10 +64,20 @@ export default async function MentorStudentsPage() {
   }
 
   const mainIds = new Set(linkedStudents.map((s) => s.id));
-  const students: (StudentRow & { co: boolean })[] = [
+  const students = [
     ...linkedStudents.map((s) => ({ ...s, co: false })),
     ...coStudents.filter((s) => !mainIds.has(s.id)).map((s) => ({ ...s, co: true })),
-  ].sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
+  ]
+    .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""))
+    .map((s) => ({
+      id: s.id,
+      full_name: s.full_name ?? null,
+      email: s.email ?? null,
+      avatar_url: s.avatar_url ?? null,
+      status_update: s.status_update ?? null,
+      exam_date: s.exam_date ?? null,
+      co: s.co,
+    }));
 
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
@@ -82,46 +93,7 @@ export default async function MentorStudentsPage() {
             they&apos;ll show up here.
           </p>
         ) : (
-          <div className="space-y-2">
-            {students.map((s) => (
-              <Link
-                key={s.id}
-                href={`/mentorship/student/${s.id}`}
-                className="card py-3 flex items-center gap-3 text-sm hover:border-brand-400 transition"
-              >
-                {s.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={s.avatar_url}
-                    alt=""
-                    className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0"
-                  />
-                ) : (
-                  <span className="w-10 h-10 rounded-full bg-brand-900/50 text-brand-300 text-sm font-bold flex items-center justify-center shrink-0">
-                    {(s.full_name || "?").trim().charAt(0).toUpperCase()}
-                  </span>
-                )}
-                <div className="min-w-0 flex-1 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p>
-                      <span className="font-semibold">{s.full_name || "A student"}</span>{" "}
-                      <span className="text-slate-500">&middot; {s.email}</span>
-                      {s.co && (
-                        <span className="ml-2 text-[10px] uppercase tracking-wide text-brand-400">Co-mentor</span>
-                      )}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {s.exam_date ? `Exam ${s.exam_date}` : "No exam date set"}
-                    </p>
-                    {s.status_update && (
-                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">&ldquo;{s.status_update}&rdquo;</p>
-                    )}
-                  </div>
-                  <span className="text-xs text-brand-400 shrink-0">Open →</span>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <MentorStudentList students={students} />
         )}
       </main>
     </AppShell>
