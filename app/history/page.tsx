@@ -50,8 +50,9 @@ export default async function HistoryPage() {
   const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
   const qbankBreakdown = computeQBankSystemBreakdown((blocksData ?? []) as UWorldBlock[]);
 
-  // Same graphs the mentor sees on the student's Analysis tab.
-  const graphReports = reports.filter((r) => r.exam_type !== "question_level") as unknown as GraphReport[];
+  // Same graphs the mentor sees on the student's Analysis tab. Every uploaded
+  // report counts, including question-level reports (CBSE 1, CBSE 2...).
+  const graphReports = reports as unknown as GraphReport[];
   const graphBlocks = (blocksData ?? []) as unknown as GraphBlock[];
 
   // Read-only view of the same Systems & Disciplines checklist a mentor
