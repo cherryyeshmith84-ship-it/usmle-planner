@@ -57,8 +57,10 @@ function scoreBadgeClass(pct: number | null) {
  * templates, repeat) - the tasks are filed under the student's linked
  * mentor (profiles.mentor_email -> mentors). If the student has no mentor
  * linked yet, the planner stays read-only with a note. The mentor-private
- * tabs (Sessions, Messages, meeting link, personal notes, study plan) stay
- * mentor-only. RLS already allows admins to write mentor_plan_tasks,
+ * tabs (Sessions, Messages, meeting link, study plan) stay mentor-only.
+ * On the Overview tab, admins and viewers now also SEE (read-only) the
+ * Systems & Disciplines checklist and the "Analysis and plan" notes.
+ * RLS already allows admins to write mentor_plan_tasks,
  * mentor_daily_notes and student_planner_settings.
  */
 export default async function StudentProgressPage({ params }: { params: { studentId: string } }) {
@@ -205,6 +207,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
           .eq("mentor_id", myMentorRecord!.id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    // Mentors read their own note; admins and viewers read whichever note
+    // exists for the student (read-only).
     canEdit
       ? supabase
           .from("mentor_student_notes")
@@ -212,7 +216,13 @@ export default async function StudentProgressPage({ params }: { params: { studen
           .eq("student_id", params.studentId)
           .eq("mentor_id", myMentorRecord!.id)
           .maybeSingle()
-      : Promise.resolve({ data: null }),
+      : supabase
+          .from("mentor_student_notes")
+          .select("*")
+          .eq("student_id", params.studentId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
     supabase.from("mentor_daily_notes").select("*").eq("student_id", params.studentId),
     supabase.from("mentor_plan_tasks").select("*").eq("student_id", params.studentId),
     supabase
@@ -333,21 +343,30 @@ export default async function StudentProgressPage({ params }: { params: { studen
         </div>
       )}
 
-      {canEdit && (
-        <StudentTopicChecklist
-          studentId={params.studentId}
-          mentorId={myMentorRecord!.id}
-          initialRows={topicChecklistRows}
-        />
-      )}
+      {/* Systems, Disciplines, Self Assessments and CBSE checklist - editable
+          by the student's mentor, read-only for admins and viewers. */}
+      <StudentTopicChecklist
+        studentId={params.studentId}
+        mentorId={canEdit ? myMentorRecord!.id : undefined}
+        initialRows={topicChecklistRows}
+        readOnly={!canEdit}
+      />
 
-      {canEdit && (
+      {/* Analysis and plan - editable by the mentor, read-only otherwise. */}
+      {canEdit ? (
         <StudentNotesEditor
           studentId={params.studentId}
           mentorId={myMentorRecord!.id}
           currentUserId={user.id}
           initialNote={studentNote?.note ?? null}
           initialUpdatedAt={studentNote?.updated_at ?? null}
+        />
+      ) : (
+        <StudentNotesEditor
+          studentId={params.studentId}
+          initialNote={studentNote?.note ?? null}
+          initialUpdatedAt={studentNote?.updated_at ?? null}
+          readOnly
         />
       )}
 
