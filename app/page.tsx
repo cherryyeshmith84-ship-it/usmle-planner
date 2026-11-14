@@ -78,6 +78,20 @@ export default async function Home() {
     image_url: string | null;
   }[];
 
+  // Founder / co-founder / CEO / CMO etc. - managed by admin at /admin/team.
+  const { data: teamRows } = await supabase
+    .from("team_members")
+    .select("id, name, role, bio, image_url")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+  const team = (teamRows ?? []) as {
+    id: string;
+    name: string;
+    role: string;
+    bio: string | null;
+    image_url: string | null;
+  }[];
+
   return (
     <>
       <HomeIntroAnimation />
@@ -285,6 +299,37 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* Meet the team (managed by admin at /admin/team) */}
+      {team.length > 0 && (
+        <section id="team" className="max-w-5xl mx-auto w-full px-6 py-20 scroll-mt-20">
+          <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
+            Meet the Team
+          </h2>
+          <p className="text-slate-400 text-center text-lg mb-12">The people behind Master Grid.</p>
+          <div className="flex flex-wrap justify-center gap-6">
+            {team.map((m) => (
+              <div key={m.id} className="card text-center w-full sm:w-64 flex flex-col items-center">
+                {m.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={m.image_url}
+                    alt={m.name}
+                    className="w-28 h-28 rounded-full object-cover mb-4 border border-slate-700"
+                  />
+                ) : (
+                  <span className="w-28 h-28 rounded-full bg-brand-900/50 text-brand-300 text-3xl font-bold flex items-center justify-center mb-4">
+                    {m.name.charAt(0)}
+                  </span>
+                )}
+                <p className="font-bold text-base">{m.name}</p>
+                <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mt-1">{m.role}</p>
+                {m.bio && <p className="text-sm text-slate-400 mt-3">{m.bio}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Testimonials (managed by admin at /admin/testimonials) */}
       {testimonials.length > 0 && (
         <section className="max-w-5xl mx-auto w-full px-6 py-20">
@@ -293,22 +338,22 @@ export default async function Home() {
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {testimonials.map((t) => (
-              <div key={t.id} className="card flex flex-col">
-                <p className="text-sm text-slate-300 mb-5 flex-1">&ldquo;{t.comment}&rdquo;</p>
-                <div className="flex items-center gap-3">
-                  {t.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={t.image_url} alt={t.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
-                  ) : (
-                    <span className="w-12 h-12 rounded-full bg-brand-900/50 text-brand-300 font-bold flex items-center justify-center shrink-0">
-                      {t.name.charAt(0)}
-                    </span>
-                  )}
-                  <div>
-                    <p className="font-semibold text-sm">{t.name}</p>
-                    {t.info && <p className="text-xs text-slate-500">{t.info}</p>}
-                  </div>
-                </div>
+              <div key={t.id} className="card flex flex-col items-center text-center">
+                {t.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={t.image_url}
+                    alt={t.name}
+                    className="w-24 h-24 rounded-full object-cover mb-3 border border-slate-700"
+                  />
+                ) : (
+                  <span className="w-24 h-24 rounded-full bg-brand-900/50 text-brand-300 text-2xl font-bold flex items-center justify-center mb-3">
+                    {t.name.charAt(0)}
+                  </span>
+                )}
+                <p className="font-bold text-base">{t.name}</p>
+                {t.info && <p className="text-xs text-brand-400 font-semibold mt-0.5">{t.info}</p>}
+                <p className="text-sm text-slate-300 mt-4 text-left">&ldquo;{t.comment}&rdquo;</p>
               </div>
             ))}
           </div>
