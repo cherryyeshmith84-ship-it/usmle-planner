@@ -67,7 +67,7 @@ export default async function Home() {
 
   const { data: testimonialRows } = await supabase
     .from("testimonials")
-    .select("id, name, info, comment, image_url")
+    .select("id, name, info, comment, image_url, passed_step1, passed_step2, passed_step3, university")
     .eq("active", true)
     .order("sort_order", { ascending: true });
   const testimonials = (testimonialRows ?? []) as {
@@ -76,6 +76,10 @@ export default async function Home() {
     info: string | null;
     comment: string;
     image_url: string | null;
+    passed_step1: boolean;
+    passed_step2: boolean;
+    passed_step3: boolean;
+    university: string | null;
   }[];
 
   // Founder / co-founder / CEO / CMO etc. - managed by admin at /admin/team.
@@ -352,7 +356,11 @@ export default async function Home() {
                   </span>
                 )}
                 <p className="font-bold text-base">{t.name}</p>
-                {t.info && <p className="text-xs text-brand-400 font-semibold mt-0.5">{t.info}</p>}
+                {t.passed_step1 && <p className="text-sm font-semibold text-green-600 mt-0.5">Passed Step 1</p>}
+                {t.passed_step2 && <p className="text-sm font-semibold text-green-600 mt-0.5">Passed Step 2</p>}
+                {t.passed_step3 && <p className="text-sm font-semibold text-green-600 mt-0.5">Passed Step 3</p>}
+                {t.university && <p className="text-sm font-bold text-slate-200 mt-1">{t.university}</p>}
+                {t.info && <p className="text-xs text-slate-500 mt-0.5">{t.info}</p>}
                 <p className="text-sm text-slate-300 mt-4 text-left">&ldquo;{t.comment}&rdquo;</p>
               </div>
             ))}
