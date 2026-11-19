@@ -9,7 +9,7 @@ import PerformanceClient from "@/components/PerformanceClient";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
-import StudentNotesEditor from "@/components/StudentNotesEditor";
+import SessionNotesPanel from "@/components/SessionNotesPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -161,12 +161,7 @@ export default async function HistoryPage() {
         </div>
 
         <div className="mt-8">
-          <StudentNotesEditor
-            studentId={user.id}
-            initialNote={mentorNote?.note ?? null}
-            initialUpdatedAt={mentorNote?.updated_at ?? null}
-            readOnly
-          />
+          <SessionNotesPanel studentId={user.id} canEdit={false} isStudentSelf legacyNote={mentorNote?.note ?? null} />
         </div>
 
         <div className="mt-8">
