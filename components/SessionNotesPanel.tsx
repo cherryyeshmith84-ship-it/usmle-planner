@@ -126,9 +126,12 @@ function appendText(prev: string, add: string) {
 
 /**
  * Two boxes per session date: "Assessment" (what was discussed) and "Plan"
- * (what to do next). Each has its own microphone. Saving stores both for the
- * chosen date, and every line of the Plan becomes a task in the student's
- * study planner on the chosen planner date.
+ * (what to do next). Each has its own microphone and its own Save button.
+ *
+ * The Plan updates the student's study planner automatically: about a second
+ * and a half after you stop typing or speaking, every line of the plan is
+ * synced as a task on the chosen planner date (the Save plan button does the
+ * same immediately). The Assessment is saved with its own Save button.
  *
  * Mentors and admins can always write. A mentor/admin can switch on "Let the
  * student write here too"; then the student can also type or dictate (their
@@ -151,9 +154,12 @@ export default function SessionNotesPanel({
   const [taskDate, setTaskDate] = useState(addDays(today, 1));
   const [assessment, setAssessment] = useState("");
   const [plan, setPlan] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [dirtyA, setDirtyA] = useState(false);
+  const [dirtyP, setDirtyP] = useState(false);
+  const [savingA, setSavingA] = useState(false);
+  const [savingP, setSavingP] = useState(false);
+  const [msgA, setMsgA] = useState<string | null>(null);
+  const [msgP, setMsgP] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [studentAccess, setStudentAccess] = useState(false);
@@ -164,11 +170,11 @@ export default function SessionNotesPanel({
 
   const assessDict = useDictation((t) => {
     setAssessment((p) => appendText(p, t));
-    setDirty(true);
+    setDirtyA(true);
   });
   const planDict = useDictation((t) => {
     setPlan((p) => (p.trim() ? `${p.replace(/\s+$/, "")}\n${t.trim()}` : t.trim()));
-    setDirty(true);
+    setDirtyP(true);
   });
 
   // One microphone at a time.
@@ -225,8 +231,10 @@ export default function SessionNotesPanel({
       setAssessment(e?.assessment ?? "");
       setPlan(e?.plan ?? "");
       setTaskDate(e?.plan_task_date ?? addDays(date, 1));
-      setDirty(false);
-      setMsg(null);
+      setDirtyA(false);
+      setDirtyP(false);
+      setMsgA(null);
+      setMsgP(null);
       setError(null);
       setLoading(false);
     })();
@@ -236,36 +244,78 @@ export default function SessionNotesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentId, date]);
 
-  async function save() {
+  async function saveAssessment() {
     if (!canWrite) return;
     assessDict.stop();
-    planDict.stop();
-    setSaving(true);
+    setSavingA(true);
     setError(null);
-    setMsg(null);
+    setMsgA(null);
     const supabase = createClient();
-    const { data, error: err } = await supabase.rpc("save_session_entry", {
+    const { error: err } = await supabase.rpc("save_session_entry", {
       p_student_id: studentId,
       p_entry_date: date,
       p_assessment: assessment,
-      p_plan: plan,
+      p_plan: null,
       p_task_date: taskDate,
+      p_part: "assessment",
     });
-    setSaving(false);
+    setSavingA(false);
     if (err) {
       setError(err.message);
       return;
     }
-    const n = typeof data === "number" ? data : planLines(plan).length;
-    setDirty(false);
-    setMsg(
-      n > 0
-        ? `Saved for ${fmt(date)}. ${n} task${n === 1 ? "" : "s"} added to the study planner on ${fmt(taskDate)}.`
-        : `Saved for ${fmt(date)}.`
-    );
+    setDirtyA(false);
+    setMsgA(`Assessment saved for ${fmt(date)}.`);
     await loadEntries();
-    router.refresh();
   }
+
+  // `auto` = triggered by the debounce timer (keeps the mic running).
+  const savePlan = useCallback(
+    async (auto = false) => {
+      if (!canWrite) return;
+      if (!auto) planDict.stop();
+      setSavingP(true);
+      setError(null);
+      if (!auto) setMsgP(null);
+      const supabase = createClient();
+      const { data, error: err } = await supabase.rpc("save_session_entry", {
+        p_student_id: studentId,
+        p_entry_date: date,
+        p_assessment: null,
+        p_plan: plan,
+        p_task_date: taskDate,
+        p_part: "plan",
+      });
+      setSavingP(false);
+      if (err) {
+        setError(err.message);
+        return;
+      }
+      const n = planLines(plan).length;
+      setDirtyP(false);
+      setMsgP(
+        n > 0
+          ? `Planner updated: ${n} task${n === 1 ? "" : "s"} on ${fmt(taskDate)}.`
+          : "Plan saved (no tasks in the planner for this date)."
+      );
+      void data;
+      await loadEntries();
+      router.refresh();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canWrite, studentId, date, plan, taskDate]
+  );
+
+  // Auto-update the planner shortly after the plan (or its date) changes.
+  const savePlanRef = useRef(savePlan);
+  savePlanRef.current = savePlan;
+  useEffect(() => {
+    if (!dirtyP || !canWrite || loading) return;
+    const t = setTimeout(() => {
+      void savePlanRef.current(true);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [plan, taskDate, dirtyP, canWrite, loading]);
 
   async function removeEntry() {
     if (!canEdit) return;
@@ -278,8 +328,10 @@ export default function SessionNotesPanel({
     }
     setAssessment("");
     setPlan("");
-    setDirty(false);
-    setMsg(`Deleted the entry for ${fmt(date)}.`);
+    setDirtyA(false);
+    setDirtyP(false);
+    setMsgA(null);
+    setMsgP(`Deleted the entry for ${fmt(date)}.`);
     await loadEntries();
     router.refresh();
   }
@@ -331,10 +383,10 @@ export default function SessionNotesPanel({
           <p className="text-sm font-semibold">Assessment and plan</p>
           <p className="text-xs text-slate-500 mt-1">
             {canEdit
-              ? "Write or dictate what you discussed (Assessment) and what the student should do next (Plan). Save keeps both for the date below, and each line of the Plan becomes a task in the student's study planner."
+              ? "Write or dictate what you discussed (Assessment) and what the student should do next (Plan). The Plan goes into the student's study planner automatically, one task per line; the Assessment has its own Save button."
               : isStudentSelf
               ? studentAccess
-                ? "Your mentor lets you write here. Type or dictate what you discussed and your plan; each line of the plan is added to your study planner."
+                ? "Your mentor lets you write here. Type or dictate what you discussed and your plan; each line of the plan is added to your study planner automatically."
                 : "What you and your mentor discussed and the plan. You can read this; your mentor can give you access to write here."
               : "Read-only view of the assessment and plan for each date."}
           </p>
@@ -373,7 +425,7 @@ export default function SessionNotesPanel({
               value={assessment}
               onChange={(e) => {
                 setAssessment(e.target.value);
-                setDirty(true);
+                setDirtyA(true);
               }}
               readOnly={!canWrite}
               rows={12}
@@ -386,6 +438,20 @@ export default function SessionNotesPanel({
               </p>
             )}
             {assessDict.error && <p className="text-xs text-red-400 mt-1">{assessDict.error}</p>}
+            {canWrite && (
+              <div className="mt-2 flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={saveAssessment}
+                  disabled={savingA || !dirtyA}
+                  className={dirtyA && !savingA ? "btn-primary text-sm animate-pulse" : "btn-primary text-sm"}
+                >
+                  {savingA ? "Saving..." : "Save assessment"}
+                </button>
+                {dirtyA && !savingA && <span className="text-xs text-amber-400 font-semibold">Unsaved - click Save.</span>}
+                {msgA && !dirtyA && <span className="text-xs text-green-600 font-semibold">{msgA}</span>}
+              </div>
+            )}
           </div>
 
           {/* Plan */}
@@ -396,12 +462,13 @@ export default function SessionNotesPanel({
             </div>
             <p className="text-[11px] text-slate-500 mb-1">
               One task per line, for example &ldquo;Renal 40 questions&rdquo; or &ldquo;Review acid-base notes&rdquo;.
+              These go into the study planner automatically.
             </p>
             <textarea
               value={plan}
               onChange={(e) => {
                 setPlan(e.target.value);
-                setDirty(true);
+                setDirtyP(true);
               }}
               readOnly={!canWrite}
               rows={12}
@@ -415,44 +482,50 @@ export default function SessionNotesPanel({
             )}
             {planDict.error && <p className="text-xs text-red-400 mt-1">{planDict.error}</p>}
             {canWrite && (
-              <div className="mt-2 flex items-center gap-2 flex-wrap text-xs text-slate-400">
-                <span>Add these {lines.length} task{lines.length === 1 ? "" : "s"} to the planner on</span>
-                <input
-                  type="date"
-                  value={taskDate}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setTaskDate(e.target.value);
-                      setDirty(true);
-                    }
-                  }}
-                  className="input py-1 text-sm"
-                />
-              </div>
+              <>
+                <div className="mt-2 flex items-center gap-2 flex-wrap text-xs text-slate-400">
+                  <span>
+                    Planner tasks ({lines.length}) go on
+                  </span>
+                  <input
+                    type="date"
+                    value={taskDate}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setTaskDate(e.target.value);
+                        setDirtyP(true);
+                      }
+                    }}
+                    className="input py-1 text-sm"
+                  />
+                </div>
+                <div className="mt-2 flex items-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => savePlan(false)}
+                    disabled={savingP || !dirtyP}
+                    className={dirtyP && !savingP ? "btn-primary text-sm animate-pulse" : "btn-primary text-sm"}
+                  >
+                    {savingP ? "Updating planner..." : "Save plan"}
+                  </button>
+                  {dirtyP && !savingP && (
+                    <span className="text-xs text-amber-400 font-semibold">Updating the planner in a moment...</span>
+                  )}
+                  {msgP && !dirtyP && !savingP && <span className="text-xs text-green-600 font-semibold">{msgP}</span>}
+                </div>
+              </>
             )}
           </div>
         </div>
       )}
 
       {error && <p className="text-xs text-red-400 mt-3">{error}</p>}
-      {msg && !dirty && <p className="text-xs text-green-600 font-semibold mt-3">{msg}</p>}
 
-      {canWrite && (
-        <div className="flex items-center gap-3 mt-3">
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving || loading || !dirty}
-            className={dirty && !saving ? "btn-primary text-sm animate-pulse" : "btn-primary text-sm"}
-          >
-            {saving ? "Saving..." : `Save for ${fmt(date)}`}
+      {canEdit && entries.some((e) => e.entry_date === date) && (
+        <div className="mt-3">
+          <button type="button" onClick={removeEntry} className="text-xs text-red-400 hover:text-red-300">
+            Delete this date&apos;s entry
           </button>
-          {dirty && !saving && <span className="text-xs text-amber-400 font-semibold">Unsaved - click Save.</span>}
-          {canEdit && entries.some((e) => e.entry_date === date) && (
-            <button type="button" onClick={removeEntry} className="text-xs text-red-400 hover:text-red-300 ml-auto">
-              Delete this date&apos;s entry
-            </button>
-          )}
         </div>
       )}
 
