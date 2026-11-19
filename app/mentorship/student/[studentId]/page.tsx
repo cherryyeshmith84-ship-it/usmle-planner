@@ -15,7 +15,7 @@ import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { easternDateStringNow } from "@/lib/timezone";
 import AppShell from "@/components/AppShell";
 import MeetingLinkEditor from "@/components/MeetingLinkEditor";
-import StudentNotesEditor from "@/components/StudentNotesEditor";
+import SessionNotesPanel from "@/components/SessionNotesPanel";
 import MentorScoreReportRow from "@/components/MentorScoreReportRow";
 import PlannerStartDateControl from "@/components/PlannerStartDateControl";
 import SelfAssignedTasksToggle from "@/components/SelfAssignedTasksToggle";
@@ -354,23 +354,15 @@ export default async function StudentProgressPage({ params }: { params: { studen
         readOnly={!canEdit}
       />
 
-      {/* Analysis and plan - editable by the mentor, read-only otherwise. */}
-      {canEdit ? (
-        <StudentNotesEditor
-          studentId={params.studentId}
-          mentorId={myMentorRecord!.id}
-          currentUserId={user.id}
-          initialNote={studentNote?.note ?? null}
-          initialUpdatedAt={studentNote?.updated_at ?? null}
-        />
-      ) : (
-        <StudentNotesEditor
-          studentId={params.studentId}
-          initialNote={studentNote?.note ?? null}
-          initialUpdatedAt={studentNote?.updated_at ?? null}
-          readOnly
-        />
-      )}
+      {/* Assessment and plan - per date, two boxes with microphones. Mentors
+          and admins can write (admin edits are filed under the student's
+          mentor); viewers see it read-only. The plan's lines become study
+          planner tasks. */}
+      <SessionNotesPanel
+        studentId={params.studentId}
+        canEdit={canEdit || isAdmin}
+        legacyNote={studentNote?.note ?? null}
+      />
 
       {canEdit && (
         <MeetingLinkEditor
