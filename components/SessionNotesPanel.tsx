@@ -20,24 +20,8 @@ function isoLocal(d: Date) {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function addDays(iso: string, n: number) {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return isoLocal(d);
-}
-
 function fmt(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-}
-
-// Same rule the database uses: one task per non-empty line, bullets/numbers removed.
-function planLines(plan: string) {
-  const out: string[] = [];
-  for (const raw of plan.split("\n")) {
-    const t = raw.replace(/^\s*([-*•]|\d+[.)])\s*/, "").trim();
-    if (t && !out.includes(t)) out.push(t);
-  }
-  return out;
 }
 
 /** Browser speech-to-text. Finished sentences are appended to the box live;
@@ -151,13 +135,13 @@ export default function SessionNotesPanel({
   const router = useRouter();
   const today = isoLocal(new Date());
   const [date, setDate] = useState(today);
-  const [taskDate, setTaskDate] = useState(addDays(today, 1));
   const [assessment, setAssessment] = useState("");
-  const [plan, setPlan] = useState("");
+  const [plan, setPlan] = useState(""); // new instruction being typed / dictated
+  const [planLog, setPlanLog] = useState(""); // instructions already applied for this date
   const [dirtyA, setDirtyA] = useState(false);
-  const [dirtyP, setDirtyP] = useState(false);
+  const [, setDirtyP] = useState(false);
   const [savingA, setSavingA] = useState(false);
-  const [savingP, setSavingP] = useState(false);
+  const [, setSavingP] = useState(false);
   const [msgA, setMsgA] = useState<string | null>(null);
   const [msgP, setMsgP] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +157,7 @@ export default function SessionNotesPanel({
     setDirtyA(true);
   });
   const planDict = useDictation((t) => {
-    setPlan((p) => (p.trim() ? `${p.replace(/\s+$/, "")}\n${t.trim()}` : t.trim()));
+    setPlan((p) => appendText(p, t));
     setDirtyP(true);
   });
 
@@ -229,8 +213,8 @@ export default function SessionNotesPanel({
       if (cancelled) return;
       const e = data as Entry | null;
       setAssessment(e?.assessment ?? "");
-      setPlan(e?.plan ?? "");
-      setTaskDate(e?.plan_task_date ?? addDays(date, 1));
+      setPlan("");
+      setPlanLog(e?.plan ?? "");
       setDirtyA(false);
       setDirtyP(false);
       setMsgA(null);
@@ -256,7 +240,7 @@ export default function SessionNotesPanel({
       p_entry_date: date,
       p_assessment: assessment,
       p_plan: null,
-      p_task_date: taskDate,
+      p_task_date: null,
       p_part: "assessment",
     });
     setSavingA(false);
@@ -269,57 +253,57 @@ export default function SessionNotesPanel({
     await loadEntries();
   }
 
-  // `auto` = triggered by the debounce timer (keeps the mic running).
-  const savePlan = useCallback(
-    async (auto = false) => {
-      if (!canWrite) return;
-      if (!auto) planDict.stop();
-      setSavingP(true);
-      setError(null);
-      if (!auto) setMsgP(null);
-      const supabase = createClient();
-      const { data, error: err } = await supabase.rpc("save_session_entry", {
-        p_student_id: studentId,
-        p_entry_date: date,
-        p_assessment: null,
-        p_plan: plan,
-        p_task_date: taskDate,
-        p_part: "plan",
+  // AI step: the instruction (typed or spoken) is interpreted on the server
+  // and turned into planner edits (remove existing, add tasks on dates...).
+  const [aiBusy, setAiBusy] = useState(false);
+  async function applyPlan() {
+    const text = plan.trim();
+    if (!canWrite || !text || aiBusy) return;
+    planDict.stop();
+    setAiBusy(true);
+    setSavingP(true);
+    setError(null);
+    setMsgP(null);
+    try {
+      const res = await fetch("/api/plan-assistant", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ studentId, instruction: text, entryDate: date, today }),
       });
-      setSavingP(false);
-      if (err) {
-        setError(err.message);
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(j.error || "Could not update the planner.");
         return;
       }
-      const n = planLines(plan).length;
+      const bits: string[] = [];
+      if (j.removed) bits.push(`removed ${j.removed} task${j.removed === 1 ? "" : "s"}`);
+      if (j.added) {
+        const range = j.firstDate && j.lastDate && j.firstDate !== j.lastDate ? `${fmt(j.firstDate)} to ${fmt(j.lastDate)}` : j.firstDate ? fmt(j.firstDate) : "";
+        bits.push(`added ${j.added} task${j.added === 1 ? "" : "s"}${range ? ` (${range})` : ""}`);
+      }
+      setMsgP(bits.length ? `Planner updated: ${bits.join(", ")}.` : j.summary || "Nothing to change in the planner.");
+      setPlan("");
       setDirtyP(false);
-      setMsgP(
-        n > 0
-          ? `Planner updated: ${n} task${n === 1 ? "" : "s"} on ${fmt(taskDate)}.`
-          : "Plan saved (no tasks in the planner for this date)."
-      );
-      void data;
+      setPlanLog((l) => (l ? `${l}\n${text}` : text));
       await loadEntries();
       router.refresh();
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canWrite, studentId, date, plan, taskDate]
-  );
+    } finally {
+      setAiBusy(false);
+      setSavingP(false);
+    }
+  }
+  const applyRef = useRef(applyPlan);
+  applyRef.current = applyPlan;
 
-  // Auto-update the planner shortly after the plan (or its date) changes.
-  const savePlanRef = useRef(savePlan);
-  savePlanRef.current = savePlan;
-  useEffect(() => {
-    if (!dirtyP || !canWrite || loading) return;
-    const t = setTimeout(() => {
-      void savePlanRef.current(true);
-    }, 1500);
-    return () => clearTimeout(t);
-  }, [plan, taskDate, dirtyP, canWrite, loading]);
+  // Pressing Stop on the plan mic applies what was dictated straight away.
+  function stopPlanMic() {
+    planDict.stop();
+    setTimeout(() => void applyRef.current(), 900);
+  }
 
   async function removeEntry() {
     if (!canEdit) return;
-    if (!confirm(`Delete the entry for ${fmt(date)}? Planner tasks created from its plan are removed too.`)) return;
+    if (!confirm(`Delete the entry for ${fmt(date)}? This does not remove tasks already added to the planner.`)) return;
     const supabase = createClient();
     const { error: err } = await supabase.from("session_entries").delete().eq("student_id", studentId).eq("entry_date", date);
     if (err) {
@@ -357,14 +341,12 @@ export default function SessionNotesPanel({
     setStudentAccess(next);
   }
 
-  const lines = planLines(plan);
-
-  function micButton(d: ReturnType<typeof useDictation>, onStart: () => void) {
+  function micButton(d: ReturnType<typeof useDictation>, onStart: () => void, onStop: () => void = d.stop) {
     if (!canWrite) return null;
     return d.listening ? (
       <button
         type="button"
-        onClick={d.stop}
+        onClick={onStop}
         className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-red-600 text-white animate-pulse"
       >
         ■ Stop
@@ -383,10 +365,10 @@ export default function SessionNotesPanel({
           <p className="text-sm font-semibold">Assessment and plan</p>
           <p className="text-xs text-slate-500 mt-1">
             {canEdit
-              ? "Write or dictate what you discussed (Assessment) and what the student should do next (Plan). The Plan goes into the student's study planner automatically, one task per line; the Assessment has its own Save button."
+              ? "Write or dictate what you discussed (Assessment) and what the student should do next (Plan). In Plan, just say or type what you want, like you would tell an assistant (for example: \"remove everything from tomorrow and add 40 UWorld questions daily for 20 days\"). It is understood and applied to the study planner; the Assessment has its own Save button."
               : isStudentSelf
               ? studentAccess
-                ? "Your mentor lets you write here. Type or dictate what you discussed and your plan; each line of the plan is added to your study planner automatically."
+                ? "Your mentor lets you write here. Type or dictate what you discussed and your plan; what you say in the plan is applied to your study planner."
                 : "What you and your mentor discussed and the plan. You can read this; your mentor can give you access to write here."
               : "Read-only view of the assessment and plan for each date."}
           </p>
@@ -406,7 +388,7 @@ export default function SessionNotesPanel({
             onChange={(e) => toggleAccess(e.target.checked)}
             className="w-4 h-4"
           />
-          Let the student write here too (their plan lines also go into their planner)
+          Let the student write here too (what they say in the plan also updates their planner)
         </label>
       )}
 
@@ -458,11 +440,11 @@ export default function SessionNotesPanel({
           <div>
             <div className="flex items-center justify-between gap-2 mb-1">
               <p className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Plan</p>
-              {micButton(planDict, startPlan)}
+              {micButton(planDict, startPlan, stopPlanMic)}
             </div>
             <p className="text-[11px] text-slate-500 mb-1">
-              One task per line, for example &ldquo;Renal 40 questions&rdquo; or &ldquo;Review acid-base notes&rdquo;.
-              These go into the study planner automatically.
+              Say or type it naturally, e.g. &ldquo;remove everything from tomorrow and add 40 UWorld questions daily for 20 days, plus First Aid review&rdquo;.
+              Press Stop on the mic or &ldquo;Update planner&rdquo; to apply it.
             </p>
             <textarea
               value={plan}
@@ -471,8 +453,8 @@ export default function SessionNotesPanel({
                 setDirtyP(true);
               }}
               readOnly={!canWrite}
-              rows={12}
-              placeholder={canWrite ? "Renal 40 questions\nReview acid-base notes\nFA pages 55-60" : "Nothing added for this date."}
+              rows={7}
+              placeholder={canWrite ? "Tell the planner what to change..." : "Nothing added for this date."}
               className="input w-full text-sm resize-y"
             />
             {planDict.listening && (
@@ -482,38 +464,23 @@ export default function SessionNotesPanel({
             )}
             {planDict.error && <p className="text-xs text-red-400 mt-1">{planDict.error}</p>}
             {canWrite && (
-              <>
-                <div className="mt-2 flex items-center gap-2 flex-wrap text-xs text-slate-400">
-                  <span>
-                    Planner tasks ({lines.length}) go on
-                  </span>
-                  <input
-                    type="date"
-                    value={taskDate}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setTaskDate(e.target.value);
-                        setDirtyP(true);
-                      }
-                    }}
-                    className="input py-1 text-sm"
-                  />
-                </div>
-                <div className="mt-2 flex items-center gap-3 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => savePlan(false)}
-                    disabled={savingP || !dirtyP}
-                    className={dirtyP && !savingP ? "btn-primary text-sm animate-pulse" : "btn-primary text-sm"}
-                  >
-                    {savingP ? "Updating planner..." : "Save plan"}
-                  </button>
-                  {dirtyP && !savingP && (
-                    <span className="text-xs text-amber-400 font-semibold">Updating the planner in a moment...</span>
-                  )}
-                  {msgP && !dirtyP && !savingP && <span className="text-xs text-green-600 font-semibold">{msgP}</span>}
-                </div>
-              </>
+              <div className="mt-2 flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void applyPlan()}
+                  disabled={aiBusy || !plan.trim()}
+                  className={plan.trim() && !aiBusy ? "btn-primary text-sm animate-pulse" : "btn-primary text-sm"}
+                >
+                  {aiBusy ? "Updating planner..." : "Update planner"}
+                </button>
+                {msgP && !aiBusy && <span className="text-xs text-green-600 font-semibold">{msgP}</span>}
+              </div>
+            )}
+            {planLog.trim() && (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Already applied on this date</p>
+                <p className="text-xs text-slate-400 whitespace-pre-wrap rounded-lg border border-slate-800 px-3 py-2">{planLog}</p>
+              </div>
             )}
           </div>
         </div>
