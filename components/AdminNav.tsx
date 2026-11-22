@@ -27,6 +27,7 @@ const GROUPS: NavGroup[] = [
       { href: "/admin/planner-import", label: "Planner import" },
       { href: "/admin/terms", label: "Terms acceptances" },
       { href: "/admin/testimonials", label: "Testimonials" },
+      { href: "/admin/team", label: "Team" },
     ],
   },
   {
@@ -49,6 +50,7 @@ const GROUPS: NavGroup[] = [
   {
     title: "Mentorship",
     items: [
+      { href: "/admin/leads", label: "Leads & demo team" },
       { href: "/admin/mentors", label: "Mentors" },
       // Separate roster from Mentors above - a "viewer" is never a mentor,
       // never has availability/sessions (see lib/viewers.ts and
