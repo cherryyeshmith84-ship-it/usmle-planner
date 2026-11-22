@@ -32,6 +32,13 @@ export default async function OnboardingPage() {
     redirect("/viewer");
   }
 
+  // Demo team members (added by an admin on Admin -> Leads) go straight to
+  // their leads page - the student wizard is meaningless for them too.
+  const { data: isDemo } = await supabase.rpc("is_demo_team");
+  if (isDemo === true) {
+    redirect("/demo");
+  }
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("*")
