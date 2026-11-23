@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeSystemStrengths } from "@/lib/scoreReports";
-import type { AiExamReview, ScoreReport } from "@/lib/scoreReports";// The AI call can take longer than the default function time limit, which
+import type { AiExamReview, ScoreReport } from "@/lib/scoreReports";
+
+// The AI call can take longer than the default function time limit, which
 // made Vercel answer with an HTML error page instead of JSON.
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+// NOTE: AI failures are returned as HTTP 422 (not 5xx) on purpose. A 5xx
+// from this route gets replaced by an HTML error page in front of the site,
+// which hides the real reason (quota, bad key, model error) from the user.
 
 /** Gemini is asked for raw JSON but sometimes wraps it in a ```json fence
  *  anyway despite the instruction not to - this strips that before parsing
@@ -152,7 +157,7 @@ export async function POST(req: Request) {
   if (!apiKey) {
     return NextResponse.json(
       { error: "AI is not configured yet. Add GEMINI_API_KEY in your deployment settings." },
-      { status: 500 }
+      { status: 422 }
     );
   }
 
@@ -262,7 +267,7 @@ ${jsonShapeNote}
       const errText = await res.text();
       return NextResponse.json(
         { error: `AI request failed: ${errText.slice(0, 300)}` },
-        { status: 502 }
+        { status: 422 }
       );
     }
 
@@ -294,7 +299,7 @@ ${jsonShapeNote}
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message || "Unexpected error calling the AI." },
-      { status: 500 }
+      { status: 422 }
     );
   }
 }
