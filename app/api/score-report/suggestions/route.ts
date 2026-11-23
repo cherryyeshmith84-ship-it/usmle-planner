@@ -251,8 +251,9 @@ ${jsonShapeNote}
   const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
   // Gemini often answers 503 "high demand" for a few seconds. Retry a few
-  // times (and once on a fallback model) before giving up.
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+  // times (and twice on a fallback model) before giving up. The fallback can
+  // be changed with the GEMINI_FALLBACK_MODEL environment variable.
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
   const attempts = [model, model, fallbackModel, fallbackModel];
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
