@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeSystemStrengths } from "@/lib/scoreReports";
-import type { AiExamReview, ScoreReport } from "@/lib/scoreReports";
+import type { AiExamReview, ScoreReport } from "@/lib/scoreReports";// The AI call can take longer than the default function time limit, which
+// made Vercel answer with an HTML error page instead of JSON.
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Gemini is asked for raw JSON but sometimes wraps it in a ```json fence
  *  anyway despite the instruction not to - this strips that before parsing
