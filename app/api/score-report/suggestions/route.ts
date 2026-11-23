@@ -31,6 +31,11 @@ function parseAiExamReview(text: string): AiExamReview | null {
  * coach) and lib/examAiPrompt.ts (in-exam help) - this one only ever sees
  * score-report data, not daily logs or exam questions.
  *
+ * A mentor or admin can ask for a student's review by passing studentId
+ * (?studentId=... on GET, "studentId" in the POST body); the database
+ * policies decide whether they are allowed to see that student's reports and
+ * cached review. Without studentId it is the signed-in student's own review.
+ *
  * IMPORTANT: GEMINI_API_KEY is one shared key for every student on the
  * platform, and Google's free tier has a small daily/per-minute quota
  * shared across ALL of them - not per student. Without caching, every
@@ -44,7 +49,7 @@ function parseAiExamReview(text: string): AiExamReview | null {
  * doesn't remove the free-tier ceiling, but it means quota is spent on
  * real new data, not on repeat clicks/page loads.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = createClient();
   const {
     data: { user },
@@ -52,10 +57,13 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
+  // A mentor/admin can ask for a student's review with ?studentId=...; the
+  // database policies decide whether they may see it.
+  const target = new URL(req.url).searchParams.get("studentId") || user.id;
   const { data: cache } = await supabase
     .from("ai_suggestion_cache")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", target)
     .maybeSingle();
   // Older cache rows (before this became structured) hold a plain-prose
   // string that won't parse as JSON - treated the same as "no cache yet"
@@ -95,9 +103,11 @@ export async function POST(req: Request) {
   }
 
   let force = false;
+  let target = user.id;
   try {
     const body = await req.json();
     force = !!body?.force;
+    if (typeof body?.studentId === "string" && body.studentId) target = body.studentId;
   } catch {
     // No body / not JSON - treat as force=false (normal "give me a suggestion" call).
   }
@@ -105,7 +115,7 @@ export async function POST(req: Request) {
   const { data } = await supabase
     .from("score_reports")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", target)
     .order("taken_date", { ascending: true });
   const reports = (data ?? []) as ScoreReport[];
 
@@ -123,7 +133,7 @@ export async function POST(req: Request) {
   const { data: cache } = await supabase
     .from("ai_suggestion_cache")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", target)
     .maybeSingle();
   if (!force && cache && cache.report_count === reports.length) {
     const cachedReview = parseAiExamReview(cache.suggestion);
@@ -271,7 +281,7 @@ ${jsonShapeNote}
     // column that used to hold plain prose - see parseAiExamReview above
     // for how older plain-prose rows are handled on read.
     await supabase.from("ai_suggestion_cache").upsert({
-      user_id: user.id,
+      user_id: target,
       suggestion: JSON.stringify(review),
       report_count: reports.length,
       generated_at: new Date().toISOString(),
