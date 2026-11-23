@@ -5,7 +5,7 @@ import type { UWorldBlock } from "@/lib/uworldBlocks";
 import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
 import { getContentPublished } from "@/lib/platformSettings";
 import AppShell from "@/components/AppShell";
-import PerformanceClient from "@/components/PerformanceClient";
+import ScoreReportUpload from "@/components/ScoreReportUpload";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
@@ -15,11 +15,11 @@ import AiExamReviewCard from "@/components/AiExamReviewCard";
 export const dynamic = "force-dynamic";
 
 /**
- * Performance page - now built entirely from uploaded score reports
- * (NBME/UWSA/Free120/UWorld self-assessments) instead of the old plain
- * daily-log list: weak/strong systems, progress-over-time comparison, and
- * AI suggestions. See components/PerformanceClient.tsx and
- * lib/scoreReports.ts.
+ * Analysis page: progress graphs, the AI Exam Review / Default AI Study
+ * Plan, the "Upload score manually" card, question bank performance, the
+ * assessment and plan notes, and the systems checklist. The old
+ * PerformanceClient tables (Action Center, weakest/strongest lists, progress
+ * tables, Compare Exams, score report history) were removed on request.
  */
 export default async function HistoryPage() {
   const supabase = createClient();
@@ -44,10 +44,7 @@ export default async function HistoryPage() {
   const reports = (data ?? []) as ScoreReport[];
 
   // Self-reported day-to-day qbank performance (Question Bank Blocks,
-  // logged from the Study Planner calendar) - separate from the uploaded
-  // score reports above, broken out per system per bank so a student can
-  // see e.g. "weak in Renal specifically in Amboss" well before their next
-  // full-length exam would reveal it.
+  // logged from the Study Planner calendar).
   const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
   const qbankBreakdown = computeQBankSystemBreakdown((blocksData ?? []) as UWorldBlock[]);
 
@@ -56,25 +53,14 @@ export default async function HistoryPage() {
   const graphReports = reports as unknown as GraphReport[];
   const graphBlocks = (blocksData ?? []) as unknown as GraphBlock[];
 
-  // Read-only view of the same Systems & Disciplines checklist a mentor
-  // fills in on this student's profile page (components/
-  // StudentTopicChecklist.tsx) - RLS only lets a student SELECT their own
-  // rows here, not write them. `resource` is included alongside
-  // category/topic so the read-only view can show the same 4 per-resource
-  // tabs (UWorld / Boards and Beyond / Amboss / Mehlman) the mentor sees -
-  // see migration add_resource_to_student_topic_checklist.
+  // Read-only view of the Systems & Disciplines checklist a mentor fills in.
   const { data: topicChecklistData } = await supabase
     .from("student_topic_checklist")
     .select("resource, category, topic, completed")
     .eq("student_id", user.id);
   const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
 
-  // Read-only view of the mentor's standing "Notes" on this student
-  // (components/StudentNotesEditor.tsx, mentor_student_notes table) - same
-  // read-only pattern as the topic checklist above. RLS's "Student reads
-  // own mentor notes" policy only grants SELECT by student_id, so a
-  // student can see what their mentor wrote here but never write to it
-  // themselves - only the mentor of record or an admin can.
+  // Read-only view of the mentor's standing "Notes" on this student.
   const { data: mentorNoteData } = await supabase
     .from("mentor_student_notes")
     .select("note, updated_at")
@@ -82,58 +68,14 @@ export default async function HistoryPage() {
     .maybeSingle();
   const mentorNote = mentorNoteData as { note: string | null; updated_at: string | null } | null;
 
-  // Resolve the student's own mentor (if any) for the "Mentor Recommendation"
-  // card. Used to also fall back to "have they ever sent this mentor a
-  // message" - that turned out to be too weak a signal (a student who'd
-  // only ever sent one message, never linked a mentor in Settings and never
-  // booked a session, was still permanently shown "Discuss With <name>").
-  // Now this only considers the two things that actually mean a student
-  // picked a mentor: an explicit link (Settings -> "Your mentor's email",
-  // the same profiles.mentor_email source of truth used everywhere else in
-  // the app) or an actual booked session. Either one is a real commitment;
-  // just messaging someone isn't.
-  let mentorId: string | null = null;
-  const { data: myProfileForMentor } = await supabase
-    .from("profiles")
-    .select("mentor_email")
-    .eq("id", user.id)
-    .maybeSingle();
-  const linkedMentorEmail = (myProfileForMentor as { mentor_email: string | null } | null)?.mentor_email;
-  if (linkedMentorEmail) {
-    const { data: linkedMentorRow } = await supabase
-      .from("mentors")
-      .select("id")
-      .ilike("email", linkedMentorEmail)
-      .maybeSingle();
-    mentorId = (linkedMentorRow as { id: string } | null)?.id ?? null;
-  }
-  if (!mentorId) {
-    const { data: mySlots } = await supabase
-      .from("mentor_slots")
-      .select("mentor_id")
-      .eq("booked_by", user.id)
-      .order("start_time", { ascending: false })
-      .limit(1);
-    mentorId = mySlots?.[0]?.mentor_id ?? null;
-  }
-  let myMentor: { id: string; name: string | null } | null = null;
-  if (mentorId) {
-    const { data: mentorRow } = await supabase.from("mentors").select("name").eq("id", mentorId).maybeSingle();
-    myMentor = { id: mentorId, name: mentorRow?.name ?? null };
-  }
-
-  // Mentor-authored study plan, if this student's mentor has written one -
-  // see mentor_study_plans_table migration + StudyPlanEditor.tsx. When this
-  // is null, PerformanceClient falls back to computing a default plan from
-  // the AI Exam Review's priorityAreas/estimatedHours instead.
+  // Mentor-authored study plan, if this student's mentor has written one.
+  // When this is null, the AI card shows the Default AI Study Plan.
   const { data: studyPlanRow } = await supabase
     .from("mentor_study_plans")
     .select("content, updated_at")
     .eq("student_id", user.id)
     .maybeSingle();
-  const mentorStudyPlan = studyPlanRow
-    ? { content: studyPlanRow.content as string, updatedAt: studyPlanRow.updated_at as string, mentorName: myMentor?.name ?? null }
-    : null;
+  const hasMentorPlan = !!studyPlanRow;
 
   return (
     <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
@@ -150,15 +92,10 @@ export default async function HistoryPage() {
         </div>
 
         <div className="mb-8">
-          <AiExamReviewCard reportCount={reports.length} hasMentorPlan={!!mentorStudyPlan} />
+          <AiExamReviewCard reportCount={reports.length} hasMentorPlan={hasMentorPlan} />
         </div>
 
-        <PerformanceClient
-          userId={user.id}
-          initialReports={reports}
-          myMentor={myMentor}
-          mentorStudyPlan={mentorStudyPlan}
-        />
+        <ScoreReportUpload userId={user.id} />
 
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
