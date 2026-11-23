@@ -51,8 +51,22 @@ export default function AiExamReviewCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force, studentId: studentId ?? null }),
       });
-      const json = await res.json();
-      if (!res.ok) setError(json.error || "Couldn't generate a review.");
+      // Read as text first: if the server timed out it sends an HTML error
+      // page, which would crash res.json() with a confusing message.
+      const raw = await res.text();
+      let json: any = null;
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        json = null;
+      }
+      if (!json) {
+        setError(
+          res.status === 504 || res.status === 408
+            ? "The AI took too long to answer. Please press Refresh again."
+            : `The server returned an unexpected response (${res.status}). Please try again in a minute.`
+        );
+      } else if (!res.ok) setError(json.error || "Couldn't generate a review.");
       else setAiReview(json.review);
     } catch (e: any) {
       setError(e.message || "Couldn't reach the AI.");
