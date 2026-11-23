@@ -10,6 +10,7 @@ import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 import SessionNotesPanel from "@/components/SessionNotesPanel";
+import AiExamReviewCard from "@/components/AiExamReviewCard";
 
 export const dynamic = "force-dynamic";
 
@@ -147,6 +148,8 @@ export default async function HistoryPage() {
           <h2 className="text-lg font-bold mb-3">Progress graphs</h2>
           <StudentProgressGraphs reports={graphReports} blocks={graphBlocks} />
         </div>
+
+        <AiExamReviewCard reportCount={reports.length} hasMentorPlan={!!mentorStudyPlan} />
 
         <PerformanceClient
           userId={user.id}
