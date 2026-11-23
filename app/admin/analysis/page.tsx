@@ -5,6 +5,7 @@ import AdminNav from "@/components/AdminNav";
 import PerformanceClient from "@/components/PerformanceClient";
 import AdminScoreReportUpload from "@/components/AdminScoreReportUpload";
 import QuestionLevelReportUpload from "@/components/QuestionLevelReportUpload";
+import AdminShelfReportUpload from "@/components/AdminShelfReportUpload";
 import AdminAnalysisPicker, { type PickerStudent } from "@/components/AdminAnalysisPicker";
 
 export const dynamic = "force-dynamic";
@@ -97,6 +98,7 @@ export default async function AdminAnalysisPage({ searchParams }: { searchParams
             <div className="space-y-4 mb-6">
               <AdminScoreReportUpload key={`sr-${selected.id}`} userId={selected.id} />
               <QuestionLevelReportUpload key={`ql-${selected.id}`} userId={selected.id} />
+              <AdminShelfReportUpload key={`sh-${selected.id}`} userId={selected.id} />
             </div>
             {/* key forces a fresh state when switching between students */}
             <PerformanceClient key={selected.id} userId={selected.id} initialReports={reports} />
