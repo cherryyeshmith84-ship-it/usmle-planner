@@ -25,6 +25,7 @@ import MentorTeamCard from "@/components/MentorTeamCard";
 import MentorStudentTabs, { type StudentTabDef } from "@/components/MentorStudentTabs";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
+import AiExamReviewCard from "@/components/AiExamReviewCard";
 import { computeQBankSystemBreakdown } from "@/lib/qbankBlockStats";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 
@@ -468,6 +469,8 @@ export default async function StudentProgressPage({ params }: { params: { studen
         <h2 className="text-lg font-bold mb-3">Progress graphs</h2>
         <StudentProgressGraphs reports={graphReports} blocks={graphBlocks} />
       </div>
+
+      <AiExamReviewCard reportCount={scoreReports.length} hasMentorPlan={!!studyPlan} studentId={params.studentId} />
 
       <div>
         {scoreReports.length === 0 && <p className="text-sm text-slate-500">No score reports uploaded yet.</p>}
