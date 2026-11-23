@@ -7,11 +7,11 @@ import { STEP1_SUBJECTS, STEP1_SYSTEMS } from "@/lib/qbankTypes";
 import { EXAM_TYPE_LABEL, type ParsedScoreReport, type ScoreReportExamType } from "@/lib/scoreReports";
 
 /**
- * Add-a-score-report flow for a regular NBME/UWSA/Free120/UWorld
+ * Upload-a-score-manually flow for a regular NBME/UWSA/Free120/UWorld
  * self-assessment result. Used to also offer an AI-read-a-screenshot path
  * (file upload -> AI parse -> review/edit -> save) alongside this manual
  * one - that upload path has been removed entirely per explicit request,
- * leaving only manual entry: click "Enter a score manually", fill in the
+ * leaving only manual entry: click "Upload score manually", fill in the
  * fields (only percent and date really matter, everything else is
  * optional), save. No file, no AI call, no image_paths stored.
  */
@@ -103,13 +103,13 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
   if (stage === "idle") {
     return (
       <div className="card">
-        <p className="text-sm font-semibold mb-1">Add a score report</p>
+        <p className="text-sm font-semibold mb-1">Upload score manually</p>
         <p className="text-xs text-slate-400 mb-3">
           Enter your NBME, UWSA, Free 120, UWorld, or any other platform's self-assessment result by
           hand to track your weak and strong systems over time.
         </p>
         <button type="button" onClick={startManual} className="btn-primary text-sm">
-          Enter a score manually
+          Upload score manually
         </button>
         {doneMsg && <p className="text-xs text-green-400 mt-2">{doneMsg}</p>}
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
@@ -122,7 +122,7 @@ export default function ScoreReportUpload({ userId }: { userId: string }) {
   return (
     <div className="card space-y-4">
       <div>
-        <p className="text-sm font-semibold">Enter your score</p>
+        <p className="text-sm font-semibold">Upload score manually</p>
         <p className="text-xs text-slate-400">
           Percent and date are the only fields you really need - everything else is optional.
         </p>
