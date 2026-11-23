@@ -15,9 +15,13 @@ import type { AiExamReview } from "@/lib/scoreReports";
 export default function AiExamReviewCard({
   reportCount,
   hasMentorPlan,
+  studentId,
 }: {
   reportCount: number;
   hasMentorPlan: boolean;
+  /** Set when a mentor/admin views a student's analysis. Leave empty on the
+   *  student's own page (the review is then for the signed-in student). */
+  studentId?: string;
 }) {
   const [aiReview, setAiReview] = useState<AiExamReview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -27,14 +31,16 @@ export default function AiExamReviewCard({
     if (reportCount === 0) return;
     (async () => {
       try {
-        const res = await fetch("/api/score-report/suggestions");
+        const res = await fetch(
+          `/api/score-report/suggestions${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ""}`
+        );
         const json = await res.json();
         if (res.ok && json.review) setAiReview(json.review);
       } catch {
         // Silent - the button is still there if this fails.
       }
     })();
-  }, [reportCount]);
+  }, [reportCount, studentId]);
 
   async function getSuggestion(force: boolean) {
     setLoading(true);
@@ -43,7 +49,7 @@ export default function AiExamReviewCard({
       const res = await fetch("/api/score-report/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force }),
+        body: JSON.stringify({ force, studentId: studentId ?? null }),
       });
       const json = await res.json();
       if (!res.ok) setError(json.error || "Couldn't generate a review.");
@@ -57,7 +63,7 @@ export default function AiExamReviewCard({
   if (reportCount === 0) return null;
 
   return (
-    <div className="space-y-4 mb-8">
+    <div className="space-y-4">
       <div className="card">
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-semibold">AI Exam Review</p>
