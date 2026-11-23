@@ -149,7 +149,9 @@ export default async function HistoryPage() {
           <StudentProgressGraphs reports={graphReports} blocks={graphBlocks} />
         </div>
 
-        <AiExamReviewCard reportCount={reports.length} hasMentorPlan={!!mentorStudyPlan} />
+        <div className="mb-8">
+          <AiExamReviewCard reportCount={reports.length} hasMentorPlan={!!mentorStudyPlan} />
+        </div>
 
         <PerformanceClient
           userId={user.id}
