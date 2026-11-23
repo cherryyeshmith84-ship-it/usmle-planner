@@ -250,20 +250,36 @@ ${jsonShapeNote}
   // route, which already had this right.
   const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.6 },
-        }),
-      }
-    );
+  // Gemini often answers 503 "high demand" for a few seconds. Retry a few
+  // times (and once on a fallback model) before giving up.
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+  const attempts = [model, model, fallbackModel, fallbackModel];
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    if (!res.ok) {
+  try {
+    let res: Response | null = null;
+    for (let i = 0; i < attempts.length; i++) {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${attempts[i]}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.6 },
+          }),
+        }
+      );
+      if (res.ok) break;
+      // Only retry on temporary errors (overloaded / rate limited / server).
+      if (![429, 500, 503].includes(res.status) || i === attempts.length - 1) break;
+      await sleep(1500 * (i + 1));
+    }
+
+    if (!res || !res.ok) {
+      if (!res) {
+        return NextResponse.json({ error: "AI request failed." }, { status: 422 });
+      }
       const errText = await res.text();
       return NextResponse.json(
         { error: `AI request failed: ${errText.slice(0, 300)}` },
