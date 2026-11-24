@@ -86,6 +86,10 @@ export default function NavBar({
   const pathname = usePathname();
   const [isMentorState, setIsMentorState] = useState(false);
   const isMentor = isMentorProp ?? isMentorState;
+  // True when an admin added this person's email under Admin -> Leads ->
+  // Demo team. Checked client-side (is_demo_team() database function) so no
+  // extra prop has to be threaded through every page that renders AppShell.
+  const [isDemoTeam, setIsDemoTeam] = useState(false);
   // Below the md breakpoint the sidebar is an off-canvas drawer (closed by
   // default) toggled by the hamburger button, auto-closing on route change.
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -118,6 +122,24 @@ export default function NavBar({
     };
   }, [isMentorProp]);
 
+  // Whether the signed-in user is on the demo team.
+  useEffect(() => {
+    let cancelled = false;
+    async function checkDemoTeam() {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.rpc("is_demo_team");
+        if (!cancelled) setIsDemoTeam(data === true);
+      } catch {
+        // ignore - the link just stays hidden
+      }
+    }
+    checkDemoTeam();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Role split: students get the full student nav; mentors get ONLY the
   // mentor links; admins get ONLY the admin links (plus the mentor links if
   // they are also a mentor). No student features for mentors/admins.
@@ -141,6 +163,10 @@ export default function NavBar({
     : isMentor
     ? [mentorGroup]
     : [];
+
+  // Mentors and admins who are also on the demo team get a link to the Demo
+  // team page (every new student, WhatsApp buttons, notes, suggest a mentor).
+  const showDemoLink = isDemoTeam && !isStudent;
 
   function linkClass(href: string) {
     const active = isActive(pathname, href);
@@ -222,6 +248,19 @@ export default function NavBar({
             </div>
           </div>
         ))}
+
+        {showDemoLink && (
+          <div>
+            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Demo team
+            </p>
+            <div className="flex flex-col gap-1">
+              <Link href="/demo" className={linkClass("/demo")}>
+                New students
+              </Link>
+            </div>
+          </div>
+        )}
 
         {isAdmin && (
           <div>
