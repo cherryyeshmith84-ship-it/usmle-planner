@@ -7,6 +7,7 @@ import PerformanceClient from "@/components/PerformanceClient";
 import AdminScoreReportUpload from "@/components/AdminScoreReportUpload";
 import QuestionLevelReportUpload from "@/components/QuestionLevelReportUpload";
 import AdminShelfReportUpload from "@/components/AdminShelfReportUpload";
+import ShelfAnalysis from "@/components/ShelfAnalysis";
 import AdminAnalysisPicker, { type PickerStudent } from "@/components/AdminAnalysisPicker";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ type TrackTab = "step1" | "step2";
  *  - Step 1: CBSE / NBME / UWSA / Free 120 score reports and the question-
  *    level (CBSE 1, CBSE 2...) reports.
  *  - Step 2 / Shelf exams: NBME shelf (subject) exam PDFs for any subject,
- *    plus manual score entry.
+ *    plus manual score entry, shown per subject.
  * Students are listed under the part that matches their exam track (Step 2 CK
  * and Shelf / subject students share the second part; anyone with no track
  * saved yet counts as Step 1).
@@ -145,7 +146,14 @@ export default async function AdminAnalysisPage({
               )}
             </div>
             {/* key forces a fresh state when switching between students */}
-            <PerformanceClient key={selected.id} userId={selected.id} initialReports={reports} />
+            {tab === "step1" ? (
+              <PerformanceClient key={selected.id} userId={selected.id} initialReports={reports} />
+            ) : (
+              <ShelfAnalysis
+                key={selected.id}
+                reports={reports as unknown as React.ComponentProps<typeof ShelfAnalysis>["reports"]}
+              />
+            )}
           </div>
         )}
       </main>
