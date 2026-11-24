@@ -33,6 +33,11 @@ export const dynamic = "force-dynamic";
  * A mentor never needs a separate account type/invite flow - they just
  * sign up at the normal /signup page with the email the admin entered for
  * them in /admin/mentors.
+ *
+ * This same page is also served at /step2 (app/step2/page.tsx). Students whose
+ * exam track is Step 2 or Shelf / subject exams only see the mentors that have
+ * mentors.step2_shelf switched on; everyone else (Step 1 students, admin)
+ * sees the full directory as before.
  */
 export default async function MentorshipPage() {
   const supabase = createClient();
@@ -49,10 +54,10 @@ export default async function MentorshipPage() {
   // round trip anywhere in the chain delays everything after it. See that
   // page's comment for the full explanation.
   const [profileRes, mentorsRes] = await Promise.all([
-    supabase.from("profiles").select("is_admin, full_name, mentor_email").eq("id", user.id).single(),
+    supabase.from("profiles").select("is_admin, full_name, mentor_email, exam_track").eq("id", user.id).single(),
     supabase.from("mentors").select("*").eq("active", true).order("name", { ascending: true }),
   ]);
-  const profile = profileRes.data as Pick<Profile, "is_admin" | "full_name" | "mentor_email"> | null;
+  const profile = profileRes.data as Pick<Profile, "is_admin" | "full_name" | "mentor_email" | "exam_track"> | null;
   const mentors = (mentorsRes.data ?? []) as Mentor[];
 
   const contentPublished = profile?.is_admin ? true : await getContentPublished(supabase);
@@ -328,7 +333,18 @@ export default async function MentorshipPage() {
   // pure Tutor (role === "tutor") belongs on the separate /tutoring
   // directory instead, even though they're stored in this same mentors
   // table.
-  const mentorsForDirectory = mentors.filter((m) => mentorActsAs(m, "mentor"));
+  //
+  // Step 2 CK and Shelf / subject exam students (exam_track "step2" or
+  // "subject") only see the mentors with step2_shelf switched on. Everyone
+  // else - Step 1 students, students who haven't picked a track, admin - sees
+  // the full directory exactly as before.
+  const examTrack = profile?.exam_track as string | null | undefined;
+  const isStep2OrShelf = examTrack === "step2" || examTrack === "subject";
+  const mentorsForDirectory = mentors.filter(
+    (m) =>
+      mentorActsAs(m, "mentor") &&
+      (!isStep2OrShelf || (m as Mentor & { step2_shelf?: boolean }).step2_shelf === true)
+  );
 
   const now = new Date().toISOString();
   const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -446,10 +462,19 @@ export default async function MentorshipPage() {
   return (
     <AppShell isAdmin={profile?.is_admin} userName={profile?.full_name} contentPublished={contentPublished}>
       <main className="flex-1 px-6 py-8 w-full">
-        <h1 className="text-xl font-bold mb-1">Mentorship</h1>
+        <h1 className="text-xl font-bold mb-1">{isStep2OrShelf ? "Step 2 & Shelf exam mentors" : "Mentorship"}</h1>
         <p className="text-sm text-slate-400 mb-6">
           Pick a mentor to view their profile and book a session.
         </p>
+        {isStep2OrShelf && (
+          <div className="card mb-6">
+            <p className="text-sm font-semibold mb-1">Welcome to Master Grid</p>
+            <p className="text-sm text-slate-300">
+              Our team will message you on WhatsApp to arrange your free demo class. Meanwhile, choose a mentor
+              below and book a session. Your study planner works exactly the same as for every other student.
+            </p>
+          </div>
+        )}
         <MentorBrowseClient mentors={mentorCards} />
       </main>
     </AppShell>
