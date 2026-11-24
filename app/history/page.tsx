@@ -9,17 +9,17 @@ import ScoreReportUpload from "@/components/ScoreReportUpload";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
-import SessionNotesPanel from "@/components/SessionNotesPanel";
 import AiExamReviewCard from "@/components/AiExamReviewCard";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Analysis page: progress graphs, the AI Exam Review / Default AI Study
- * Plan, the "Upload score manually" card, question bank performance, the
- * assessment and plan notes, and the systems checklist. The old
- * PerformanceClient tables (Action Center, weakest/strongest lists, progress
- * tables, Compare Exams, score report history) were removed on request.
+ * Plan, the "Upload score manually" card, question bank performance, and
+ * (Step 1 students only) the Systems & Disciplines / Self Assessments
+ * checklist. The "Assessment and plan" notes card was removed on request, for
+ * both Step 1 and Step 2 / Shelf students. Step 2 / Shelf students do not see
+ * the checklist.
  */
 export default async function HistoryPage() {
   const supabase = createClient();
@@ -30,11 +30,16 @@ export default async function HistoryPage() {
 
   const { data: profileData } = await supabase
     .from("profiles")
-    .select("is_admin, full_name")
+    .select("is_admin, full_name, exam_track")
     .eq("id", user.id)
     .single();
 
   const contentPublished = profileData?.is_admin ? true : await getContentPublished(supabase);
+
+  // Step 2 CK and Shelf / subject exam students share one group; anyone else
+  // (including no track saved yet) is treated as Step 1.
+  const examTrack = (profileData as { exam_track?: string | null } | null)?.exam_track ?? null;
+  const isStep2OrShelf = examTrack === "step2" || examTrack === "subject";
 
   const { data } = await supabase
     .from("score_reports")
@@ -54,19 +59,15 @@ export default async function HistoryPage() {
   const graphBlocks = (blocksData ?? []) as unknown as GraphBlock[];
 
   // Read-only view of the Systems & Disciplines checklist a mentor fills in.
-  const { data: topicChecklistData } = await supabase
-    .from("student_topic_checklist")
-    .select("resource, category, topic, completed")
-    .eq("student_id", user.id);
-  const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
-
-  // Read-only view of the mentor's standing "Notes" on this student.
-  const { data: mentorNoteData } = await supabase
-    .from("mentor_student_notes")
-    .select("note, updated_at")
-    .eq("student_id", user.id)
-    .maybeSingle();
-  const mentorNote = mentorNoteData as { note: string | null; updated_at: string | null } | null;
+  // Only loaded for Step 1 students.
+  let topicChecklistRows: TopicChecklistRow[] = [];
+  if (!isStep2OrShelf) {
+    const { data: topicChecklistData } = await supabase
+      .from("student_topic_checklist")
+      .select("resource, category, topic, completed")
+      .eq("student_id", user.id);
+    topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
+  }
 
   // Mentor-authored study plan, if this student's mentor has written one.
   // When this is null, the AI card shows the Default AI Study Plan.
@@ -102,13 +103,11 @@ export default async function HistoryPage() {
           <QBankSystemBreakdown cells={qbankBreakdown} />
         </div>
 
-        <div className="mt-8">
-          <SessionNotesPanel studentId={user.id} canEdit={false} isStudentSelf legacyNote={mentorNote?.note ?? null} />
-        </div>
-
-        <div className="mt-8">
-          <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
-        </div>
+        {!isStep2OrShelf && (
+          <div className="mt-8">
+            <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
+          </div>
+        )}
       </main>
     </AppShell>
   );
