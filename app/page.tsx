@@ -69,7 +69,7 @@ const NUMBERS = [
   { value: "6-Month", label: "Mentorship" },
   { value: "Weekly", label: "1-on-1 Reviews" },
   { value: "Daily", label: "Progress Tracking" },
-  { value: "$0", label: "Cost to Join" },
+  { value: "24 hrs", label: "Score Report Updates" },
 ];
 
 const HOW_IT_WORKS = [
@@ -190,16 +190,15 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Founding cohort banner */}
+      {/* Apply banner */}
       <section id="apply" className="max-w-3xl mx-auto w-full px-6 pb-20 scroll-mt-20">
         <div className="card text-center border-brand-500/50">
           <h2 className="text-2xl md:text-3xl font-extrabold mb-3">
-            Comprehensive Mentorship, Offered at No Cost
+            Structured Mentorship, Built Around You
           </h2>
           <p className="text-sm text-slate-400 max-w-xl mx-auto mb-6">
-            Join Master Grid during its founding phase and receive full access to mentorship,
-            structured planning, and performance tracking at no charge, while helping shape the
-            platform as it grows.
+            Get full access to one-on-one mentorship, structured planning, and performance tracking,
+            with a dedicated mentor guiding you from enrollment through exam day.
           </p>
           <Link href="/signup" className="btn-primary text-base px-7 py-3.5">
             Apply for Mentorship
@@ -419,9 +418,6 @@ export default async function Home() {
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
           A Limited Number of Places Are Available
         </h2>
-        <p className="text-slate-400 max-w-xl mx-auto mb-2">
-          There is no cost and no obligation to apply.
-        </p>
         <p className="text-slate-400 max-w-xl mx-auto mb-8">
           Apply today to be matched with a mentor and begin studying with a plan built around
           your individual strengths and weaknesses.
