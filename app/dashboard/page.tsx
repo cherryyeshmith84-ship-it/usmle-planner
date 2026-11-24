@@ -83,6 +83,9 @@ type Booking = MentorSlot & {
  * except this page's own derived reads. See lib/streaks.ts and
  * lib/homeInsights.ts for the two genuinely new pieces of logic (streak
  * counting and the small rule-based reminder/status/activity helpers).
+ *
+ * Step 2 CK and Shelf / subject students see their own exam label (not
+ * "Step 1") and do not see the Step 1 prep stage or systems checklist.
  */
 export default async function DashboardPage() {
   const supabase = createClient();
@@ -113,6 +116,11 @@ export default async function DashboardPage() {
   }
 
   const contentPublished = profile.is_admin ? true : await getContentPublished(supabase);
+
+  // Step 2 CK and Shelf / subject exam students share one group; anyone else
+  // (including no track saved yet) is treated as Step 1.
+  const examTrack = (profile.exam_track ?? null) as string | null;
+  const isStep2OrShelf = examTrack === "step2" || examTrack === "subject";
 
   // Eastern Time, not the server's UTC clock - otherwise "today" can
   // silently roll over to tomorrow's date hours early for anyone in a
@@ -259,7 +267,19 @@ export default async function DashboardPage() {
   // Pages/etc. would always show a flat 0-day pace no matter how far ahead
   // or behind their student actually was. See lib/plannerCalendar.ts.
   const firstName = (profile.full_name || user.email || "there").trim().split(/\s+/)[0];
-  const examLabel = profile.exam_track === "subject" ? `Subject${profile.subject_name ? `: ${profile.subject_name}` : ""}` : "Step 1";
+  // The exam label drives both the "Exam" box and the "<label> Countdown" box
+  // in the welcome card, so it follows the student's track.
+  const subjectLabel = profile.subject_name ? profile.subject_name.trim() : "";
+  const examLabel =
+    examTrack === "subject"
+      ? subjectLabel
+        ? `Shelf: ${subjectLabel}`
+        : "Shelf exam"
+      : examTrack === "step2"
+      ? subjectLabel
+        ? `Step 2 - ${subjectLabel}`
+        : "Step 2 CK"
+      : "Step 1";
   const daysRemaining = profile.exam_date ? daysBetween(today, profile.exam_date) : null;
   const statusLabel = todayStatus.studyCompleted
     ? "Today's plan complete"
@@ -309,10 +329,13 @@ export default async function DashboardPage() {
 
   // "My Overview" content (prep details, mentor's note, systems/disciplines/
   // self-assessment checklist) now lives at the bottom of Home. RLS already
-  // lets a student SELECT their own rows in these tables.
+  // lets a student SELECT their own rows in these tables. The checklist is a
+  // Step 1 thing, so it is only loaded for Step 1 students.
   const [noteRes, checklistRes] = await Promise.all([
     supabase.from("mentor_student_notes").select("note, updated_at").eq("student_id", user.id).maybeSingle(),
-    supabase.from("student_topic_checklist").select("resource, category, topic, completed").eq("student_id", user.id),
+    isStep2OrShelf
+      ? Promise.resolve({ data: [] as TopicChecklistRow[] })
+      : supabase.from("student_topic_checklist").select("resource, category, topic, completed").eq("student_id", user.id),
   ]);
   const mentorNote = noteRes.data as { note: string | null; updated_at: string | null } | null;
   const topicChecklistRows = (checklistRes.data ?? []) as TopicChecklistRow[];
@@ -321,6 +344,14 @@ export default async function DashboardPage() {
     middle: "In the middle",
     end: "Final stretch",
   };
+  const trackText =
+    examTrack === "subject"
+      ? `Shelf / subject exams${subjectLabel ? ` - ${subjectLabel}` : ""}`
+      : examTrack === "step2"
+      ? `Step 2 CK${subjectLabel ? ` - ${subjectLabel}` : ""}`
+      : examTrack === "step1"
+      ? "Step 1 (CBSE)"
+      : "Not set";
 
   return (
     <AppShell isAdmin={profile.is_admin} userName={profile.full_name} contentPublished={contentPublished}>
@@ -398,18 +429,14 @@ export default async function DashboardPage() {
         <div className="card grid sm:grid-cols-2 gap-4">
           <div>
             <p className="label">Track</p>
-            <p className="text-sm">
-              {profile.exam_track === "subject"
-                ? `Subject exams${profile.subject_name ? ` - ${profile.subject_name}` : ""}`
-                : profile.exam_track === "step1"
-                ? "Step 1 (CBSE)"
-                : "Not set"}
-            </p>
+            <p className="text-sm">{trackText}</p>
           </div>
-          <div>
-            <p className="label">Prep stage</p>
-            <p className="text-sm">{profile.prep_stage ? STAGE_LABEL[profile.prep_stage] : "Not set"}</p>
-          </div>
+          {!isStep2OrShelf && (
+            <div>
+              <p className="label">Prep stage</p>
+              <p className="text-sm">{profile.prep_stage ? STAGE_LABEL[profile.prep_stage] : "Not set"}</p>
+            </div>
+          )}
           <div>
             <p className="label">Exam date</p>
             <p className="text-sm">{profile.exam_date || "Not set"}</p>
@@ -418,43 +445,46 @@ export default async function DashboardPage() {
             <p className="label">Daily hour goal</p>
             <p className="text-sm">{profile.daily_hour_goal ? `${profile.daily_hour_goal}h` : "Not set"}</p>
           </div>
-          <div className="sm:col-span-2">
-            <p className="label">Resources</p>
-            <p className="text-sm">{profile.resources?.length ? profile.resources.join(", ") : "Not set"}</p>
-          </div>
+          {!isStep2OrShelf && (
+            <div className="sm:col-span-2">
+              <p className="label">Resources</p>
+              <p className="text-sm">{profile.resources?.length ? profile.resources.join(", ") : "Not set"}</p>
+            </div>
+          )}
         </div>
 
-        {(profile.completed_so_far || profile.strong_areas || profile.weak_areas || profile.goals_notes) && (
-          <div className="card space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
-            {profile.completed_so_far && (
-              <div>
-                <p className="label">Completed so far</p>
-                <p className="text-sm text-slate-300">{profile.completed_so_far}</p>
-              </div>
-            )}
-            {profile.strong_areas && (
-              <div>
-                <p className="label">Strong in</p>
-                <p className="text-sm text-slate-300">{profile.strong_areas}</p>
-              </div>
-            )}
-            {profile.weak_areas && (
-              <div>
-                <p className="label">Struggling with</p>
-                <p className="text-sm text-slate-300">{profile.weak_areas}</p>
-              </div>
-            )}
-            {profile.goals_notes && (
-              <div>
-                <p className="label">Goals / wants</p>
-                <p className="text-sm text-slate-300">{profile.goals_notes}</p>
-              </div>
-            )}
-          </div>
-        )}
+        {!isStep2OrShelf &&
+          (profile.completed_so_far || profile.strong_areas || profile.weak_areas || profile.goals_notes) && (
+            <div className="card space-y-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Intake details</p>
+              {profile.completed_so_far && (
+                <div>
+                  <p className="label">Completed so far</p>
+                  <p className="text-sm text-slate-300">{profile.completed_so_far}</p>
+                </div>
+              )}
+              {profile.strong_areas && (
+                <div>
+                  <p className="label">Strong in</p>
+                  <p className="text-sm text-slate-300">{profile.strong_areas}</p>
+                </div>
+              )}
+              {profile.weak_areas && (
+                <div>
+                  <p className="label">Struggling with</p>
+                  <p className="text-sm text-slate-300">{profile.weak_areas}</p>
+                </div>
+              )}
+              {profile.goals_notes && (
+                <div>
+                  <p className="label">Goals / wants</p>
+                  <p className="text-sm text-slate-300">{profile.goals_notes}</p>
+                </div>
+              )}
+            </div>
+          )}
 
-        <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
+        {!isStep2OrShelf && <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />}
 
         <StudentNotesEditor
           studentId={user.id}
