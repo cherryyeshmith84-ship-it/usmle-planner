@@ -8,7 +8,6 @@ import AppShell from "@/components/AppShell";
 import ScoreReportUpload from "@/components/ScoreReportUpload";
 import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
-import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 import AiExamReviewCard from "@/components/AiExamReviewCard";
 import ShelfAnalysis from "@/components/ShelfAnalysis";
 
@@ -16,10 +15,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * Analysis page: progress graphs, the AI Exam Review / Default AI Study
- * Plan, the "Upload score manually" card, question bank performance, and
- * (Step 1 students only) the Systems & Disciplines / Self Assessments
- * checklist. The "Assessment and plan" notes card was removed on request, for
- * both Step 1 and Step 2 / Shelf students.
+ * Plan, the "Upload score manually" card and question bank performance. The
+ * Systems & Disciplines / Self Assessments checklist now lives on its own
+ * page (app/systems/page.tsx, "Systems Covered" in the menu). The
+ * "Assessment and plan" notes card was removed on request.
  *
  * Step 2 CK / Shelf students get the same graphs (shelf mode: one colour per
  * subject), the question bank performance, and below them the per-subject
@@ -103,13 +102,6 @@ export default async function HistoryPage() {
     );
   }
 
-  // Read-only view of the Systems & Disciplines checklist a mentor fills in.
-  const { data: topicChecklistData } = await supabase
-    .from("student_topic_checklist")
-    .select("resource, category, topic, completed")
-    .eq("student_id", user.id);
-  const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
-
   // Mentor-authored study plan, if this student's mentor has written one.
   // When this is null, the AI card shows the Default AI Study Plan.
   const { data: studyPlanRow } = await supabase
@@ -142,10 +134,6 @@ export default async function HistoryPage() {
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
           <QBankSystemBreakdown cells={qbankBreakdown} />
-        </div>
-
-        <div className="mt-8">
-          <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
         </div>
       </main>
     </AppShell>
