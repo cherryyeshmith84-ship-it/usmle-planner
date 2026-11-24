@@ -17,6 +17,16 @@ import MentorChatPanel from "./MentorChatPanel";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
+// Which students a mentor takes. Students on Step 2 CK or Shelf / subject
+// exams are shown the mentors who tick Step 2. Step 3 is saved for when Step 3
+// students exist.
+const EXAM_TRACK_OPTIONS: { value: string; label: string }[] = [
+  { value: "step1", label: "Step 1" },
+  { value: "step2", label: "Step 2 CK (also shown to Shelf exam students)" },
+  { value: "step3", label: "Step 3" },
+];
+const EXAM_TRACK_SHORT: Record<string, string> = { step1: "Step 1", step2: "Step 2 & Shelf", step3: "Step 3" };
+
 type SlotWithBooker = MentorSlot & {
   booked_by_profile?: { full_name: string | null; email: string | null } | null;
 };
@@ -79,6 +89,11 @@ export default function MentorAvailabilityClient({
   // them through): email is tied to how this mentor logs in, and active is
   // an admin-only visibility switch. Everything else here is what shows up
   // on the student-facing directory card and profile page.
+  const initialExamTracks: string[] = (() => {
+    const t = (mentor as Mentor & { exam_tracks?: string[] | null }).exam_tracks;
+    return t && t.length > 0 ? t : ["step1"];
+  })();
+
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileName, setProfileName] = useState(mentor.name);
   const [profileBio, setProfileBio] = useState(mentor.bio || "");
@@ -88,6 +103,7 @@ export default function MentorAvailabilityClient({
   const [profileWhyMentor, setProfileWhyMentor] = useState(mentor.why_mentor || "");
   const [profileLanguages, setProfileLanguages] = useState((mentor.languages || []).join(", "));
   const [profileHelpAreas, setProfileHelpAreas] = useState<string[]>(mentor.help_areas || []);
+  const [profileExamTracks, setProfileExamTracks] = useState<string[]>(initialExamTracks);
   const [profileResponseTime, setProfileResponseTime] = useState(mentor.response_time_note || "");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -100,10 +116,15 @@ export default function MentorAvailabilityClient({
   const [displayWhyMentor, setDisplayWhyMentor] = useState(mentor.why_mentor || "");
   const [displayLanguages, setDisplayLanguages] = useState(mentor.languages || []);
   const [displayHelpAreas, setDisplayHelpAreas] = useState(mentor.help_areas || []);
+  const [displayExamTracks, setDisplayExamTracks] = useState<string[]>(initialExamTracks);
   const [displayResponseTime, setDisplayResponseTime] = useState(mentor.response_time_note || "");
 
   function toggleHelpArea(area: string) {
     setProfileHelpAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
+  }
+
+  function toggleExamTrack(value: string) {
+    setProfileExamTracks((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
   }
 
   function startEditProfile() {
@@ -115,6 +136,7 @@ export default function MentorAvailabilityClient({
     setProfileWhyMentor(displayWhyMentor);
     setProfileLanguages(displayLanguages.join(", "));
     setProfileHelpAreas(displayHelpAreas);
+    setProfileExamTracks(displayExamTracks);
     setProfileResponseTime(displayResponseTime);
     setProfileError(null);
     setEditingProfile(true);
@@ -129,6 +151,10 @@ export default function MentorAvailabilityClient({
   async function saveProfile() {
     if (!profileName.trim()) {
       setProfileError("Name can't be blank.");
+      return;
+    }
+    if (profileExamTracks.length === 0) {
+      setProfileError("Tick at least one exam (Step 1, Step 2 or Step 3) so students can find you.");
       return;
     }
     setProfileSaving(true);
@@ -170,6 +196,7 @@ export default function MentorAvailabilityClient({
         why_mentor: profileWhyMentor.trim() || null,
         languages: languagesArray,
         help_areas: profileHelpAreas,
+        exam_tracks: profileExamTracks,
         response_time_note: profileResponseTime.trim() || null,
       })
       .eq("id", mentor.id);
@@ -192,6 +219,7 @@ export default function MentorAvailabilityClient({
     setDisplayWhyMentor(profileWhyMentor.trim());
     setDisplayLanguages(languagesArray);
     setDisplayHelpAreas(profileHelpAreas);
+    setDisplayExamTracks(profileExamTracks);
     setDisplayResponseTime(profileResponseTime.trim());
     setProfileSaving(false);
     setEditingProfile(false);
@@ -411,6 +439,25 @@ export default function MentorAvailabilityClient({
               />
             </div>
             <div>
+              <label className="label">Which students do you mentor?</label>
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                {EXAM_TRACK_OPTIONS.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={profileExamTracks.includes(opt.value)}
+                      onChange={() => toggleExamTrack(opt.value)}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                You appear on the Mentorship page of students preparing for the exams you tick. Students who
+                haven&apos;t picked an exam see everyone.
+              </p>
+            </div>
+            <div>
               <label className="label">What you'll help with</label>
               <div className="grid sm:grid-cols-2 gap-2">
                 {HELP_AREA_OPTIONS.map((area) => (
@@ -466,6 +513,9 @@ export default function MentorAvailabilityClient({
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate">{displayName}</p>
               <p className="text-xs text-slate-400 truncate">{mentor.email}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Mentoring: {displayExamTracks.map((t) => EXAM_TRACK_SHORT[t] ?? t).join(", ")}
+              </p>
               {displayBio && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{displayBio}</p>}
             </div>
             <button type="button" onClick={startEditProfile} className="btn-secondary text-xs shrink-0">
@@ -581,192 +631,4 @@ export default function MentorAvailabilityClient({
                         <div className="mb-3">
                           <label className="label">Who can book this slot?</label>
                           <div className="flex flex-wrap gap-3">
-                            <label className="flex items-center gap-1.5 text-sm text-slate-300">
-                              <input
-                                type="radio"
-                                name={`edit-audience-${s.id}`}
-                                checked={editAudience === ""}
-                                onChange={() => setEditAudience("")}
-                              />
-                              Everyone
-                            </label>
-                            <label className="flex items-center gap-1.5 text-sm text-slate-300">
-                              <input
-                                type="radio"
-                                name={`edit-audience-${s.id}`}
-                                checked={editAudience === "existing"}
-                                onChange={() => setEditAudience("existing")}
-                              />
-                              My existing students only
-                            </label>
-                            <label className="flex items-center gap-1.5 text-sm text-slate-300">
-                              <input
-                                type="radio"
-                                name={`edit-audience-${s.id}`}
-                                checked={editAudience === "new"}
-                                onChange={() => setEditAudience("new")}
-                              />
-                              New students only
-                            </label>
-                          </div>
-                        </div>
-                        {editError && <p className="text-xs text-red-400 mb-2">{editError}</p>}
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => saveEditSlot(s.id)}
-                            disabled={editSaving}
-                            className="btn-primary text-sm"
-                          >
-                            {editSaving ? "Saving..." : "Save changes"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelEditSlot}
-                            disabled={editSaving}
-                            className="btn-secondary text-sm"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                    <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                      <div>
-                        <p className="text-sm flex items-center gap-2 flex-wrap">
-                          {formatSlotTime(s.start_time)} &ndash; {formatSlotTime(s.end_time)}
-                          {s.audience && (
-                            <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-slate-800 text-slate-400">
-                              {s.audience === "existing" ? "Existing students" : "New students"}
-                            </span>
-                          )}
-                        </p>
-                        {s.is_booked && (
-                          <>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Booked by{" "}
-                              <span className="font-medium text-slate-300">
-                                {s.booked_by_profile?.full_name || "a student"}
-                              </span>
-                              {s.booked_by_profile?.email && (
-                                <span className="text-slate-500"> ({s.booked_by_profile.email})</span>
-                              )}
-                              {s.booked_at && (
-                                <>
-                                  {" "}
-                                  on {formatSlotDate(s.booked_at)} at {formatSlotTime(s.booked_at)}
-                                </>
-                              )}
-                            </p>
-                            {s.student_note && (
-                              <p className="text-xs text-slate-300 mt-1 italic">&ldquo;{s.student_note}&rdquo;</p>
-                            )}
-                            {s.booked_by && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedPartner({
-                                    id: s.booked_by as string,
-                                    full_name: s.booked_by_profile?.full_name ?? null,
-                                    email: s.booked_by_profile?.email ?? null,
-                                  })
-                                }
-                                className="text-xs text-brand-400 hover:text-brand-300 mt-1"
-                              >
-                                Message this student &rarr;
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span
-                          className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
-                            s.cancelled_at
-                              ? "bg-red-900/40 text-red-400"
-                              : s.is_booked
-                                ? "bg-green-900/40 text-green-400"
-                                : "bg-slate-800 text-slate-300"
-                          }`}
-                        >
-                          {s.cancelled_at ? "Cancelled" : s.is_booked ? "Booked" : "Open"}
-                        </span>
-                        {!s.is_booked && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => startEditSlot(s)}
-                              className="text-xs text-brand-400 hover:text-brand-300"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeSlot(s.id)}
-                              disabled={busyId === s.id}
-                              className="text-xs text-red-400 hover:text-red-300"
-                            >
-                              Remove
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    )
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {past.length > 0 && (
-        <p className="text-xs text-slate-600">
-          {past.length} past slot{past.length === 1 ? "" : "s"} not shown.
-        </p>
-      )}
-
-      <div>
-        <p className="text-sm font-semibold mb-3">Messages</p>
-        {conversationPartners.length === 0 ? (
-          <p className="text-sm text-slate-400">
-            No students to message yet - this fills in once someone books a slot or messages you.
-          </p>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              {conversationPartners.map((p) => {
-                const active = selectedPartner?.id === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelectedPartner(p)}
-                    className={`card w-full text-left transition ${
-                      active ? "border-brand-500" : "hover:border-brand-500/50"
-                    }`}
-                  >
-                    <p className="text-sm font-semibold">{p.full_name || "A student"}</p>
-                    {p.email && <p className="text-xs text-slate-500">{p.email}</p>}
-                  </button>
-                );
-              })}
-            </div>
-            <div>
-              {selectedPartner ? (
-                <MentorChatPanel
-                  mentorId={mentor.id}
-                  studentId={selectedPartner.id}
-                  otherPartyLabel={selectedPartner.full_name || selectedPartner.email || "this student"}
-                />
-              ) : (
-                <p className="text-sm text-slate-400">Pick a student on the left to see or send messages.</p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+                            <label className="flex items-center gap-1.5
