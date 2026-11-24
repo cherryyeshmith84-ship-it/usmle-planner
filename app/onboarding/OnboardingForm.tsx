@@ -46,7 +46,9 @@ export default function OnboardingForm({
   const extra = (initialProfile ?? {}) as ContactFields;
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialProfile?.avatar_url ?? null);
-  const [track, setTrack] = useState<ExamTrack | "">(initialProfile?.exam_track ?? "");
+  // "step2" is a third track added later; kept as a local union so
+  // lib/types.ts doesn't need to change. Subject (shelf) exams keep "subject".
+  const [track, setTrack] = useState<ExamTrack | "step2" | "">(initialProfile?.exam_track ?? "");
   const [prepStage, setPrepStage] = useState<PrepStage | "">(initialProfile?.prep_stage ?? "");
   const [examDate, setExamDate] = useState(initialProfile?.exam_date ?? "");
   const [hourGoal, setHourGoal] = useState(initialProfile?.daily_hour_goal?.toString() ?? "8");
@@ -108,7 +110,7 @@ export default function OnboardingForm({
       return;
     }
     if (!track) {
-      setError("Please choose Step 1 or Subject exams.");
+      setError("Please choose Step 1, Step 2 or Shelf / subject exams.");
       return;
     }
     if (track === "step1" && !prepStage) {
@@ -165,7 +167,9 @@ export default function OnboardingForm({
     // Let the coach know a new (or updated) intake is ready to review, without
     // auto-generating any plan - she assigns one herself once she's seen this.
     const summaryLines = [
-      `Completed onboarding: ${track === "step1" ? "Step 1 (CBSE)" : `Subject exams - ${subjectName.trim()}`}`,
+      `Completed onboarding: ${
+        track === "step1" ? "Step 1 (CBSE)" : track === "step2" ? "Step 2 CK" : `Shelf / subject exams - ${subjectName.trim()}`
+      }`,
       track === "step1" && prepStage ? `Stage: ${prepStage}` : "",
       situation ? `Situation: ${situation}` : "",
       examDate ? `Exam date: ${examDate}` : "Exam date: not booked yet",
@@ -185,8 +189,18 @@ export default function OnboardingForm({
       body: summaryLines.join("\n"),
     });
 
+    // Email the Master Grid inbox: "signed up, waiting for demo". Never
+    // blocks the student if it fails.
+    try {
+      await fetch("/api/leads/notify", { method: "POST" });
+    } catch {
+      // ignore
+    }
+
     setLoading(false);
-    router.push("/welcome");
+    // Step 1 students continue exactly as before. Step 2 and Shelf / subject
+    // exam students land on their own page, with their own mentor list.
+    router.push(track === "step1" ? "/welcome" : "/step2");
     router.refresh();
   }
 
@@ -277,7 +291,7 @@ export default function OnboardingForm({
       </p>
 
       <label className="label">What are you preparing for?</label>
-      <div className="grid grid-cols-2 gap-3 mb-5">
+      <div className="grid grid-cols-3 gap-3 mb-5">
         <button
           type="button"
           onClick={() => setTrack("step1")}
@@ -291,6 +305,17 @@ export default function OnboardingForm({
         </button>
         <button
           type="button"
+          onClick={() => setTrack("step2")}
+          className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
+            track === "step2"
+              ? "border-brand-400 bg-brand-900/40 text-brand-300"
+              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
+          }`}
+        >
+          Step 2 CK
+        </button>
+        <button
+          type="button"
           onClick={() => setTrack("subject")}
           className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
             track === "subject"
@@ -298,7 +323,7 @@ export default function OnboardingForm({
               : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
           }`}
         >
-          Subject exams
+          Shelf / subject exams
         </button>
       </div>
 
