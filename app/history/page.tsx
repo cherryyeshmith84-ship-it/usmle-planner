@@ -11,7 +11,6 @@ import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/comp
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 import AiExamReviewCard from "@/components/AiExamReviewCard";
 import ShelfAnalysis from "@/components/ShelfAnalysis";
-import AdminShelfReportUpload from "@/components/AdminShelfReportUpload";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +20,9 @@ export const dynamic = "force-dynamic";
  * (Step 1 students only) the Systems & Disciplines / Self Assessments
  * checklist. The "Assessment and plan" notes card was removed on request, for
  * both Step 1 and Step 2 / Shelf students. Step 2 / Shelf students get their
- * own page instead, arranged by subject (components/ShelfAnalysis.tsx).
+ * own page instead, arranged by subject (components/ShelfAnalysis.tsx). They
+ * cannot upload reports themselves - the admin adds them from
+ * Admin -> Analysis.
  */
 export default async function HistoryPage() {
   const supabase = createClient();
@@ -51,20 +52,25 @@ export default async function HistoryPage() {
   const reports = (data ?? []) as ScoreReport[];
 
   // Step 2 CK / Shelf students get their own analysis, arranged by subject
-  // (see components/ShelfAnalysis.tsx), with the shelf PDF upload on top.
+  // (see components/ShelfAnalysis.tsx). No upload here - read only.
   if (isStep2OrShelf) {
     return (
       <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
         <main className="flex-1 px-6 py-8 w-full">
           <h1 className="text-xl font-bold mb-1">Analysis</h1>
           <p className="text-sm text-slate-400 mb-6">
-            Upload your NBME shelf exam reports (Performance Report and/or Question-Level Feedback) for any subject.
-            Your results are arranged by subject, with your weak topics and question patterns.
+            Your shelf exam results, arranged by subject, with your weak topics and question patterns.
           </p>
-          <div className="mb-6">
-            <AdminShelfReportUpload userId={user.id} self />
-          </div>
-          <ShelfAnalysis reports={reports as unknown as React.ComponentProps<typeof ShelfAnalysis>["reports"]} />
+          {reports.length === 0 ? (
+            <div className="card">
+              <p className="text-sm text-slate-400">
+                No shelf exam reports yet. Send your NBME reports to the Master Grid team and your analysis will
+                appear here, arranged by subject.
+              </p>
+            </div>
+          ) : (
+            <ShelfAnalysis reports={reports as unknown as React.ComponentProps<typeof ShelfAnalysis>["reports"]} />
+          )}
         </main>
       </AppShell>
     );
