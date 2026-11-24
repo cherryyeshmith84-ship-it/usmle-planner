@@ -10,6 +10,8 @@ import QBankSystemBreakdown from "@/components/QBankSystemBreakdown";
 import StudentProgressGraphs, { type GraphBlock, type GraphReport } from "@/components/StudentProgressGraphs";
 import StudentTopicChecklist, { type TopicChecklistRow } from "@/components/StudentTopicChecklist";
 import AiExamReviewCard from "@/components/AiExamReviewCard";
+import ShelfAnalysis from "@/components/ShelfAnalysis";
+import AdminShelfReportUpload from "@/components/AdminShelfReportUpload";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +20,8 @@ export const dynamic = "force-dynamic";
  * Plan, the "Upload score manually" card, question bank performance, and
  * (Step 1 students only) the Systems & Disciplines / Self Assessments
  * checklist. The "Assessment and plan" notes card was removed on request, for
- * both Step 1 and Step 2 / Shelf students. Step 2 / Shelf students do not see
- * the checklist.
+ * both Step 1 and Step 2 / Shelf students. Step 2 / Shelf students get their
+ * own page instead, arranged by subject (components/ShelfAnalysis.tsx).
  */
 export default async function HistoryPage() {
   const supabase = createClient();
@@ -48,6 +50,26 @@ export default async function HistoryPage() {
     .order("taken_date", { ascending: false });
   const reports = (data ?? []) as ScoreReport[];
 
+  // Step 2 CK / Shelf students get their own analysis, arranged by subject
+  // (see components/ShelfAnalysis.tsx), with the shelf PDF upload on top.
+  if (isStep2OrShelf) {
+    return (
+      <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
+        <main className="flex-1 px-6 py-8 w-full">
+          <h1 className="text-xl font-bold mb-1">Analysis</h1>
+          <p className="text-sm text-slate-400 mb-6">
+            Upload your NBME shelf exam reports (Performance Report and/or Question-Level Feedback) for any subject.
+            Your results are arranged by subject, with your weak topics and question patterns.
+          </p>
+          <div className="mb-6">
+            <AdminShelfReportUpload userId={user.id} self />
+          </div>
+          <ShelfAnalysis reports={reports as unknown as React.ComponentProps<typeof ShelfAnalysis>["reports"]} />
+        </main>
+      </AppShell>
+    );
+  }
+
   // Self-reported day-to-day qbank performance (Question Bank Blocks,
   // logged from the Study Planner calendar).
   const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
@@ -59,15 +81,11 @@ export default async function HistoryPage() {
   const graphBlocks = (blocksData ?? []) as unknown as GraphBlock[];
 
   // Read-only view of the Systems & Disciplines checklist a mentor fills in.
-  // Only loaded for Step 1 students.
-  let topicChecklistRows: TopicChecklistRow[] = [];
-  if (!isStep2OrShelf) {
-    const { data: topicChecklistData } = await supabase
-      .from("student_topic_checklist")
-      .select("resource, category, topic, completed")
-      .eq("student_id", user.id);
-    topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
-  }
+  const { data: topicChecklistData } = await supabase
+    .from("student_topic_checklist")
+    .select("resource, category, topic, completed")
+    .eq("student_id", user.id);
+  const topicChecklistRows = (topicChecklistData ?? []) as TopicChecklistRow[];
 
   // Mentor-authored study plan, if this student's mentor has written one.
   // When this is null, the AI card shows the Default AI Study Plan.
@@ -103,11 +121,9 @@ export default async function HistoryPage() {
           <QBankSystemBreakdown cells={qbankBreakdown} />
         </div>
 
-        {!isStep2OrShelf && (
-          <div className="mt-8">
-            <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
-          </div>
-        )}
+        <div className="mt-8">
+          <StudentTopicChecklist studentId={user.id} initialRows={topicChecklistRows} readOnly />
+        </div>
       </main>
     </AppShell>
   );
