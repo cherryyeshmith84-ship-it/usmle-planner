@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ExamTrack, PrepStage, Profile } from "@/lib/types";
+import type { PrepStage, Profile } from "@/lib/types";
 import ImageUploadField from "@/components/ImageUploadField";
 
 const RESOURCE_OPTIONS = [
@@ -18,32 +18,12 @@ const RESOURCE_OPTIONS = [
   "Amboss",
 ];
 
-/**
- * Everything a student filled in once on the onboarding wizard
- * (app/onboarding/OnboardingForm.tsx) used to be locked in forever after
- * that - exam date, prep stage, resources, all of it. That meant a stale
- * exam date (like a countdown reading "-28 Days" once the date's already
- * passed) had no way to get fixed except asking a mentor/admin to edit it
- * by hand. This mirrors OnboardingForm's own fields and logic exactly, just
- * re-editable here in Settings any time, not just once at signup.
- *
- * Changing the track (Step 1 <-> Step 2 <-> Shelf / subject exams) sets
- * track_changed_pending - this already drives the amber "Track changed" badge
- * and "needs attention" sort order on the admin Students list
- * (app/admin/page.tsx), so a mentor/admin knows to double check whether the
- * student's existing plan still makes sense, without this component needing
- * to know anything about that admin-side logic itself.
- *
- * Switching TO Step 2 or Shelf / subject exams sends the student to /step2,
- * the Mentorship page that only lists the Step 2 / Shelf mentors.
- *
- * Profile picture uploads straight to the "student-photos" Storage bucket
- * (see migration add_avatar_url_and_student_photos_bucket), under this
- * student's own user id as the folder - same ImageUploadField.tsx pattern
- * UWorldBlockTracker.tsx uses for block screenshots. A new student sees the
- * same field during onboarding (app/onboarding/OnboardingForm.tsx); this is
- * just the "change it later" version of that same field.
- */
+// Two choices for the student: Step 1, or Step 2 / Shelf exams. Under the hood
+// "step2" and "subject" are both the Step 2 / Shelf group (same page, same
+// mentors, same data), so a student who was already saved as "subject" stays
+// "subject" and the second button shows as selected for either value.
+type Track = "step1" | "step2" | "subject" | "";
+
 export default function SettingsForm({
   profile,
   userId,
@@ -58,9 +38,8 @@ export default function SettingsForm({
   const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url ?? null);
 
-  // "step2" is a third track added later; kept as a local union so
-  // lib/types.ts doesn't need to change. Shelf exams keep using "subject".
-  const [track, setTrack] = useState<ExamTrack | "step2" | "">(profile.exam_track ?? "");
+  const savedTrack = (profile.exam_track ?? "") as Track;
+  const [track, setTrack] = useState<Track>(savedTrack);
   const [prepStage, setPrepStage] = useState<PrepStage | "">(profile.prep_stage ?? "");
   const [examDate, setExamDate] = useState(profile.exam_date ?? "");
   const [hourGoal, setHourGoal] = useState(profile.daily_hour_goal?.toString() ?? "");
@@ -80,18 +59,21 @@ export default function SettingsForm({
     setResources((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
   }
 
-  const needsMoreDetail = track === "step1" && (prepStage === "middle" || prepStage === "end");
+  const isStep1 = track === "step1";
+  const isStep2Group = track === "step2" || track === "subject";
+  const needsMoreDetail = isStep1 && (prepStage === "middle" || prepStage === "end");
+
+  function pickStep2Group() {
+    // Keep "subject" if that is what the student already had saved.
+    setTrack(savedTrack === "subject" ? "subject" : "step2");
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (track === "step1" && !prepStage) {
+    if (isStep1 && !prepStage) {
       setError("Please choose where you are in your Step 1 prep.");
-      return;
-    }
-    if (track === "subject" && !subjectName.trim()) {
-      setError("Please tell us which subject you're preparing for.");
       return;
     }
 
@@ -103,7 +85,11 @@ export default function SettingsForm({
     // Only flag "track changed" when it's an actual change from what was
     // already saved - re-saving the same track every time you tweak your
     // exam date shouldn't keep re-flagging it for review.
-    const trackChanged = !!track && track !== (profile.exam_track ?? "");
+    const trackChanged = !!track && track !== savedTrack;
+    // Moving between Step 1 and Step 2 / Shelf is the change that swaps the
+    // student's data and landing page. Step 2 <-> Shelf is not.
+    const groupOf = (t: string) => (t === "step2" || t === "subject" ? "step2" : "step1");
+    const groupChanged = !!track && groupOf(track) !== groupOf(savedTrack);
 
     const supabase = createClient();
     const { error: updateError } = await supabase
@@ -113,8 +99,8 @@ export default function SettingsForm({
         mentor_email: mentorEmail.trim() || null,
         avatar_url: avatarUrl,
         exam_track: track || null,
-        prep_stage: track === "step1" ? prepStage || null : null,
-        subject_name: track === "subject" ? subjectName.trim() || null : null,
+        prep_stage: isStep1 ? prepStage || null : null,
+        subject_name: isStep2Group ? subjectName.trim() || null : null,
         exam_date: examDate || null,
         daily_hour_goal: hourGoal ? Number(hourGoal) : null,
         resources: finalResources,
@@ -137,17 +123,26 @@ export default function SettingsForm({
       setCustomResource("");
     }
 
-    // Just switched to Step 2 or Shelf / subject exams: take the student to
-    // their own page with the Step 2 / Shelf mentors.
-    if (trackChanged && (track === "step2" || track === "subject")) {
+    // Switching to Step 2 / Shelf takes the student to their own page.
+    if (groupChanged && isStep2Group) {
       router.push("/step2");
       router.refresh();
       return;
+    }
+    if (groupChanged) {
+      router.refresh();
     }
 
     setMsg(trackChanged ? "Saved - your mentor will see your plan may need a review." : "Saved.");
     setTimeout(() => setMsg(null), 3500);
   }
+
+  const trackBtn = (on: boolean) =>
+    `rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
+      on
+        ? "border-brand-400 bg-brand-900/40 text-brand-300"
+        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
+    }`;
 
   return (
     <form onSubmit={handleSave} className="space-y-6">
@@ -185,43 +180,20 @@ export default function SettingsForm({
         </p>
 
         <label className="label">What are you preparing for?</label>
-        <div className="grid grid-cols-3 gap-3 mb-5">
-          <button
-            type="button"
-            onClick={() => setTrack("step1")}
-            className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
-              track === "step1"
-                ? "border-brand-400 bg-brand-900/40 text-brand-300"
-                : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-            }`}
-          >
+        <div className="grid grid-cols-2 gap-3 mb-2">
+          <button type="button" onClick={() => setTrack("step1")} className={trackBtn(isStep1)}>
             Step 1 (CBSE)
           </button>
-          <button
-            type="button"
-            onClick={() => setTrack("step2")}
-            className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
-              track === "step2"
-                ? "border-brand-400 bg-brand-900/40 text-brand-300"
-                : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-            }`}
-          >
-            Step 2 CK
-          </button>
-          <button
-            type="button"
-            onClick={() => setTrack("subject")}
-            className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
-              track === "subject"
-                ? "border-brand-400 bg-brand-900/40 text-brand-300"
-                : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-            }`}
-          >
-            Shelf / subject exams
+          <button type="button" onClick={pickStep2Group} className={trackBtn(isStep2Group)}>
+            Step 2 / Shelf exams
           </button>
         </div>
+        <p className="text-xs text-slate-500 mb-5">
+          Switching between Step 1 and Step 2 / Shelf starts a fresh, empty planner and analysis for the new
+          one. Your other one is kept safe and comes back if you switch back.
+        </p>
 
-        {track === "step1" && (
+        {isStep1 && (
           <>
             <label className="label">Where are you in your Step 1 prep?</label>
             <div className="grid grid-cols-3 gap-3 mb-5">
@@ -294,12 +266,12 @@ export default function SettingsForm({
           </>
         )}
 
-        {track === "subject" && (
+        {isStep2Group && (
           <>
-            <label className="label">Which subject are you preparing for?</label>
+            <label className="label">Which shelf / subject exam? (optional)</label>
             <input
               className="input mb-5"
-              placeholder="e.g. Internal Medicine, Surgery, Pediatrics"
+              placeholder="e.g. Internal Medicine, Surgery, Pediatrics - leave blank for Step 2 CK"
               value={subjectName}
               onChange={(e) => setSubjectName(e.target.value)}
             />
@@ -329,7 +301,7 @@ export default function SettingsForm({
           </>
         )}
 
-        {track === "step1" && (
+        {isStep1 && (
           <>
             <label className="label">Which resources do you use / prefer?</label>
             <div className="flex flex-wrap gap-2 mb-3">
