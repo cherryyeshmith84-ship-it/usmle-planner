@@ -39,14 +39,15 @@ interface ParsedShelf {
 }
 
 /**
- * Admin-only: upload the NBME shelf (Subject Exam) PDFs for one exam of one
- * student - the Performance Report, the Question-Level Feedback report, or
- * both - for ANY subject (Medicine, Psychiatry, Surgery, Pediatrics, OB/GYN,
- * Family Medicine, Neurology, Emergency Medicine...). The AI reads them, the
- * admin checks the summary, and it is saved to that student's score reports,
- * so it shows up on their Analysis page and their mentor's view.
+ * Upload the NBME shelf (Subject Exam) PDFs for one exam - the Performance
+ * Report, the Question-Level Feedback report, or both - for ANY subject
+ * (Medicine, Psychiatry, Surgery, Pediatrics, OB/GYN, Family Medicine,
+ * Neurology, Emergency Medicine...). The AI reads them, the user checks the
+ * summary, and it is saved to score reports, so it shows up on the Analysis
+ * page and the mentor's view. Admins use it for a chosen student (userId =
+ * that student); Step 2 / Shelf students use it for themselves (self).
  */
-export default function AdminShelfReportUpload({ userId }: { userId: string }) {
+export default function AdminShelfReportUpload({ userId, self = false }: { userId: string; self?: boolean }) {
   const router = useRouter();
   const [stage, setStage] = useState<"idle" | "uploading" | "parsing" | "review" | "saving">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +171,9 @@ export default function AdminShelfReportUpload({ userId }: { userId: string }) {
     setDraft(null);
     setImagePaths([]);
     setStage("idle");
-    setDoneMsg("Saved shelf report. It now shows on the student's Analysis page.");
+    setDoneMsg(
+      self ? "Saved. It now shows in your analysis below." : "Saved shelf report. It now shows on the student's Analysis page."
+    );
     router.refresh();
   }
 
@@ -184,7 +187,7 @@ export default function AdminShelfReportUpload({ userId }: { userId: string }) {
   if (stage === "idle") {
     return (
       <div className="card">
-        <p className="text-sm font-semibold mb-1">Upload a shelf exam report</p>
+        <p className="text-sm font-semibold mb-1">{self ? "Upload your shelf exam report" : "Upload a shelf exam report"}</p>
         <p className="text-xs text-slate-400 mb-3">
           NBME Subject Exam PDFs for any subject (Medicine, Psychiatry, Surgery, Pediatrics, OB/GYN, Family Medicine,
           Neurology, Emergency Medicine). Choose the Performance Report and/or the Question-Level Feedback PDF from the{" "}
