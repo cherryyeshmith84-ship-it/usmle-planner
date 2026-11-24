@@ -338,13 +338,18 @@ export default async function MentorshipPage() {
   // "subject") only see the mentors with step2_shelf switched on. Everyone
   // else - Step 1 students, students who haven't picked a track, admin - sees
   // the full directory exactly as before.
-  const examTrack = profile?.exam_track as string | null | undefined;
+   const examTrack = profile?.exam_track as string | null | undefined;
   const isStep2OrShelf = examTrack === "step2" || examTrack === "subject";
-  const mentorsForDirectory = mentors.filter(
-    (m) =>
-      mentorActsAs(m, "mentor") &&
-      (!isStep2OrShelf || (m as Mentor & { step2_shelf?: boolean }).step2_shelf === true)
-  );
+  // Which tick a student is matched on: Step 2 and Shelf students -> "step2",
+  // Step 1 students -> "step1". Students with no exam picked (and admin) see
+  // every mentor. A mentor with nothing saved counts as Step 1.
+  const wantedTrack = isStep2OrShelf ? "step2" : examTrack === "step1" ? "step1" : null;
+  const mentorsForDirectory = mentors.filter((m) => {
+    if (!mentorActsAs(m, "mentor")) return false;
+    if (!wantedTrack) return true;
+    const tracks = (m as Mentor & { exam_tracks?: string[] | null }).exam_tracks;
+    return (tracks && tracks.length > 0 ? tracks : ["step1"]).includes(wantedTrack);
+  });
 
   const now = new Date().toISOString();
   const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
