@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 // NOTE: AI failures are returned as HTTP 422 (not 5xx) on purpose - a 5xx from
 // this route is replaced by an HTML error page in front of the site, which
-// hides the real reason from the admin.
+// hides the real reason from the user.
 
 interface ShelfSection {
   group: string; // e.g. "Organ System/Topic", "Physician Task", "Site of Care", "Patient Group"
@@ -18,7 +18,7 @@ interface ShelfSection {
 }
 
 /**
- * Admin-only. Reads NBME Subject ("shelf") exam PDFs for ANY subject
+ * Reads NBME Subject ("shelf") exam PDFs for ANY subject
  * (Medicine, Psychiatry, Surgery, Pediatrics, OB/GYN, Family Medicine,
  * Neurology, Emergency Medicine...) - the "Examinee Performance Report"
  * (EPC scores by organ system / physician task / site of care / patient
@@ -33,8 +33,9 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-  const { data: me } = await supabase.from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
-  if (!me?.is_admin) return NextResponse.json({ error: "Admins only." }, { status: 403 });
+  // Any signed-in user may read their own shelf PDFs (Step 2 / Shelf students
+  // upload theirs on their Analysis page; admins upload for a student). The
+  // route only reads the files and returns a draft - nothing is saved here.
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
