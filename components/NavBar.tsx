@@ -45,6 +45,9 @@ const GROUPS: NavGroup[] = [
       // "Analysis" (was "Performance") absorbs what used to be the
       // standalone History page.
       { href: "/history", label: "Analysis" },
+      // Systems & Disciplines / Self Assessments checklist, split out of
+      // Analysis. Step 1 students only (hidden for Step 2 / Shelf below).
+      { href: "/systems", label: "Systems Covered" },
     ],
   },
 ];
@@ -90,6 +93,8 @@ export default function NavBar({
   // Demo team. Checked client-side (is_demo_team() database function) so no
   // extra prop has to be threaded through every page that renders AppShell.
   const [isDemoTeam, setIsDemoTeam] = useState(false);
+  // The student's exam track, to hide Step 1-only links for Step 2 / Shelf.
+  const [examTrack, setExamTrack] = useState<string | null>(null);
   // Below the md breakpoint the sidebar is an off-canvas drawer (closed by
   // default) toggled by the hamburger button, auto-closing on route change.
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -140,10 +145,33 @@ export default function NavBar({
     };
   }, []);
 
+  // The signed-in student's exam track.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTrack() {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase.from("profiles").select("exam_track").eq("id", user.id).maybeSingle();
+        if (!cancelled) setExamTrack((data as { exam_track: string | null } | null)?.exam_track ?? null);
+      } catch {
+        // ignore - links just stay visible
+      }
+    }
+    loadTrack();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Role split: students get the full student nav; mentors get ONLY the
   // mentor links; admins get ONLY the admin links (plus the mentor links if
   // they are also a mentor). No student features for mentors/admins.
   const isStudent = !isAdmin && !isMentor;
+  const isStep2OrShelf = examTrack === "step2" || examTrack === "subject";
   const mentorGroup: NavGroup = {
     title: "Mentor",
     items: [
@@ -159,7 +187,10 @@ export default function NavBar({
     ],
   };
   const visibleGroups: NavGroup[] = isStudent
-    ? GROUPS.filter((group) => contentPublished || !GATED_GROUP_TITLES.has(group.title))
+    ? GROUPS.filter((group) => contentPublished || !GATED_GROUP_TITLES.has(group.title)).map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !(item.href === "/systems" && isStep2OrShelf)),
+      }))
     : isMentor
     ? [mentorGroup]
     : [];
