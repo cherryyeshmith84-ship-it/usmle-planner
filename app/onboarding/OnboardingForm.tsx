@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ExamTrack, PrepStage, Profile } from "@/lib/types";
+import type { PrepStage, Profile } from "@/lib/types";
 import ImageUploadField from "@/components/ImageUploadField";
 
 const RESOURCE_OPTIONS = [
@@ -35,6 +35,11 @@ type ContactFields = {
   timezone?: string | null;
 };
 
+// Two choices for the student: Step 1, or Step 2 / Shelf exams. "step2" and
+// "subject" are both the Step 2 / Shelf group (same page, same mentors), so a
+// profile already saved as "subject" keeps that value.
+type Track = "step1" | "step2" | "subject" | "";
+
 export default function OnboardingForm({
   initialProfile,
   userId,
@@ -46,9 +51,8 @@ export default function OnboardingForm({
   const extra = (initialProfile ?? {}) as ContactFields;
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialProfile?.avatar_url ?? null);
-  // "step2" is a third track added later; kept as a local union so
-  // lib/types.ts doesn't need to change. Subject (shelf) exams keep "subject".
-  const [track, setTrack] = useState<ExamTrack | "step2" | "">(initialProfile?.exam_track ?? "");
+  const savedTrack = (initialProfile?.exam_track ?? "") as Track;
+  const [track, setTrack] = useState<Track>(savedTrack);
   const [prepStage, setPrepStage] = useState<PrepStage | "">(initialProfile?.prep_stage ?? "");
   const [examDate, setExamDate] = useState(initialProfile?.exam_date ?? "");
   const [hourGoal, setHourGoal] = useState(initialProfile?.daily_hour_goal?.toString() ?? "8");
@@ -95,7 +99,13 @@ export default function OnboardingForm({
     setProblems((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   }
 
-  const needsMoreDetail = track === "step1" && (prepStage === "middle" || prepStage === "end");
+  const isStep1 = track === "step1";
+  const isStep2Group = track === "step2" || track === "subject";
+  const needsMoreDetail = isStep1 && (prepStage === "middle" || prepStage === "end");
+
+  function pickStep2Group() {
+    setTrack(savedTrack === "subject" ? "subject" : "step2");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -110,15 +120,11 @@ export default function OnboardingForm({
       return;
     }
     if (!track) {
-      setError("Please choose Step 1, Step 2 or Shelf / subject exams.");
+      setError("Please choose Step 1 or Step 2 / Shelf exams.");
       return;
     }
-    if (track === "step1" && !prepStage) {
+    if (isStep1 && !prepStage) {
       setError("Please choose where you are in your Step 1 prep.");
-      return;
-    }
-    if (track === "subject" && !subjectName.trim()) {
-      setError("Please tell us which subject you're preparing for.");
       return;
     }
 
@@ -137,8 +143,8 @@ export default function OnboardingForm({
         onboarding_completed: true,
         avatar_url: avatarUrl,
         exam_track: track,
-        prep_stage: track === "step1" ? prepStage : null,
-        subject_name: track === "subject" ? subjectName.trim() : null,
+        prep_stage: isStep1 ? prepStage : null,
+        subject_name: isStep2Group ? subjectName.trim() || null : null,
         exam_date: examDate || null,
         daily_hour_goal: hourGoal ? Number(hourGoal) : null,
         resources: finalResources,
@@ -166,11 +172,14 @@ export default function OnboardingForm({
 
     // Let the coach know a new (or updated) intake is ready to review, without
     // auto-generating any plan - she assigns one herself once she's seen this.
+    const trackLabel = isStep1
+      ? "Step 1 (CBSE)"
+      : subjectName.trim()
+      ? `Step 2 / Shelf exams - ${subjectName.trim()}`
+      : "Step 2 / Shelf exams";
     const summaryLines = [
-      `Completed onboarding: ${
-        track === "step1" ? "Step 1 (CBSE)" : track === "step2" ? "Step 2 CK" : `Shelf / subject exams - ${subjectName.trim()}`
-      }`,
-      track === "step1" && prepStage ? `Stage: ${prepStage}` : "",
+      `Completed onboarding: ${trackLabel}`,
+      isStep1 && prepStage ? `Stage: ${prepStage}` : "",
       situation ? `Situation: ${situation}` : "",
       examDate ? `Exam date: ${examDate}` : "Exam date: not booked yet",
       hourGoal ? `Target hours/day: ${hourGoal}` : "",
@@ -198,15 +207,22 @@ export default function OnboardingForm({
     }
 
     setLoading(false);
-    // Step 1 students continue exactly as before. Step 2 and Shelf / subject
-    // exam students land on their own page, with their own mentor list.
-    router.push(track === "step1" ? "/welcome" : "/step2");
+    // Step 1 students continue exactly as before. Step 2 / Shelf students land
+    // on their own page, with their own mentor list.
+    router.push(isStep1 ? "/welcome" : "/step2");
     router.refresh();
   }
 
   const chip = (on: boolean) =>
     `text-sm rounded-full px-3 py-1.5 border transition ${
       on ? "border-brand-400 bg-brand-900/40 text-brand-300" : "border-slate-700 text-slate-300 hover:border-slate-600"
+    }`;
+
+  const trackBtn = (on: boolean) =>
+    `rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
+      on
+        ? "border-brand-400 bg-brand-900/40 text-brand-300"
+        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
     }`;
 
   return (
@@ -291,39 +307,12 @@ export default function OnboardingForm({
       </p>
 
       <label className="label">What are you preparing for?</label>
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <button
-          type="button"
-          onClick={() => setTrack("step1")}
-          className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
-            track === "step1"
-              ? "border-brand-400 bg-brand-900/40 text-brand-300"
-              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-          }`}
-        >
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        <button type="button" onClick={() => setTrack("step1")} className={trackBtn(isStep1)}>
           Step 1 (CBSE)
         </button>
-        <button
-          type="button"
-          onClick={() => setTrack("step2")}
-          className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
-            track === "step2"
-              ? "border-brand-400 bg-brand-900/40 text-brand-300"
-              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-          }`}
-        >
-          Step 2 CK
-        </button>
-        <button
-          type="button"
-          onClick={() => setTrack("subject")}
-          className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
-            track === "subject"
-              ? "border-brand-400 bg-brand-900/40 text-brand-300"
-              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-          }`}
-        >
-          Shelf / subject exams
+        <button type="button" onClick={pickStep2Group} className={trackBtn(isStep2Group)}>
+          Step 2 / Shelf exams
         </button>
       </div>
 
@@ -336,7 +325,7 @@ export default function OnboardingForm({
         ))}
       </div>
 
-      {track === "step1" && (
+      {isStep1 && (
         <>
           <label className="label">Where are you in your Step 1 prep?</label>
           <div className="grid grid-cols-3 gap-3 mb-5">
@@ -413,12 +402,12 @@ export default function OnboardingForm({
         </>
       )}
 
-      {track === "subject" && (
+      {isStep2Group && (
         <>
-          <label className="label">Which subject are you preparing for?</label>
+          <label className="label">Which shelf / subject exam? (optional)</label>
           <input
             className="input mb-5"
-            placeholder="e.g. Internal Medicine, Surgery, Pediatrics"
+            placeholder="e.g. Internal Medicine, Surgery, Pediatrics - leave blank for Step 2 CK"
             value={subjectName}
             onChange={(e) => setSubjectName(e.target.value)}
           />
@@ -471,7 +460,7 @@ export default function OnboardingForm({
         </>
       )}
 
-      {track === "step1" && (
+      {isStep1 && (
         <>
           <label className="label">Which resources do you use / prefer?</label>
           <div className="flex flex-wrap gap-2 mb-3">
