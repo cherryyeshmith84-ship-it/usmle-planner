@@ -22,11 +22,14 @@ export type GraphBlock = {
 
 // `color` (optional) overrides the dot colour for that point - used on the
 // Exam graph to tell the real exam (CBSE / "NBME" exam, dark blue) from
-// self-assessments (green).
+// self-assessments (green), or one subject from another in shelf mode.
 type Point = { date: string; value: number; label?: string; color?: string };
 
 const NBME_COLOR = "#1e3a8a"; // dark blue - CBSE (the real NBME exam)
 const SELF_ASSESSMENT_COLOR = "#16a34a"; // green - NBME forms 20-34, UWSA, Free 120, Amboss...
+
+// One colour per subject in shelf mode (Step 2 CK / Shelf students).
+const SUBJECT_COLORS = ["#1e3a8a", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#4d7c0f"];
 
 // Anything called CBSE is the real exam (dark blue). Everything else - NBME
 // Form 20-34 (incl. "CBSSA"), UWSA, Free 120, Amboss, Mehlman - is a
@@ -34,6 +37,16 @@ const SELF_ASSESSMENT_COLOR = "#16a34a"; // green - NBME forms 20-34, UWSA, Free
 function isNbme(r: { exam_name: string | null; exam_type: string | null }) {
   const n = r.exam_name ?? "";
   return /cbse/i.test(n) && !/cbssa/i.test(n);
+}
+
+// "Medicine Shelf (NBME)" / "Psychiatry Subject Examination" -> "Medicine" /
+// "Psychiatry".
+function subjectFromExamName(name: string | null): string {
+  const s = (name ?? "")
+    .replace(/\s*\(?NBME\)?/i, "")
+    .replace(/\s*(Shelf|Subject Exam(ination)?|Examination).*$/i, "")
+    .trim();
+  return s || "Other exams";
 }
 
 const BANKS = ["UWorld", "Amboss", "Mehlman"] as const;
@@ -242,9 +255,8 @@ function ExamCategoryGraph({
       <div className="card">
         <p className="text-sm font-semibold">{title}</p>
         <p className="text-xs text-slate-500 mt-1">
-          No {noun.toLowerCase()} percentages in any uploaded exam yet. Upload a detailed score report, or open an
-          exam under the exam history below, click Edit, and type in the {noun.toLowerCase()} percentages - this
-          graph then appears automatically.
+          No {noun.toLowerCase()} percentages in any uploaded exam yet. Once an exam with {noun.toLowerCase()}{" "}
+          percentages is added, this graph appears automatically.
         </p>
       </div>
     );
@@ -303,15 +315,30 @@ function ExamCategoryGraph({
   );
 }
 
+/**
+ * The same graphs for everyone. `shelf` switches the Exam graph to the Step 2
+ * CK / Shelf version (one colour per subject, subject legend) and hides the
+ * "by discipline" graph, which shelf reports don't have.
+ */
 export default function StudentProgressGraphs({
   reports,
   blocks,
+  shelf = false,
 }: {
   reports: GraphReport[];
   blocks: GraphBlock[];
+  shelf?: boolean;
 }) {
   const [bank, setBank] = useState<string>("UWorld");
   const [system, setSystem] = useState<string>("");
+
+  // Subject -> colour, in shelf mode.
+  const subjectColors = useMemo(() => {
+    const names = Array.from(new Set(reports.map((r) => subjectFromExamName(r.exam_name)))).sort();
+    const map = new Map<string, string>();
+    names.forEach((n, i) => map.set(n, SUBJECT_COLORS[i % SUBJECT_COLORS.length]));
+    return map;
+  }, [reports]);
 
   // ---- Exam graph ----
   // Reports with no overall % fall back to the average of their system
@@ -330,11 +357,15 @@ export default function StudentProgressGraphs({
               date: r.taken_date as string,
               value: o.value,
               label: o.est ? `${name} (est. from systems)` : name || undefined,
-              color: isNbme(r) ? NBME_COLOR : SELF_ASSESSMENT_COLOR,
+              color: shelf
+                ? subjectColors.get(subjectFromExamName(r.exam_name))
+                : isNbme(r)
+                ? NBME_COLOR
+                : SELF_ASSESSMENT_COLOR,
             },
           ];
         }),
-    [reports]
+    [reports, shelf, subjectColors]
   );
   const examTrend = classify(examPoints.map((p) => p.value));
   const estimatedCount = reports.filter((r) => {
@@ -400,16 +431,27 @@ export default function StudentProgressGraphs({
           </div>
           <span className={`text-xs font-semibold ${TREND_UI[examTrend].cls}`}>{TREND_UI[examTrend].label}</span>
         </div>
-        <div className="flex items-center gap-4 text-xs text-slate-400 mb-1">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-full" style={{ background: NBME_COLOR }} />
-            NBME (CBSE)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-full" style={{ background: SELF_ASSESSMENT_COLOR }} />
-            Self-assessments (NBME Forms 20-34, UWSA, Free 120, Amboss, etc.)
-          </span>
-        </div>
+        {shelf ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 mb-1">
+            {Array.from(subjectColors.entries()).map(([name, c]) => (
+              <span key={name} className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />
+                {name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-4 text-xs text-slate-400 mb-1">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full" style={{ background: NBME_COLOR }} />
+              NBME (CBSE)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full" style={{ background: SELF_ASSESSMENT_COLOR }} />
+              Self-assessments (NBME Forms 20-34, UWSA, Free 120, Amboss, etc.)
+            </span>
+          </div>
+        )}
         <LineChart points={examPoints} color="#94a3b8" />
       </div>
 
@@ -422,14 +464,16 @@ export default function StudentProgressGraphs({
         field="system_breakdown"
         color="#f472b6"
       />
-      <ExamCategoryGraph
-        title="Exam score by discipline"
-        subtitle="How each discipline (Pathology, Pharmacology, etc.) scored across your uploaded exams."
-        noun="Discipline"
-        reports={reports}
-        field="discipline_breakdown"
-        color="#38bdf8"
-      />
+      {!shelf && (
+        <ExamCategoryGraph
+          title="Exam score by discipline"
+          subtitle="How each discipline (Pathology, Pharmacology, etc.) scored across your uploaded exams."
+          noun="Discipline"
+          reports={reports}
+          field="discipline_breakdown"
+          color="#38bdf8"
+        />
+      )}
 
       {/* Qbank graph */}
       <div className="card">
