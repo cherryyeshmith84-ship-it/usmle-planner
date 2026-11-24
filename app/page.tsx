@@ -35,6 +35,52 @@ const MENTOR_HELPS = [
   "Approach exam day with confidence and a plan you can trust",
 ];
 
+// What every mentor does, organised in four groups.
+const MENTOR_DUTIES = [
+  {
+    title: "Plan & Accountability",
+    icon: "01",
+    items: [
+      "Study planner",
+      "Accountability",
+      "1 on 1 study goals and plans",
+      "Motivation and consistency",
+    ],
+  },
+  {
+    title: "Performance & Analysis",
+    icon: "02",
+    items: [
+      "Analysis",
+      "Student assessment",
+      "Discuss weak and high yield topics",
+      "Errors discussion",
+    ],
+  },
+  {
+    title: "Exam Readiness",
+    icon: "03",
+    items: [
+      "Exam readiness assessment",
+      "Exam strategy",
+      "Resource selection",
+    ],
+  },
+  {
+    title: "Career & Community",
+    icon: "04",
+    items: ["Networking"],
+  },
+];
+
+// The weekly commitment behind every student.
+const MENTOR_WEEKLY = [
+  { title: "One session every week", desc: "A one-on-one session with each of their students." },
+  { title: "Study planner kept current", desc: "Your plan is updated as your week actually goes." },
+  { title: "Follow-up on last week", desc: "What was planned, what got done, and what changes next." },
+  { title: "Recent exams analyzed", desc: "Any NBME or self-assessment you took is reviewed and your plan is updated from it." },
+];
+
 const NUMBERS = [
   { value: "6-Month", label: "Mentorship" },
   { value: "Weekly", label: "1-on-1 Reviews" },
@@ -52,6 +98,7 @@ const HOW_IT_WORKS = [
 const NAV_LINKS = [
   { href: "#how-it-works", label: "How It Works" },
   { href: "#what-you-get", label: "What You Get" },
+  { href: "#mentor-duties", label: "Mentor Duties" },
   { href: "#apply", label: "Apply" },
 ];
 
@@ -268,6 +315,55 @@ export default async function Home() {
               <p className="text-sm text-slate-200">{item}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Mentor duties */}
+      <section id="mentor-duties" className="max-w-5xl mx-auto w-full px-6 py-20 scroll-mt-20">
+        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-center mb-3">
+          What Your Mentor Does
+        </h2>
+        <p className="text-slate-400 text-center text-lg max-w-2xl mx-auto mb-12">
+          Every mentor on Master Grid works through the same set of duties with each student.
+        </p>
+
+        <div className="grid sm:grid-cols-2 gap-6 mb-12">
+          {MENTOR_DUTIES.map((group) => (
+            <div key={group.title} className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="shrink-0 w-9 h-9 rounded-full bg-brand-900/50 text-brand-300 font-extrabold flex items-center justify-center text-sm">
+                  {group.icon}
+                </span>
+                <h3 className="font-bold text-lg">{group.title}</h3>
+              </div>
+              <ul className="space-y-2">
+                {group.items.map((item) => (
+                  <li key={item} className="flex items-center gap-3 text-sm text-slate-200">
+                    <span className="text-brand-400 shrink-0">&#10003;</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <div className="card border-brand-500/50">
+          <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-4 text-center">
+            Every week, for every student
+          </p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {MENTOR_WEEKLY.map((w) => (
+              <div key={w.title}>
+                <p className="font-bold text-sm mb-1">{w.title}</p>
+                <p className="text-xs text-slate-400">{w.desc}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 text-center mt-6">
+            Email your NBME score reports to the Master Grid team and they are added to your analysis
+            within 24 hours.
+          </p>
         </div>
       </section>
 
