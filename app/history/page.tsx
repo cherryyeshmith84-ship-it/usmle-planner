@@ -19,10 +19,12 @@ export const dynamic = "force-dynamic";
  * Plan, the "Upload score manually" card, question bank performance, and
  * (Step 1 students only) the Systems & Disciplines / Self Assessments
  * checklist. The "Assessment and plan" notes card was removed on request, for
- * both Step 1 and Step 2 / Shelf students. Step 2 / Shelf students get their
- * own page instead, arranged by subject (components/ShelfAnalysis.tsx). They
- * cannot upload reports themselves - the admin adds them from
- * Admin -> Analysis.
+ * both Step 1 and Step 2 / Shelf students.
+ *
+ * Step 2 CK / Shelf students get the same graphs (shelf mode: one colour per
+ * subject), the question bank performance, and below them the per-subject
+ * detail (components/ShelfAnalysis.tsx). They cannot upload reports
+ * themselves - the admin adds them from Admin -> Analysis.
  */
 export default async function HistoryPage() {
   const supabase = createClient();
@@ -51,31 +53,6 @@ export default async function HistoryPage() {
     .order("taken_date", { ascending: false });
   const reports = (data ?? []) as ScoreReport[];
 
-  // Step 2 CK / Shelf students get their own analysis, arranged by subject
-  // (see components/ShelfAnalysis.tsx). No upload here - read only.
-  if (isStep2OrShelf) {
-    return (
-      <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
-        <main className="flex-1 px-6 py-8 w-full">
-          <h1 className="text-xl font-bold mb-1">Analysis</h1>
-          <p className="text-sm text-slate-400 mb-6">
-            Your shelf exam results, arranged by subject, with your weak topics and question patterns.
-          </p>
-          {reports.length === 0 ? (
-            <div className="card">
-              <p className="text-sm text-slate-400">
-                No shelf exam reports yet. Send your NBME reports to the Master Grid team and your analysis will
-                appear here, arranged by subject.
-              </p>
-            </div>
-          ) : (
-            <ShelfAnalysis reports={reports as unknown as React.ComponentProps<typeof ShelfAnalysis>["reports"]} />
-          )}
-        </main>
-      </AppShell>
-    );
-  }
-
   // Self-reported day-to-day qbank performance (Question Bank Blocks,
   // logged from the Study Planner calendar).
   const { data: blocksData } = await supabase.from("uworld_blocks").select("*").eq("user_id", user.id);
@@ -85,6 +62,46 @@ export default async function HistoryPage() {
   // report counts, including question-level reports (CBSE 1, CBSE 2...).
   const graphReports = reports as unknown as GraphReport[];
   const graphBlocks = (blocksData ?? []) as unknown as GraphBlock[];
+
+  // Step 2 CK / Shelf students: same graphs, then the per-subject detail.
+  if (isStep2OrShelf) {
+    return (
+      <AppShell isAdmin={profileData?.is_admin} userName={profileData?.full_name} contentPublished={contentPublished}>
+        <main className="flex-1 px-6 py-8 w-full">
+          <h1 className="text-xl font-bold mb-1">Analysis</h1>
+          <p className="text-sm text-slate-400 mb-6">
+            Your shelf exam results over time, arranged by subject, with your weak topics and question patterns.
+          </p>
+
+          {reports.length === 0 ? (
+            <div className="card mb-8">
+              <p className="text-sm text-slate-400">
+                No shelf exam reports yet. Send your NBME reports to the Master Grid team and your analysis will
+                appear here, arranged by subject.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="mb-8">
+            <h2 className="text-lg font-bold mb-3">Progress graphs</h2>
+            <StudentProgressGraphs reports={graphReports} blocks={graphBlocks} shelf />
+          </div>
+
+          {reports.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3">By subject</h2>
+              <ShelfAnalysis reports={reports as unknown as React.ComponentProps<typeof ShelfAnalysis>["reports"]} />
+            </div>
+          )}
+
+          <div className="mt-8">
+            <h2 className="text-lg font-bold mb-3">Question bank performance</h2>
+            <QBankSystemBreakdown cells={qbankBreakdown} />
+          </div>
+        </main>
+      </AppShell>
+    );
+  }
 
   // Read-only view of the Systems & Disciplines checklist a mentor fills in.
   const { data: topicChecklistData } = await supabase
