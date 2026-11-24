@@ -34,10 +34,11 @@ export const dynamic = "force-dynamic";
  * sign up at the normal /signup page with the email the admin entered for
  * them in /admin/mentors.
  *
- * This same page is also served at /step2 (app/step2/page.tsx). Students whose
- * exam track is Step 2 or Shelf / subject exams only see the mentors that have
- * mentors.step2_shelf switched on; everyone else (Step 1 students, admin)
- * sees the full directory as before.
+ * This same page is also served at /step2 (app/step2/page.tsx). Which mentors
+ * a student sees depends on their exam track and on the exams each mentor has
+ * ticked on their own profile (mentors.exam_tracks): Step 2 and Shelf / subject
+ * exam students see mentors who ticked Step 2, Step 1 students see mentors who
+ * ticked Step 1, and students with no exam picked (and admin) see everyone.
  */
 export default async function MentorshipPage() {
   const supabase = createClient();
@@ -334,21 +335,21 @@ export default async function MentorshipPage() {
   // directory instead, even though they're stored in this same mentors
   // table.
   //
-  // Step 2 CK and Shelf / subject exam students (exam_track "step2" or
-  // "subject") only see the mentors with step2_shelf switched on. Everyone
-  // else - Step 1 students, students who haven't picked a track, admin - sees
-  // the full directory exactly as before.
-   const examTrack = profile?.exam_track as string | null | undefined;
+  // Which mentors a student sees follows the exams each mentor ticked on their
+  // own profile (mentors.exam_tracks): Step 2 CK and Shelf / subject exam
+  // students (exam_track "step2" or "subject") see mentors who ticked Step 2,
+  // Step 1 students see mentors who ticked Step 1. Students with no exam
+  // picked (and admin) see every mentor. A mentor with nothing saved counts
+  // as Step 1.
+  const examTrack = profile?.exam_track as string | null | undefined;
   const isStep2OrShelf = examTrack === "step2" || examTrack === "subject";
-  // Which tick a student is matched on: Step 2 and Shelf students -> "step2",
-  // Step 1 students -> "step1". Students with no exam picked (and admin) see
-  // every mentor. A mentor with nothing saved counts as Step 1.
   const wantedTrack = isStep2OrShelf ? "step2" : examTrack === "step1" ? "step1" : null;
   const mentorsForDirectory = mentors.filter((m) => {
     if (!mentorActsAs(m, "mentor")) return false;
     if (!wantedTrack) return true;
-    const tracks = (m as Mentor & { exam_tracks?: string[] | null }).exam_tracks;
-    return (tracks && tracks.length > 0 ? tracks : ["step1"]).includes(wantedTrack);
+    const saved = (m as unknown as { exam_tracks?: string[] | null }).exam_tracks;
+    const tracks = saved && saved.length > 0 ? saved : ["step1"];
+    return tracks.includes(wantedTrack);
   });
 
   const now = new Date().toISOString();
