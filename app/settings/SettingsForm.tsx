@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ExamTrack, PrepStage, Profile } from "@/lib/types";
 import ImageUploadField from "@/components/ImageUploadField";
@@ -26,12 +27,15 @@ const RESOURCE_OPTIONS = [
  * by hand. This mirrors OnboardingForm's own fields and logic exactly, just
  * re-editable here in Settings any time, not just once at signup.
  *
- * Changing the track (Step 1 <-> Subject exams) sets track_changed_pending
- * - this already drives the amber "Track changed" badge and "needs
- * attention" sort order on the admin Students list (app/admin/page.tsx),
- * so a mentor/admin knows to double check whether the student's existing
- * plan still makes sense, without this component needing to know anything
- * about that admin-side logic itself.
+ * Changing the track (Step 1 <-> Step 2 <-> Shelf / subject exams) sets
+ * track_changed_pending - this already drives the amber "Track changed" badge
+ * and "needs attention" sort order on the admin Students list
+ * (app/admin/page.tsx), so a mentor/admin knows to double check whether the
+ * student's existing plan still makes sense, without this component needing
+ * to know anything about that admin-side logic itself.
+ *
+ * Switching TO Step 2 or Shelf / subject exams sends the student to /step2,
+ * the Mentorship page that only lists the Step 2 / Shelf mentors.
  *
  * Profile picture uploads straight to the "student-photos" Storage bucket
  * (see migration add_avatar_url_and_student_photos_bucket), under this
@@ -49,11 +53,14 @@ export default function SettingsForm({
   userId: string;
   email: string;
 }) {
+  const router = useRouter();
   const [fullName, setFullName] = useState(profile.full_name ?? "");
   const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url ?? null);
 
-  const [track, setTrack] = useState<ExamTrack | "">(profile.exam_track ?? "");
+  // "step2" is a third track added later; kept as a local union so
+  // lib/types.ts doesn't need to change. Shelf exams keep using "subject".
+  const [track, setTrack] = useState<ExamTrack | "step2" | "">(profile.exam_track ?? "");
   const [prepStage, setPrepStage] = useState<PrepStage | "">(profile.prep_stage ?? "");
   const [examDate, setExamDate] = useState(profile.exam_date ?? "");
   const [hourGoal, setHourGoal] = useState(profile.daily_hour_goal?.toString() ?? "");
@@ -129,6 +136,15 @@ export default function SettingsForm({
       setResources(finalResources);
       setCustomResource("");
     }
+
+    // Just switched to Step 2 or Shelf / subject exams: take the student to
+    // their own page with the Step 2 / Shelf mentors.
+    if (trackChanged && (track === "step2" || track === "subject")) {
+      router.push("/step2");
+      router.refresh();
+      return;
+    }
+
     setMsg(trackChanged ? "Saved - your mentor will see your plan may need a review." : "Saved.");
     setTimeout(() => setMsg(null), 3500);
   }
@@ -169,7 +185,7 @@ export default function SettingsForm({
         </p>
 
         <label className="label">What are you preparing for?</label>
-        <div className="grid grid-cols-2 gap-3 mb-5">
+        <div className="grid grid-cols-3 gap-3 mb-5">
           <button
             type="button"
             onClick={() => setTrack("step1")}
@@ -183,6 +199,17 @@ export default function SettingsForm({
           </button>
           <button
             type="button"
+            onClick={() => setTrack("step2")}
+            className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
+              track === "step2"
+                ? "border-brand-400 bg-brand-900/40 text-brand-300"
+                : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
+            }`}
+          >
+            Step 2 CK
+          </button>
+          <button
+            type="button"
             onClick={() => setTrack("subject")}
             className={`rounded-xl border px-3 py-4 text-sm font-semibold text-center transition ${
               track === "subject"
@@ -190,7 +217,7 @@ export default function SettingsForm({
                 : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
             }`}
           >
-            Subject exams
+            Shelf / subject exams
           </button>
         </div>
 
