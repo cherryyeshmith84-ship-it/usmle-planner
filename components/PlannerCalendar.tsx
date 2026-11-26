@@ -28,6 +28,14 @@ const MONTH_NAMES = [
 // How many task lines fit inside a day box before "+N more".
 const MAX_TASKS_IN_CELL = 3;
 
+// Task chips use fixed inline colors on purpose: the site's color theme remaps
+// the slate/white utility classes, which made the task text pale and hard to
+// read on the colored day boxes. Inline colors are not remapped.
+const CHIP_BG = "#ffffff";
+const CHIP_TEXT = "#0f172a"; // dark slate
+const CHIP_TEXT_DONE = "#475569"; // softer, still readable
+const CHIP_BORDER = "rgba(15, 23, 42, 0.18)";
+
 function monthLabel(anyDateInMonth: string): string {
   const [y, m] = anyDateInMonth.split("-").map(Number);
   return `${MONTH_NAMES[m - 1]} ${y}`;
@@ -224,7 +232,7 @@ export default function PlannerCalendar({
                     </span>
                   )}
                   {dayTasks.length > 0 && (
-                    <span className="text-[10px] font-semibold leading-none opacity-80">
+                    <span className="text-[10px] font-semibold leading-none">
                       {day.completedCount}/{day.totalCount}
                     </span>
                   )}
@@ -238,20 +246,23 @@ export default function PlannerCalendar({
                   {shown.map((t) => (
                     <li
                       key={t.id}
-                      className={`flex items-start gap-1 rounded bg-white/70 px-1 py-0.5 text-[11px] leading-tight text-slate-800 ${
-                        t.completed ? "opacity-70" : ""
-                      }`}
+                      className="flex items-start gap-1 rounded px-1.5 py-1 text-[11px] font-medium leading-tight"
+                      style={{
+                        backgroundColor: CHIP_BG,
+                        color: t.completed ? CHIP_TEXT_DONE : CHIP_TEXT,
+                        border: `1px solid ${CHIP_BORDER}`,
+                      }}
                       title={t.title}
                     >
-                      <span className="shrink-0">{t.completed ? "✓" : "•"}</span>
+                      <span className="shrink-0 font-bold" style={{ color: t.completed ? "#15803d" : CHIP_TEXT }}>
+                        {t.completed ? "✓" : "•"}
+                      </span>
                       <span className={`min-w-0 break-words line-clamp-2 ${t.completed ? "line-through" : ""}`}>
                         {t.title}
                       </span>
                     </li>
                   ))}
-                  {extra > 0 && (
-                    <li className="text-[10px] font-semibold px-1 opacity-80">+{extra} more</li>
-                  )}
+                  {extra > 0 && <li className="text-[10px] font-bold px-1">+{extra} more</li>}
                 </ul>
               )}
             </div>
