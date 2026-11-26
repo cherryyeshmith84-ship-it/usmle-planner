@@ -63,7 +63,6 @@ export default function OnboardingForm({
   const [weakAreas, setWeakAreas] = useState(initialProfile?.weak_areas ?? "");
   const [strongAreas, setStrongAreas] = useState(initialProfile?.strong_areas ?? "");
   const [goalsNotes, setGoalsNotes] = useState(initialProfile?.goals_notes ?? "");
-  const [mentorEmail, setMentorEmail] = useState(initialProfile?.mentor_email ?? "");
 
   // contact + intake details for the demo team
   const [whatsapp, setWhatsapp] = useState(extra.whatsapp ?? "");
@@ -152,7 +151,6 @@ export default function OnboardingForm({
         weak_areas: needsMoreDetail ? weakAreas || null : null,
         strong_areas: needsMoreDetail ? strongAreas || null : null,
         goals_notes: needsMoreDetail ? goalsNotes || null : null,
-        mentor_email: mentorEmail.trim() || null,
         whatsapp: cleanNumber,
         whatsapp_consent: true,
         country: country.trim() || null,
@@ -292,19 +290,6 @@ export default function OnboardingForm({
           morning for you.
         </p>
       </div>
-
-      <label className="label">Your mentor&apos;s email (optional)</label>
-      <input
-        type="email"
-        className="input mb-5"
-        placeholder="e.g. mentor@example.com - leave blank if you don't have one yet"
-        value={mentorEmail}
-        onChange={(e) => setMentorEmail(e.target.value)}
-      />
-      <p className="text-xs text-slate-500 mb-6 -mt-3">
-        If you were paired with a mentor, entering their email here gives them access to your
-        planner right away. You can add or change this later from Settings.
-      </p>
 
       <label className="label">What are you preparing for?</label>
       <div className="grid grid-cols-2 gap-3 mb-5">
