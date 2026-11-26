@@ -19,11 +19,14 @@ import {
 import { isDateEditable } from "@/lib/planProgress";
 import DailyPlannerPanel from "./DailyPlannerPanel";
 
-const WEEKDAY_HEADERS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+// How many task lines fit inside a day box before "+N more".
+const MAX_TASKS_IN_CELL = 3;
 
 function monthLabel(anyDateInMonth: string): string {
   const [y, m] = anyDateInMonth.split("-").map(Number);
@@ -47,21 +50,18 @@ function formatDayLabel(date: string): string {
 }
 
 /**
- * Color-coded month calendar for the study planner (Study Planner v2) - now
- * the ONE place a day's plan lives, both for mentors (adding/editing) and
- * students (checking off), replacing the old flat grid entirely. Click a
- * day and its Daily Card below shows everything for it via
+ * Color-coded month calendar for the study planner. It works like a real
+ * calendar: every day box lists that day's tasks right inside the box (done
+ * tasks are ticked and crossed out), and clicking a day opens its Daily Card
+ * below, where mentors add/edit and students check things off - see
  * DailyPlannerPanel.tsx: Assignments (a full add/edit/remove editor when
  * `mentorId` is set, a checkbox list otherwise), UWorld blocks, Mood, Study
  * Issues, Resources Used, Tomorrow's Goal, Daily Reflection, Student/Mentor
  * Notes.
  *
  * `mainColumns`/`initialEntries` are only kept around for the legacy
- * "From your mentor's Study Planner grid" readout below and the merged
- * completed/missed/partial day coloring (see computeDayStatus in
- * lib/plannerCalendar.ts) - covering whatever a mentor entered before the
- * flat grid was retired (that data was also migrated into Assignments
- * tasks, so it shows up in the checklist too, not just this readout).
+ * readout and the merged completed/missed/partial day coloring (see
+ * computeDayStatus in lib/plannerCalendar.ts).
  */
 export default function PlannerCalendar({
   targetUserId,
@@ -157,6 +157,16 @@ export default function PlannerCalendar({
           >
             &rarr;
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMonthAnchor(todayIso);
+              setSelectedDate(todayIso);
+            }}
+            className="btn-secondary text-xs px-2 py-1"
+          >
+            Today
+          </button>
         </div>
         {pace !== 0 && (
           <p className={`text-xs font-semibold ${pace > 0 ? "text-green-400" : "text-red-400"}`}>
@@ -167,7 +177,7 @@ export default function PlannerCalendar({
         )}
       </div>
 
-      <div className="grid grid-cols-7 gap-1.5 text-center text-xs text-slate-500 mb-1.5">
+      <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-semibold text-slate-500 mb-1.5">
         {WEEKDAY_HEADERS.map((d) => (
           <div key={d}>{d}</div>
         ))}
@@ -178,16 +188,26 @@ export default function PlannerCalendar({
           const colors = DAY_STATUS_COLOR[day.status];
           const isSelected = day.date === selectedDate;
           const dayNum = Number(day.date.slice(8, 10));
+          const dayTasks = tasksByDate[day.date] ?? [];
+          const shown = dayTasks.slice(0, MAX_TASKS_IN_CELL);
+          const extra = dayTasks.length - shown.length;
           const highlight = mentorNotesByDate[day.date]?.is_highlighted
             ? mentorNotesByDate[day.date]?.highlight_label?.trim() || "Important day"
             : null;
           return (
-            <button
+            <div
               key={day.date}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedDate(day.date)}
-              className={`relative aspect-square rounded-lg text-xs font-semibold flex items-center justify-center transition ${colors.bg} ${colors.text} ${
-                inMonth ? "" : "opacity-30"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedDate(day.date);
+                }
+              }}
+              className={`relative rounded-lg p-1.5 text-left cursor-pointer transition flex flex-col gap-1 min-h-[64px] sm:min-h-[128px] overflow-hidden ${colors.bg} ${colors.text} ${
+                inMonth ? "" : "opacity-40"
               } ${isSelected ? "ring-2 ring-brand-400" : ""} ${
                 day.status === "today" ? "ring-2 ring-brand-500" : ""
               } ${highlight ? "ring-2 ring-amber-400" : ""}`}
@@ -195,13 +215,46 @@ export default function PlannerCalendar({
                 highlight ? ` · ⭐ ${highlight}` : ""
               }`}
             >
-              {dayNum}
-              {highlight && (
-                <span className="absolute -top-1 -right-1 text-[10px] leading-none" aria-hidden="true">
-                  ⭐
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold leading-none">{dayNum}</span>
+                <span className="flex items-center gap-1">
+                  {highlight && (
+                    <span className="text-[10px] leading-none" aria-hidden="true">
+                      ⭐
+                    </span>
+                  )}
+                  {dayTasks.length > 0 && (
+                    <span className="text-[10px] font-semibold leading-none opacity-80">
+                      {day.completedCount}/{day.totalCount}
+                    </span>
+                  )}
                 </span>
+              </div>
+
+              {/* Tasks listed inside the day, like a real calendar. On a
+                  narrow phone the boxes are small, so only the count shows. */}
+              {dayTasks.length > 0 && (
+                <ul className="hidden sm:flex flex-col gap-0.5 min-w-0">
+                  {shown.map((t) => (
+                    <li
+                      key={t.id}
+                      className={`flex items-start gap-1 rounded bg-white/70 px-1 py-0.5 text-[11px] leading-tight text-slate-800 ${
+                        t.completed ? "opacity-70" : ""
+                      }`}
+                      title={t.title}
+                    >
+                      <span className="shrink-0">{t.completed ? "✓" : "•"}</span>
+                      <span className={`min-w-0 break-words line-clamp-2 ${t.completed ? "line-through" : ""}`}>
+                        {t.title}
+                      </span>
+                    </li>
+                  ))}
+                  {extra > 0 && (
+                    <li className="text-[10px] font-semibold px-1 opacity-80">+{extra} more</li>
+                  )}
+                </ul>
               )}
-            </button>
+            </div>
           );
         })}
       </div>
