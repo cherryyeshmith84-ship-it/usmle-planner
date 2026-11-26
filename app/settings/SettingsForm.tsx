@@ -35,7 +35,6 @@ export default function SettingsForm({
 }) {
   const router = useRouter();
   const [fullName, setFullName] = useState(profile.full_name ?? "");
-  const [mentorEmail, setMentorEmail] = useState(profile.mentor_email ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url ?? null);
 
   const savedTrack = (profile.exam_track ?? "") as Track;
@@ -96,7 +95,6 @@ export default function SettingsForm({
       .from("profiles")
       .update({
         full_name: fullName || null,
-        mentor_email: mentorEmail.trim() || null,
         avatar_url: avatarUrl,
         exam_track: track || null,
         prep_stage: isStep1 ? prepStage || null : null,
@@ -158,18 +156,7 @@ export default function SettingsForm({
         <label className="label">Email</label>
         <input className="input mb-4 bg-slate-800" value={email} disabled />
         <label className="label">Name</label>
-        <input className="input mb-4" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        <label className="label">Your mentor&apos;s email</label>
-        <input
-          type="email"
-          className="input"
-          placeholder="e.g. mentor@example.com - leave blank if you don't have one"
-          value={mentorEmail}
-          onChange={(e) => setMentorEmail(e.target.value)}
-        />
-        <p className="text-xs text-slate-500 mt-1">
-          Gives that mentor access to your planner, notes, and analysis. Leave blank to remove access.
-        </p>
+        <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
       </div>
 
       <div className="card">
